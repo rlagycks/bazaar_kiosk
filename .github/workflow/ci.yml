@@ -42,10 +42,3 @@ jobs:
           SECRET_KEY: dummy
           DEBUG: 'True'
         run: python manage.py makemigrations --check --dry-run
-
-      # 선택: 테스트가 있다면 주석 해제
-      # - name: Run tests
-      #   env:
-      #     SECRET_KEY: dummy
-      #     DEBUG: 'True'
-      #   run: pytest -q

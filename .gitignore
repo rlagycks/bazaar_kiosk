@@ -1,1 +1,83 @@
+# === Secrets / Env ===
 .env
+.env.* 
+!.env.example     # 예시 파일은 커밋
+
+# === Python 기본 ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# === 패키징 / 빌드 산출물 ===
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+
+# === 가상환경 ===
+.venv/
+venv/
+env/
+ENV/
+
+# === Django ===
+db.sqlite3
+# collectstatic 산출물(서버에서 생성됨)
+staticfiles/
+**/staticfiles/
+# 업로드 미디어(로컬 개발용)
+media/
+**/media/
+
+# (참고) 소스 정적 자산은 보통 커밋합니다.
+# static/ 폴더를 레포에 남기고 싶으면 .keep만 커밋하세요.
+
+# === 로그/런타임 ===
+*.log
+log/
+logs/
+*.pid
+
+# === 테스트/커버리지 ===
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+coverage.xml
+nosetests.xml
+junit*.xml
+
+# === 타입체커/린터 캐시 ===
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# === IDE / Editor ===
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Jupyter ===
+.ipynb_checkpoints/
+
+# === 지역 설정 파일(있다면) ===
+local_settings.py

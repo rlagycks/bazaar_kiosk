@@ -9,7 +9,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: production        # GitHub Environments에서 승인 필요 설정 가능
+    environment: production
     steps:
       - uses: actions/checkout@v4
 
