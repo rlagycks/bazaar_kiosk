@@ -32,7 +32,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",  # ★ 정적 파일 서빙
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -99,3 +99,26 @@ if not DEBUG:
     CSRF_COOKIE_SECURE = True
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+STATIC_URL = "/static/"  # ★ 권장: 절대 경로
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+_static_dir = BASE_DIR / "static"
+if _static_dir.is_dir():
+    STATICFILES_DIRS = [_static_dir]
+
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    }
+}
+
+# 운영 보안/프록시 설정(★)
+if not DEBUG:
+    # CSRF_TRUSTED_ORIGINS: https 포함, 콤마 1개만 받는다면 아래처럼
+    _csrf_origin = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
+    CSRF_TRUSTED_ORIGINS = [o for o in [_csrf_origin] if o]
+
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
