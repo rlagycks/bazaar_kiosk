@@ -81,3 +81,5 @@ Thumbs.db
 
 # === 지역 설정 파일(있다면) ===
 local_settings.py
+
+*.csv

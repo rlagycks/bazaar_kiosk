@@ -1,0 +1,47 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>로그인 - 바자회 키오스크</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
+</head>
+<body>
+
+<div class="screen active">
+  <div class="login-container">
+    <div class="logo">
+      <h1>교회 바자회</h1>
+      <p>키오스크 시스템</p>
+    </div>
+
+    <div class="login-form">
+      <form method="post" style="display:block;">
+        {% csrf_token %}
+        <div class="form-group">
+          <label for="{{ form.role.id_for_label }}">역할</label>
+          {{ form.role }}
+        </div>
+
+        <div class="form-group">
+          <label for="{{ form.pin.id_for_label }}">PIN</label>
+          {{ form.pin }}
+        </div>
+
+        {% if form.errors %}
+          <div style="color:#DC2626; margin-bottom:10px;">PIN이 올바르지 않습니다.</div>
+        {% endif %}
+
+        {% if request.GET.next %}
+          <input type="hidden" name="next" value="{{ request.GET.next }}">
+        {% endif %}
+
+        <button class="btn btn-primary" type="submit">로그인</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
