@@ -1,0 +1,269 @@
+from __future__ import annotations
+import json
+from typing import Any, Dict, List
+from datetime import date
+
+from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest, Http404
+from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import csrf_exempt  # 개발 편의. 운영 전 제거 권장.
+from django.db import transaction
+from django.db.models import Q, Sum, F, IntegerField
+from django.utils import timezone
+
+from orders.models import (
+    FloorChoices, PaymentMethod, OrderType, OrderStatus,
+    Table, MenuItem, Order, OrderItem,
+)
+from orders.services import allocate_floor_order_no, recalc_totals
+
+
+# ---------- 공용 ----------
+def _parse_json(request: HttpRequest) -> Dict[str, Any]:
+    try:
+        return json.loads(request.body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        raise ValueError("JSON 파싱 실패")
+
+
+def _serialize_order(o: Order) -> Dict[str, Any]:
+    return {
+        "id": o.id,
+        "floor": o.floor,
+        "order_type": o.order_type,
+        "status": o.status,
+        "order_no": o.order_no,
+        "order_date": o.order_date.isoformat() if o.order_date else None,
+        "table": ({"id": o.table_id, "number": o.table.number, "name": o.table.name} if o.table_id else None),
+        "is_takeout": o.is_takeout,
+        "payment_method": o.payment_method,
+        "received_amount": o.received_amount,
+        "total_price": o.total_price,
+        "change_amount": (o.received_amount or 0) - (o.total_price or 0) if o.received_amount is not None else None,
+        "created_at": timezone.localtime(o.created_at).isoformat(),
+        "items": [
+            {
+                "id": i.id,
+                "menu_item": {"id": i.menu_item_id, "name": i.menu_item.name, "price": i.unit_price},
+                "menu_item_name": i.menu_item.name,
+                "qty": i.qty,
+                "unit_price": i.unit_price,
+                "line_total": i.qty * (i.unit_price or 0),
+            }
+            for i in o.items.all()
+        ],
+    }
+
+
+# ---------- 메뉴/테이블 ----------
+@require_http_methods(["GET"])
+def tables_list(request: HttpRequest):
+    qs = Table.objects.filter(is_active=True).order_by("sort_index", "number")
+    items = [{"id": t.id, "number": t.number, "name": t.name} for t in qs]
+    return JsonResponse({"items": items})
+
+
+@require_http_methods(["GET"])
+def menus_list(request: HttpRequest):
+    scope = (request.GET.get("scope") or "").upper()
+    channel = (request.GET.get("channel") or "").upper()  # 선택
+
+    qs = MenuItem.objects.filter(is_active=True).select_related("category")
+
+    # 스코프/채널 필터
+    if scope in ("KITCHEN", "B1"):
+        qs = qs.filter(visible_kitchen=True)
+    elif scope in ("F1", "BOOTH") or channel == "BOOTH":
+        qs = qs.filter(visible_booth=True)
+    elif scope == "COUNTER":
+        if channel == "BOOTH":
+            qs = qs.filter(visible_booth=True)
+        else:
+            qs = qs.filter(visible_counter=True)
+    else:
+        qs = qs.filter(visible_counter=True)
+
+    qs = qs.order_by("category__sort_index", "sort_index", "name")
+
+    items = [
+        {"id": m.id, "name": m.name, "price": m.price, "category": m.category.name}
+        for m in qs
+    ]
+    return JsonResponse({"items": items})
+
+
+# ---------- 주문 목록/생성 ----------
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
+def orders_collection(request: HttpRequest):
+    if request.method == "GET":
+        floor = (request.GET.get("floor") or "").upper()
+        status = (request.GET.get("status") or "").upper()
+        types_raw = request.GET.get("types") or ""
+        types = [t.strip().upper() for t in types_raw.split(",") if t.strip()]
+        try:
+            limit = int(request.GET.get("limit") or 50)
+        except ValueError:
+            limit = 50
+        limit = max(1, min(limit, 200))
+
+        qs = (
+            Order.objects.all()
+            .select_related("table")
+            .prefetch_related("items", "items__menu_item")
+            .order_by("-created_at", "-id")
+        )
+        if floor in (FloorChoices.B1, FloorChoices.F1):
+            qs = qs.filter(floor=floor)
+        if status in (OrderStatus.PREPARING, OrderStatus.READY):
+            qs = qs.filter(status=status)
+        if types:
+            qs = qs.filter(order_type__in=types)
+
+        data = [_serialize_order(o) for o in qs[:limit]]
+        return JsonResponse({"results": data, "count": len(data)})
+
+    # POST
+    try:
+        p = _parse_json(request)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e))
+
+    floor = (p.get("floor") or "").upper()            # "B1" | "F1" (필수)
+    order_type = (p.get("order_type") or "").upper()  # B1: DINE_IN/TAKEOUT, F1: BOOTH
+    items = p.get("items") or []                      # [{menu_item_id, qty}, ...]
+    note = (p.get("note") or "").strip()
+
+    if floor not in (FloorChoices.B1, FloorChoices.F1):
+        return HttpResponseBadRequest("floor 파라미터가 필요합니다(B1/F1).")
+    if order_type not in (OrderType.DINE_IN, OrderType.TAKEOUT, OrderType.BOOTH):
+        return HttpResponseBadRequest("order_type이 유효하지 않습니다.")
+
+    # 지하 주문서 확장 필드
+    is_takeout = bool(p.get("is_takeout", order_type == OrderType.TAKEOUT))
+    payment_method = (p.get("payment_method") or PaymentMethod.CASH).upper()
+    received_amount = p.get("received_amount", None)
+    if payment_method not in (PaymentMethod.CASH, PaymentMethod.TICKET):
+        return HttpResponseBadRequest("payment_method 값이 유효하지 않습니다.")
+
+    # 테이블 (지하 매장 내식시에만 필요)
+    table = None
+    table_number = p.get("table_number")
+    if floor == FloorChoices.B1 and order_type == OrderType.DINE_IN and not is_takeout:
+        if table_number in (None, ""):
+            return HttpResponseBadRequest("지하 매장 주문은 테이블 번호가 필요합니다(포장 제외).")
+        try:
+            table = Table.objects.get(number=int(table_number), is_active=True)
+        except Exception:
+            return HttpResponseBadRequest("유효한 테이블 번호가 아닙니다.")
+
+    # 아이템 파싱/검증
+    if not isinstance(items, list) or not items:
+        return HttpResponseBadRequest("items 배열이 필요합니다.")
+    parsed: List[tuple[int, int]] = []
+    id_list: List[int] = []
+    for row in items:
+        try:
+            mid = int(row.get("menu_item_id"))
+            qty = int(row.get("qty"))
+        except Exception:
+            return HttpResponseBadRequest("menu_item_id/qty 형식 오류")
+        if qty < 1:
+            return HttpResponseBadRequest("qty는 1 이상")
+        parsed.append((mid, qty))
+        id_list.append(mid)
+
+    mi_map = {m.id: m for m in MenuItem.objects.filter(id__in=id_list, is_active=True)}
+    if len(mi_map) != len(set(id_list)):
+        return HttpResponseBadRequest("비활성 또는 존재하지 않는 메뉴가 포함되어 있습니다.")
+
+    # 스코프별 허용 메뉴
+    for mid, _ in parsed:
+        m = mi_map[mid]
+        if floor == FloorChoices.B1:
+            if order_type in (OrderType.DINE_IN, OrderType.TAKEOUT) and not m.visible_kitchen:
+                return HttpResponseBadRequest("지하 주문에는 주방 메뉴만 선택 가능합니다.")
+        else:
+            if order_type == OrderType.BOOTH and not m.visible_booth:
+                return HttpResponseBadRequest("1층 주문에는 부스 메뉴만 선택 가능합니다.")
+
+    with transaction.atomic():
+        order = Order.objects.create(
+            floor=floor,
+            order_type=order_type,
+            status=OrderStatus.PREPARING,
+            source=("B1_COUNTER" if floor == FloorChoices.B1 else "F1_COUNTER"),
+            table=table,
+            is_takeout=is_takeout,
+            payment_method=payment_method,
+            received_amount=int(received_amount) if received_amount not in (None, "") else None,
+            note=note[:200],
+        )
+        for mid, qty in parsed:
+            m = mi_map[mid]
+            OrderItem.objects.create(order=order, menu_item=m, qty=qty, unit_price=m.price)
+
+        allocate_floor_order_no(order)  # 층별 일자 카운터 부여
+        recalc_totals(order)            # 합계 계산
+        order.refresh_from_db()
+
+    order = (
+        Order.objects.filter(id=order.id)
+        .select_related("table")
+        .prefetch_related("items", "items__menu_item")
+        .get()
+    )
+    return JsonResponse(_serialize_order(order), status=201)
+
+
+# ---------- 상태 변경 ----------
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def order_status(request: HttpRequest, order_id: int):
+    try:
+        payload = _parse_json(request)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e))
+    new_status = (payload.get("status") or "").upper()
+    if new_status not in (OrderStatus.PREPARING, OrderStatus.READY):
+        return HttpResponseBadRequest("status는 PREPARING/READY만 허용됩니다.")
+
+    try:
+        order = (
+            Order.objects.select_related("table")
+            .prefetch_related("items", "items__menu_item")
+            .get(id=order_id)
+        )
+    except Order.DoesNotExist:
+        raise Http404("주문이 존재하지 않습니다.")
+
+    order.status = new_status
+    order.save(update_fields=["status", "updated_at"])
+    return JsonResponse(_serialize_order(order), status=200)
+
+
+# ---------- 간이 통계(카운터용) ----------
+@require_http_methods(["GET"])
+def stats_menu_counts(request: HttpRequest):
+    floor = (request.GET.get("floor") or "").upper()
+    if floor not in (FloorChoices.B1, FloorChoices.F1):
+        return HttpResponseBadRequest("floor 파라미터(B1/F1)가 필요합니다.")
+
+    today = timezone.localdate()
+    qs = (
+        OrderItem.objects.filter(
+            order__floor=floor,
+            order__created_at__date=today,
+        )
+        .values("menu_item__name")
+        .annotate(
+            qty_sum=Sum("qty"),
+            amount=Sum(F("qty") * F("unit_price"), output_field=IntegerField()),
+        )
+        .order_by("-qty_sum", "menu_item__name")
+    )
+
+    data = [
+        {"name": r["menu_item__name"], "qty": r["qty_sum"], "amount": r["amount"] or 0}
+        for r in qs
+    ]
+    return JsonResponse({"items": data}, status=200)

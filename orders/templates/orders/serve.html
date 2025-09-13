@@ -1,0 +1,188 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>서빙 - 홀 주문</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
+</head>
+<body>
+
+<div class="screen active">
+  <div class="header">
+    <h2>서빙 모드</h2>
+    <a class="btn btn-secondary" href="{% url 'orders:logout' %}">로그아웃</a>
+  </div>
+
+  <div class="content">
+    <div class="table-selection">
+      <h3>테이블 선택</h3>
+      <div class="table-grid" id="tableGrid"></div>
+    </div>
+
+    <div class="menu-categories">
+      <div>
+        <div class="category-tabs" id="catTabs"></div>
+        <div class="menu-items" id="menuGrid"></div>
+      </div>
+
+      <div class="order-summary">
+        <h4>장바구니 <span id="selTable" class="muted" style="margin-left:8px;"></span></h4>
+        <div class="order-items" id="cart"></div>
+        <div class="form-group">
+          <label for="note">요청사항</label>
+          <input id="note" class="form-control" placeholder="예) 덜 맵게"/>
+        </div>
+        <div class="order-total">
+          <strong>총액: <span id="total">0원</span></strong>
+        </div>
+        <button class="btn btn-primary" id="submit">주문 접수</button>
+        <div id="msg" style="margin-top:10px;color:#666;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function getCookie(name){
+    const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+    return m?m.pop():'';
+  }
+  const CSRF=getCookie('csrftoken');
+  const KRW=function(n){return (n||0).toLocaleString('ko-KR');};
+
+  let tables=[], categories=[], items=[];
+  let selectedTableId=null;
+  let cart=[];
+
+  function setSelectedTable(id){
+    selectedTableId=id;
+    for (const b of document.querySelectorAll('.table-btn')) {
+      b.classList.toggle('selected', +b.dataset.id===id);
+    }
+    const t = tables.find(function(x){return x.id===id;});
+    document.getElementById('selTable').textContent = t? ('(테이블 '+(t.number||t.id)+')') : '';
+  }
+
+  async function loadTables(){
+    const r = await fetch('/orders/tables/');
+    const d = await r.json();
+    tables = (d.tables||[]);
+    const grid = document.getElementById('tableGrid');
+    grid.innerHTML = tables.map(function(t){
+      return '<button class="table-btn" data-id="'+t.id+'">'+(t.number||t.id)+'</button>';
+    }).join('');
+    for (const b of grid.querySelectorAll('.table-btn')){
+      b.onclick=function(){ setSelectedTable(+b.dataset.id); };
+    }
+  }
+
+  async function loadMenus(){
+    const r = await fetch('/orders/menus/?scope=KITCHEN');
+    const d = await r.json();
+    categories = (d.categories||[]);
+    items = (d.items||[]);
+    renderCategories();
+    renderMenuGrid();
+  }
+  function renderCategories(){
+    const wrap = document.getElementById('catTabs');
+    if (!categories.length){ wrap.innerHTML=''; return; }
+    const activeId = + (wrap.querySelector('.tab-btn.active')?.dataset.id || categories[0].id);
+    wrap.innerHTML = categories.map(function(c){
+      return '<button class="tab-btn'+(c.id===activeId?' active':'')+'" data-id="'+c.id+'">'+c.name+'</button>';
+    }).join('');
+    for (const b of wrap.querySelectorAll('.tab-btn')){
+      b.onclick=function(){
+        for (const x of wrap.querySelectorAll('.tab-btn')) x.classList.remove('active');
+        b.classList.add('active');
+        renderMenuGrid();
+      }
+    }
+  }
+  function currentCategoryId(){
+    const btn = document.querySelector('#catTabs .tab-btn.active');
+    return btn? +btn.dataset.id : (categories[0]?.id || null);
+  }
+  function renderMenuGrid(){
+    const catId=currentCategoryId();
+    const grid=document.getElementById('menuGrid');
+    const list = items.filter(function(m){return !catId || m.category_id===catId;});
+    grid.innerHTML = list.map(function(m){
+      return '<div class="menu-item" data-id="'+m.id+'"><h4>'+m.name+'</h4><div class="price">₩'+KRW(m.price)+'</div></div>';
+    }).join('');
+    for (const el of grid.querySelectorAll('.menu-item')){
+      el.onclick=function(){
+        const id=+el.dataset.id;
+        const mi=items.find(function(x){return x.id===id;});
+        addToCart(mi);
+      }
+    }
+  }
+
+  function addToCart(mi){
+    if (!mi) return;
+    const idx = cart.findIndex(function(x){return x.menu_item_id===mi.id;});
+    if (idx>=0) cart[idx].qty += 1;
+    else cart.push({menu_item_id: mi.id, name: mi.name, price: mi.price, qty: 1});
+    renderCart();
+  }
+  function changeQty(id,delta){
+    const it=cart.find(function(x){return x.menu_item_id===id;});
+    if (!it) return;
+    it.qty=Math.max(1, it.qty+delta);
+    renderCart();
+  }
+  function removeItem(id){
+    cart = cart.filter(function(x){return x.menu_item_id!==id;});
+    renderCart();
+  }
+  function renderCart(){
+    const el=document.getElementById('cart');
+    el.innerHTML = cart.map(function(it){
+      return '<div class="order-item">'
+       + '<div>'+it.name+' × '+it.qty+'</div>'
+       + '<div>'
+         + '<button class="btn btn-secondary btn-sm" style="padding:6px 10px" onclick="changeQty('+it.menu_item_id+',-1)">－</button> '
+         + '<button class="btn btn-secondary btn-sm" style="padding:6px 10px" onclick="changeQty('+it.menu_item_id+',1)">＋</button> '
+         + '<button class="btn btn-secondary btn-sm" style="padding:6px 10px" onclick="removeItem('+it.menu_item_id+')">삭제</button>'
+       + '</div></div>';
+    }).join('');
+    const total=cart.reduce(function(s,it){return s+it.price*it.qty;},0);
+    document.getElementById('total').textContent='₩'+KRW(total);
+  }
+
+  document.getElementById('submit').onclick = async function(){
+    const msg=document.getElementById('msg');
+    msg.style.color='#666';
+    if (!selectedTableId){ msg.textContent='테이블을 선택하세요.'; return; }
+    if (!cart.length){ msg.textContent='아이템을 추가하세요.'; return; }
+    const payload = {
+      order_type: 'DINE_IN',
+      table_id: selectedTableId,
+      note: (document.getElementById('note').value||'').trim(),
+      items: cart.map(function(x){return {menu_item_id:x.menu_item_id, qty:x.qty};})
+    };
+    try{
+      const r = await fetch('/orders/api/orders/', {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+        body: JSON.stringify(payload)
+      });
+      if (!r.ok) throw new Error(await r.text() || ('HTTP '+r.status));
+      await r.json();
+      msg.style.color='#059669';
+      msg.textContent='주문이 접수되었습니다.';
+      cart=[]; renderCart(); document.getElementById('note').value='';
+    }catch(e){
+      msg.style.color='#DC2626';
+      msg.textContent='실패: '+e.message;
+    }
+  };
+
+  loadTables();
+  loadMenus();
+</script>
+
+</body>
+</html>

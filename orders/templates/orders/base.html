@@ -1,0 +1,29 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>{% block title %}바자회 키오스크{% endblock %}</title>
+
+  <!-- 디자인 토큰 & 공용 컴포넌트 -->
+  <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
+  <link rel="stylesheet" href="{% static 'css/components.css' %}">
+
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="header">
+    <h1 class="title-lg">{% block header %}바자회 키오스크{% endblock %}</h1>
+    <nav class="row muted" style="gap:12px;">
+      {% block topnav %}{% endblock %}
+    </nav>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,7 +1,9 @@
+#BAZAAR_KIOSK/bazaar_kiosk/setting.py
 from pathlib import Path
 import os
 from urllib.parse import urlparse, parse_qs, unquote
 
+# --- 기본 경로/디버그 ---
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-not-for-prod")
@@ -20,6 +22,7 @@ TIME_ZONE = "Asia/Seoul"
 USE_I18N = True
 USE_TZ = True
 
+# --- 앱 ---
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -30,6 +33,7 @@ INSTALLED_APPS = [
     "orders",
 ]
 
+# --- 미들웨어 ---
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -43,6 +47,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "bazaar_kiosk.urls"
 
+# --- 템플릿 ---
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -61,6 +66,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "bazaar_kiosk.wsgi.application"
 
+# --- 데이터베이스 ---
 def _parse_database_url(db_url: str):
     u = urlparse(db_url)
     if u.scheme not in ("postgres", "postgresql"):
@@ -83,6 +89,7 @@ else:
         "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}
     }
 
+# --- 정적 파일(WhiteNoise) ---
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 _static_dir = BASE_DIR / "static"
@@ -93,6 +100,7 @@ STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"}
 }
 
+# --- 운영 보안 설정 ---
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SESSION_COOKIE_SECURE = True
@@ -100,25 +108,19 @@ if not DEBUG:
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-STATIC_URL = "/static/"  # ★ 권장: 절대 경로
-STATIC_ROOT = BASE_DIR / "staticfiles"
+# --- S2: Role PIN 설정(로그인용) ---
+def parse_role_pins(raw: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    if not raw:
+        return result
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if ":" in pair:
+            role, pin = pair.split(":", 1)
+            result[role.strip().upper()] = pin.strip()
+    return result
 
-_static_dir = BASE_DIR / "static"
-if _static_dir.is_dir():
-    STATICFILES_DIRS = [_static_dir]
-
-STORAGES = {
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
-    }
-}
-
-# 운영 보안/프록시 설정(★)
-if not DEBUG:
-    # CSRF_TRUSTED_ORIGINS: https 포함, 콤마 1개만 받는다면 아래처럼
-    _csrf_origin = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
-    CSRF_TRUSTED_ORIGINS = [o for o in [_csrf_origin] if o]
-
-    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
+ROLE_PINS = parse_role_pins(os.environ.get(
+    "ROLE_PINS",
+    "ORDER:1001,B1_COUNTER:2001,F1_COUNTER:3001,KITCHEN:4001,F1_BOOTH:5001"
+))

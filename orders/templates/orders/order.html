@@ -1,0 +1,288 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>지하 주문</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
+  <style>
+    .page-wrap{max-width:960px;margin:0 auto;padding:12px;}
+    .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+    .header h2{margin:0;font-size:20px;}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    .panel{background:#fff;border:1px solid var(--color-border, #e5e7eb);border-radius:8px;padding:12px;}
+    .panel h4{margin:0 0 8px 0;font-size:16px}
+    .menu-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:36vh;overflow:auto;margin-bottom:8px;}
+    .menu-tile{border:1px solid var(--color-border,#e5e7eb);border-radius:8px;padding:10px;background:#ffffff}
+    .menu-tile .name{font-weight:600}
+    .menu-tile .price{font-size:12px;color:#6b7280}
+    .menu-tile .actions{margin-top:8px;display:flex;gap:6px}
+    .btn{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 12px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer}
+    .btn:active{transform:translateY(1px)}
+    .btn-primary{background:#2563eb;color:#fff;border-color:#2563eb}
+    .btn-danger{background:#ef4444;color:#fff;border-color:#ef4444}
+    .form-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .form-control{width:100%;height:40px;border:1px solid #d1d5db;border-radius:8px;padding:0 10px}
+    .order-items{display:flex;flex-direction:column;gap:6px}
+    .order-item{display:flex;align-items:center;justify-content:space-between;border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#fff}
+    .order-item .left{display:flex;flex-direction:column}
+    .order-item .qty-ctrl{display:flex;gap:6px;align-items:center}
+    .muted{color:#6b7280;font-size:12px}
+    .order-total{margin-top:8px;font-size:14px}
+    .footer-actions{margin-top:10px;display:flex;gap:8px}
+    @media (min-width:860px){ .grid{grid-template-columns:1fr 1fr} }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="header">
+      <h2>지하 주문</h2>
+      <div class="muted">저장 시 지하 주방/카운터에 5초 내 반영</div>
+    </div>
+
+    <div class="grid">
+      <!-- 좌: 메뉴 선택 -->
+      <section class="panel">
+        <h4>메뉴(식사류)</h4>
+        <div id="menu-grid" class="menu-grid"></div>
+      </section>
+
+      <!-- 우: 주문서 -->
+      <aside class="panel">
+        <h4>주문서</h4>
+
+        <div class="form-row">
+          <label style="display:flex;gap:6px;align-items:center;">
+            <input type="checkbox" id="is-takeout"> 포장
+          </label>
+          <div style="flex:1"></div>
+        </div>
+
+        <div class="form-row" id="table-row" style="margin-top:6px;">
+          <label style="min-width:80px;">테이블 번호</label>
+          <input id="table-number" class="form-control" placeholder="예) 5 (없으면 비워도 됨)" inputmode="numeric" style="max-width:180px;">
+        </div>
+
+        <h4 style="margin-top:10px;">장바구니</h4>
+        <div id="cart-items" class="order-items"></div>
+        <div class="order-total"><strong>총액: <span id="total-amount">0원</span></strong></div>
+
+        <div class="form-row" style="margin-top:8px;">
+          <label style="min-width:80px;">결제 방식</label>
+          <label style="display:flex;gap:6px;align-items:center;">
+            <input type="radio" name="pay" value="CASH" checked> 현금
+          </label>
+          <label style="display:flex;gap:6px;align-items:center;">
+            <input type="radio" name="pay" value="TICKET"> 티켓
+          </label>
+        </div>
+
+        <!-- 항상 표시: 티켓도 받은 금액 입력 -->
+        <div class="form-row" style="margin-top:6px;">
+          <label style="min-width:80px;" for="cash-in">받은 금액</label>
+          <input id="cash-in" class="form-control" placeholder="예) 20000" inputmode="numeric" style="max-width:220px;">
+        </div>
+        <div class="order-total"><strong>거스름돈: <span id="change-amount">0원</span></strong></div>
+
+        <div class="footer-actions">
+          <button id="btn-reset" class="btn">초기화</button>
+          <button id="btn-submit" class="btn btn-primary" style="flex:1;">주문 저장</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // ---------- 유틸 ----------
+    const KRW = (n)=> (Number(n)||0).toLocaleString('ko-KR');
+    function getCookie(name){
+      const m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+      return m ? m.pop() : '';
+    }
+    async function getJSON(url){
+      const r = await fetch(url,{credentials:'same-origin'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    }
+    async function postJSON(url, data){
+      const r = await fetch(url,{
+        method:'POST',credentials:'same-origin',
+        headers:{
+          'Content-Type':'application/json',
+          'X-CSRFToken': getCookie('csrftoken') || ''
+        },
+        body: JSON.stringify(data||{})
+      });
+      if(!r.ok){
+        const t = await r.text().catch(()=> '');
+        throw new Error(t || ('HTTP '+r.status));
+      }
+      return r.json();
+    }
+
+    // ---------- 상태 ----------
+    const CART = new Map(); // id -> {id,name,price,qty}
+    const els = {
+      menu: document.getElementById('menu-grid'),
+      cart: document.getElementById('cart-items'),
+      total: document.getElementById('total-amount'),
+      change: document.getElementById('change-amount'),
+      cash: document.getElementById('cash-in'),
+      isTakeout: document.getElementById('is-takeout'),
+      tableNo: document.getElementById('table-number'),
+      tableRow: document.getElementById('table-row'),
+      btnSubmit: document.getElementById('btn-submit'),
+      btnReset: document.getElementById('btn-reset'),
+    };
+
+    // ---------- 메뉴 ----------
+    async function loadMenus(){
+      try{
+        // 지하: 주방 제공 메뉴만
+        const d = await getJSON("{% url 'orders:menus' %}?scope=KITCHEN");
+        const items = d.items||[];
+        els.menu.innerHTML = items.map(m=>`
+          <div class="menu-tile" data-id="${m.id}" data-name="${m.name}" data-price="${m.price}">
+            <div class="name">${m.name}</div>
+            <div class="price">₩${KRW(m.price)}</div>
+            <div class="actions">
+              <button class="btn" onclick="addItem(${m.id}, '${m.name.replace(/'/g,"\\'")}', ${m.price}, +1)">+1</button>
+              <button class="btn" onclick="promptQty(${m.id}, '${m.name.replace(/'/g,"\\'")}', ${m.price})">수량</button>
+            </div>
+          </div>
+        `).join('') || '<div class="muted">메뉴가 없습니다</div>';
+      }catch(e){
+        els.menu.innerHTML = '<div class="muted">메뉴 로드 실패</div>';
+      }
+    }
+
+    // ---------- 장바구니 ----------
+    function addItem(id, name, price, delta=1){
+      const row = CART.get(id) || {id, name, price, qty:0};
+      row.qty = Math.max(0, (row.qty||0) + delta);
+      if(row.qty===0) CART.delete(id); else CART.set(id, row);
+      renderCart();
+    }
+    function setItemQty(id, qty){
+      qty = Math.max(0, Number(qty)||0);
+      const row = CART.get(id);
+      if(!row) return;
+      row.qty = qty;
+      if(qty===0) CART.delete(id);
+      renderCart();
+    }
+    function promptQty(id, name, price){
+      const cur = CART.get(id)?.qty || 1;
+      const v = prompt(`${name} 수량`, cur);
+      if(v==null) return;
+      setItemQty(id, Number(v)||0);
+    }
+    function calcTotals(){
+      let total = 0;
+      CART.forEach(r=> total += (r.qty * r.price));
+      return {total};
+    }
+    function renderCart(){
+      const arr = Array.from(CART.values());
+      els.cart.innerHTML = arr.map(r=>`
+        <div class="order-item">
+          <div class="left">
+            <div><strong>${r.name}</strong></div>
+            <div class="muted">₩${KRW(r.price)} × ${r.qty} = ₩${KRW(r.price*r.qty)}</div>
+          </div>
+          <div class="qty-ctrl">
+            <button class="btn" onclick="addItem(${r.id}, '${r.name.replace(/'/g,"\\'")}', ${r.price}, -1)">－</button>
+            <div style="min-width:2em;text-align:center">${r.qty}</div>
+            <button class="btn" onclick="addItem(${r.id}, '${r.name.replace(/'/g,"\\'")}', ${r.price}, +1)">＋</button>
+            <button class="btn btn-danger" onclick="setItemQty(${r.id}, 0)">삭제</button>
+          </div>
+        </div>
+      `).join('') || '<div class="muted">장바구니 비어 있음</div>';
+
+      const {total} = calcTotals();
+      els.total.textContent = KRW(total) + '원';
+      recalcChange();
+    }
+
+    // ---------- 폼 로직 ----------
+    function syncTableInputVisibility(){
+      // 포장 체크 시 테이블 입력은 의미 없지만, 정책상 자유 입력 허용(숨기지 않음)
+      // 필요하면 아래 주석 해제하여 포장 체크 시 숨기도록 가능
+      // els.tableRow.style.display = els.isTakeout.checked ? 'none' : '';
+    }
+
+    // ---------- 결제/거스름돈 ----------
+    function recalcChange(){
+      const {total} = calcTotals();
+      const got = Number(els.cash.value||0);
+      const change = Math.max(0, got - total);
+      els.change.textContent = KRW(change)+'원';
+    }
+
+    // ---------- 저장 ----------
+    async function onSubmit(){
+      const items = Array.from(CART.values()).map(r=>({menu_item_id:r.id, qty:r.qty}));
+      if(items.length===0){ alert('메뉴를 선택해 주세요.'); return; }
+
+      const isTakeout = !!els.isTakeout.checked;
+      const tableNo = (els.tableNo.value||'').trim();
+      const {total} = calcTotals();
+      const received = Number(els.cash.value||0);
+
+      if(!(received >= total)){
+        if(!confirm('받은 금액이 총액보다 적습니다. 계속할까요?')) return;
+      }
+
+      const order_type = isTakeout ? 'TAKEOUT' : 'DINE_IN';
+
+      els.btnSubmit.disabled = true;
+      try{
+        await postJSON("{% url 'orders:orders-collection' %}", {
+          floor: 'B1',
+          order_type,
+          is_takeout: isTakeout,
+          payment_method: (document.querySelector('input[name="pay"]:checked')?.value || 'CASH'),
+          received_amount: received,
+          table_number: tableNo || null,
+          note: '',
+          items
+        });
+        resetAll(true);
+      }catch(e){
+        alert('저장 실패: ' + (e.message||e));
+      }finally{
+        els.btnSubmit.disabled = false;
+      }
+    }
+
+    // ---------- 초기화 ----------
+    function resetAll(clearCart=false){
+      if(clearCart){ CART.clear(); }
+      renderCart();       // 합계/거스름돈 0으로 갱신
+      els.cash.value = '';// 받은 금액 비움
+      recalcChange();     // 0원 표시 보장
+      // 테이블/포장도 초기화
+      els.isTakeout.checked = false;
+      els.tableNo.value = '';
+      syncTableInputVisibility();
+    }
+
+    // ---------- init ----------
+    document.addEventListener('DOMContentLoaded', ()=>{
+      loadMenus();
+      renderCart();
+      els.cash.addEventListener('input', recalcChange);
+      els.isTakeout.addEventListener('change', syncTableInputVisibility);
+      els.btnSubmit.addEventListener('click', onSubmit);
+      els.btnReset.addEventListener('click', ()=> resetAll(true));
+      syncTableInputVisibility();
+    });
+
+    // 전역 헬퍼(버튼에서 호출)
+    window.addItem = addItem;
+    window.promptQty = promptQty;
+    window.setItemQty = setItemQty;
+  </script>
+</body>
+</html>
