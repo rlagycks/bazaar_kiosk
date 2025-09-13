@@ -1,21 +1,22 @@
+from __future__ import annotations
 from django.urls import path
-from .views import pages, api, auth
+from orders.views import pages as pages
+from orders.views import api as api
+
+app_name = "orders"
 
 urlpatterns = [
-    # Pages (역할/카운터/주방/부스 등)
-    path("", pages.role_select, name="role_select"),
-    path("b1-counter/", pages.b1_counter, name="b1_counter"),
-    path("kitchen/", pages.kitchen, name="kitchen"),
-    path("kitchen/supervisor/", pages.kitchen_supervisor, name="kitchen_supervisor"),
-    path("booth/", pages.booth, name="booth"),
-    path("order/<int:order_id>/", pages.order, name="order_detail"),
-    path("serve/", pages.serve, name="serve"),
+    # 화면
+    path("order/",       pages.order_page,      name="order"),
+    path("b1-counter/",  pages.b1_counter_page, name="b1-counter"),
+    path("f1-counter/",  pages.f1_counter_page, name="f1-counter"),
+    path("kitchen/",     pages.kitchen_page,    name="kitchen"),
+    path("f1-booth/",    pages.f1_booth_page,   name="f1-booth"),
 
-    # Auth
-    path("login/", auth.login_view, name="login"),
-    path("logout/", auth.logout_view, name="logout"),
-
-    # APIs (폴링에서 쓰던 것 + 이후 Realtime 초기 로드에 사용)
-    path("api/orders/", api.orders_list, name="api_orders_list"),
-    path("api/stats/menu-counts", api.menu_counts, name="api_menu_counts"),
+    # API
+    path("tables/",                 api.tables_list,          name="tables"),
+    path("menus/",                  api.menus_list,           name="menus"),
+    path("api/orders/",             api.orders_collection,    name="orders-collection"),
+    path("api/orders/<int:order_id>/status", api.order_status, name="order-status"),
+    path("api/stats/menu-counts",   api.stats_menu_counts,    name="stats-menu-counts"),
 ]

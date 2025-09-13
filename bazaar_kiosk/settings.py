@@ -120,7 +120,8 @@ def parse_role_pins(raw: str) -> dict[str, str]:
             result[role.strip().upper()] = pin.strip()
     return result
 
+
 ROLE_PINS = parse_role_pins(os.environ.get(
     "ROLE_PINS",
-    "ORDER:1001,B1_COUNTER:2001,KITCHEN:3001,KITCHEN_LEAD:4001"
+    "ORDER:1001,B1_COUNTER:2001,KITCHEN:3001,KITCHEN_HALL:4001,KITCHEN_TAKEOUT:5001"
 ))
