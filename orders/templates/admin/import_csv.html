@@ -1,0 +1,32 @@
+{% load static %}
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CSV Import</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 16px; }
+    .card { border:1px solid #e5e7eb; border-radius:12px; padding:16px; max-width:720px; }
+    .row { display:flex; gap:12px; align-items:center; }
+    .muted { color:#64748b; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2 style="margin:0 0 12px 0;">CSV 업로드</h2>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <p class="row">
+        <label>CSV 파일: <input type="file" name="file" accept=".csv" required></label>
+      </p>
+      <p>모드:
+        <label><input type="radio" name="mode" value="upsert" checked> upsert</label>
+        <label><input type="radio" name="mode" value="insert-only"> insert-only</label>
+      </p>
+      <p class="muted">{{ help_text|default:"헤더/형식에 맞는 CSV를 업로드하세요." }}</p>
+      <p><button type="submit">업로드</button></p>
+    </form>
+    <p><a href="{{ back_url|default:'../' }}">리스트로 돌아가기</a></p>
+  </div>
+</body>
+</html>

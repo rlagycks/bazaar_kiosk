@@ -1,5 +1,6 @@
+# FILE: requirements.txt
 Django>=5.0,<5.3
 psycopg[binary]>=3.1
 tzdata>=2024.1
-whitenoise>=6.6
+whitenoise==6.10.0
 gunicorn>=22.0

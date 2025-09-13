@@ -1,0 +1,116 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>지하 카운터</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
+  <style>
+    .wrap{max-width:1240px;margin:0 auto;padding:12px;}
+    .hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+    .hdr h2{margin:0;font-size:20px}
+    .layout{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+    @media (max-width:960px){.layout{grid-template-columns:1fr;}}
+    .panel{background:#fff;border:1px solid var(--color-border,#e5e7eb);border-radius:10px;padding:12px}
+    .title{font-weight:700;margin:0 0 8px 0}
+    .order{border-bottom:1px solid #e5e7eb;padding:10px 0}
+    .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+    .muted{color:#6b7280;font-size:12px}
+    .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:9999px;border:1px solid #d1d5db;background:#fff}
+    .badge.ready{background:#10b981;color:#fff;border-color:#10b981}
+    .badge.prep{background:#f59e0b;color:#fff;border-color:#f59e0b}
+    .num{font-variant-numeric:tabular-nums}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hdr">
+      <h2>지하 카운터</h2>
+      <div class="muted">최근 주문 & 판매 현황 · 5초마다 갱신</div>
+    </div>
+
+    <div class="layout">
+      <!-- 좌: 최근 주문 -->
+      <section class="panel">
+        <h3 class="title">최근 주문</h3>
+        <div id="recent"></div>
+      </section>
+
+      <!-- 우: 판매 현황 -->
+      <aside class="panel">
+        <h3 class="title">판매 현황 (오늘)</h3>
+        <div id="stats"></div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const KRW = n => (Number(n)||0).toLocaleString('ko-KR');
+
+    async function getJSON(url){
+      const r=await fetch(url,{credentials:'same-origin'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    }
+
+    async function loadRecent(){
+      const url = "{% url 'orders:orders-collection' %}" + "?floor=B1&types=DINE_IN,TAKEOUT&limit=50";
+      try{
+        const d = await getJSON(url);
+        const list = d.results || [];
+        var html = '';
+        for (var k=0;k<list.length;k++){
+          const o = list[k];
+          const isTakeout = (o.is_takeout || o.order_type==='TAKEOUT');
+          const title = isTakeout ? '포장' : ('테이블 ' + (o.table ? (o.table.number || o.table.id) : '-'));
+          const items = (o.items||[]).map(function(i){ return i.menu_item_name + '×' + i.qty; }).join(', ');
+          const total = '₩'+KRW(o.total_price||0);
+          const got   = (o.received_amount!=null) ? ('₩'+KRW(o.received_amount)) : '-';
+          const chg   = (o.change_amount!=null) ? ('₩'+KRW(o.change_amount)) : '-';
+          const statusClass = (o.status==='READY') ? 'ready' : 'prep';
+          const statusName  = (o.status==='READY') ? '준비완료' : '준비중';
+          html += ''
+            + '<div class="order">'
+            +   '<div class="row"><div><strong>'+title+'</strong> <span class="badge '+statusClass+'">'+statusName+'</span></div>'
+            +   '<div class="num">'+ total +'</div></div>'
+            +   '<div class="muted">'+items+'</div>'
+            +   '<div class="muted">받은돈: '+got+' · 거스름돈: '+chg+'</div>'
+            + '</div>';
+        }
+        document.getElementById('recent').innerHTML = html || '<div class="muted">주문 없음</div>';
+      }catch(e){
+        document.getElementById('recent').innerHTML = '<div class="muted">최근 주문 로드 실패</div>';
+      }
+    }
+
+    async function loadStats(){
+      const url = "{% url 'orders:stats-menu-counts' %}" + "?floor=B1";
+      try{
+        const d = await getJSON(url);
+        const items = d.items || [];
+        var html = '';
+        for (var i=0;i<items.length;i++){
+          const r = items[i];
+          html += ''
+            + '<div class="row" style="border-bottom:1px solid #e5e7eb;padding:8px 0">'
+            +   '<div>'+ r.name +'</div>'
+            +   '<div class="num">'+ r.qty +'개 · ₩'+ KRW(r.amount||0) +'</div>'
+            + '</div>';
+        }
+        document.getElementById('stats').innerHTML = html || '<div class="muted">집계 없음</div>';
+      }catch(e){
+        document.getElementById('stats').innerHTML = '<div class="muted">집계 로드 실패</div>';
+      }
+    }
+
+    function tick(){
+      loadRecent(); loadStats();
+    }
+    document.addEventListener('DOMContentLoaded', function(){
+      tick();
+      setInterval(tick, 5000);
+    });
+  </script>
+</body>
+</html>
