@@ -20,6 +20,9 @@
     .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:9999px;border:1px solid #d1d5db;background:#fff}
     .badge.ready{background:#10b981;color:#fff;border-color:#10b981}
     .badge.prep{background:#f59e0b;color:#fff;border-color:#f59e0b}
+    .badge.pay{margin-left:6px}
+    .badge.pay.cash{background:#111827;color:#fff;border-color:#111827}
+    .badge.pay.ticket{background:#4338ca;color:#fff;border-color:#4338ca}
     .num{font-variant-numeric:tabular-nums}
   </style>
 </head>
@@ -59,21 +62,41 @@
       try{
         const d = await getJSON(url);
         const list = d.results || [];
-        var html = '';
-        for (var k=0;k<list.length;k++){
+        let html = '';
+        for (let k=0;k<list.length;k++){
           const o = list[k];
-          const isTakeout = (o.is_takeout || o.order_type==='TAKEOUT');
-          const title = isTakeout ? '포장' : ('테이블 ' + (o.table ? (o.table.number || o.table.id) : '-'));
-          const items = (o.items||[]).map(function(i){ return i.menu_item_name + '×' + i.qty; }).join(', ');
+
+          // 주문번호
+          const orderNo = o.order_no ? ('#'+o.order_no) : '-';
+
+          // 테이블 + 포장 동시 표기
+          const flags = [];
+          if (o.table) flags.push('테이블 ' + (o.table.number || o.table.id));
+          if (o.is_takeout || o.order_type==='TAKEOUT') flags.push('포장');
+          const title = flags.length ? flags.join(' · ') : '주문';
+
+          // 품목, 금액
+          const items = (o.items||[]).map(i => i.menu_item_name + '×' + i.qty).join(', ');
           const total = '₩'+KRW(o.total_price||0);
           const got   = (o.received_amount!=null) ? ('₩'+KRW(o.received_amount)) : '-';
           const chg   = (o.change_amount!=null) ? ('₩'+KRW(o.change_amount)) : '-';
+
+          // 상태/결제
           const statusClass = (o.status==='READY') ? 'ready' : 'prep';
           const statusName  = (o.status==='READY') ? '준비완료' : '준비중';
+          const payIsTicket = (o.payment_method === 'TICKET');
+          const payBadgeCls = 'badge pay ' + (payIsTicket ? 'ticket' : 'cash');
+          const payLabel    = payIsTicket ? '티켓' : '현금';
+
           html += ''
             + '<div class="order">'
-            +   '<div class="row"><div><strong>'+title+'</strong> <span class="badge '+statusClass+'">'+statusName+'</span></div>'
-            +   '<div class="num">'+ total +'</div></div>'
+            +   '<div class="row">'
+            +     '<div><strong>['+orderNo+'] '+title+'</strong> '
+            +       '<span class="badge '+statusClass+'">'+statusName+'</span>'
+            +       '<span class="'+payBadgeCls+'">'+payLabel+'</span>'
+            +     '</div>'
+            +     '<div class="num">'+ total +'</div>'
+            +   '</div>'
             +   '<div class="muted">'+items+'</div>'
             +   '<div class="muted">받은돈: '+got+' · 거스름돈: '+chg+'</div>'
             + '</div>';
@@ -89,8 +112,8 @@
       try{
         const d = await getJSON(url);
         const items = d.items || [];
-        var html = '';
-        for (var i=0;i<items.length;i++){
+        let html = '';
+        for (let i=0;i<items.length;i++){
           const r = items[i];
           html += ''
             + '<div class="row" style="border-bottom:1px solid #e5e7eb;padding:8px 0">'

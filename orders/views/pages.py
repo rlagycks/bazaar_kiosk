@@ -1,27 +1,24 @@
+# FILE: orders/views/pages.py
 from __future__ import annotations
 from django.shortcuts import render
+from .auth import require_roles
 
-
-# 주문(모바일): 지하 주문서
+@require_roles("ORDER")
 def order_page(request):
     return render(request, "orders/order.html")
 
-
-# 지하 카운터(노트북)
+@require_roles("B1_COUNTER")
 def b1_counter_page(request):
     return render(request, "orders/b1_counter.html")
 
-
-# 1층 카운터(노트북)
+@require_roles("F1_COUNTER")
 def f1_counter_page(request):
     return render(request, "orders/f1_counter.html")
 
-
-# 지하 주방(태블릿)
+@require_roles("KITCHEN")
 def kitchen_page(request):
     return render(request, "orders/kitchen.html")
 
-
-# 1층 부스(태블릿)
+@require_roles("F1_BOOTH")
 def f1_booth_page(request):
     return render(request, "orders/f1_booth.html")

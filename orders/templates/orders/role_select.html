@@ -1,0 +1,46 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>역할 선택</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
+</head>
+<body class="container">
+
+  <div class="header">
+    <h1>역할 선택</h1>
+  </div>
+
+  {% if error %}
+  <div class="alert error" role="alert">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="{% url 'orders:login_pin' %}" class="card" style="max-width:520px;margin:0 auto;">
+    {% csrf_token %}
+    <div class="grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px;">
+      {% for value, label in roles %}
+      <label class="tile">
+        <input type="radio" name="role" value="{{ value }}" required>
+        <div class="tile-body">
+          <div class="tile-title">{{ label }}</div>
+          <div class="tile-sub">{{ value }}</div>
+        </div>
+      </label>
+      {% endfor %}
+    </div>
+
+    <div class="form-row" style="margin-top:16px;">
+      <label class="form-label">PIN</label>
+      <input type="password" name="pin" class="input" placeholder="PIN을 입력하세요" required>
+    </div>
+
+    <div class="actions" style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
+      <button type="submit" class="btn primary">입장</button>
+      <a class="btn" href="{% url 'orders:login' %}?reset=1" style="background:#eee;">초기화</a>
+    </div>
+  </form>
+
+</body>
+</html>

@@ -1,11 +1,19 @@
+# FILE: orders/urls.py
 from __future__ import annotations
 from django.urls import path
-from orders.views import pages as pages
-from orders.views import api as api
+from django.views.generic import RedirectView
+from orders.views import pages, api, auth  # ✅ auth 모듈 import 중요
 
 app_name = "orders"
 
 urlpatterns = [
+    # ✅ /orders/ → /orders/login/ 로 보내기
+    path("", RedirectView.as_view(pattern_name="orders:login", permanent=False)),
+
+    # ✅ 로그인/로그아웃
+    path("login/",  auth.login_view,  name="login"),
+    path("logout/", auth.logout_view, name="logout"),
+
     # 화면
     path("order/",       pages.order_page,      name="order"),
     path("b1-counter/",  pages.b1_counter_page, name="b1-counter"),
