@@ -12,12 +12,9 @@
     .hdr h2{margin:0;font-size:20px}
     .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
     @media (min-width:980px){.grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
-    .card{background:#fff;border:1px solid var(--color-border,#e5e7eb);border-radius:10px;padding:12px}
+    .card{background:#fff;border:1px solid var(--color-border,#e5e7eb);border-radius:10px;padding:12px;cursor:pointer}
     .title{font-weight:700;font-size:16px;margin-bottom:4px}
     .muted{color:#6b7280;font-size:12px}
-    .btn{display:inline-flex;align-items:center;justify-content:center;height:38px;padding:0 12px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer}
-    .btn-primary{background:#2563eb;color:#fff;border-color:#2563eb}
-    .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
   </style>
 </head>
 <body>
@@ -31,7 +28,6 @@
   </div>
 
   <script>
-    const KRW = n => (Number(n)||0).toLocaleString('ko-KR');
     function getCookie(name){
       const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');return m?m.pop():'';
     }
@@ -49,15 +45,21 @@
       try{
         const d = await getJSON(url);
         const list = d.results || [];
-        var html = '';
-        for (var k=0;k<list.length;k++){
+        let html = '';
+        for (let k=0;k<list.length;k++){
           const o = list[k];
-          const isTakeout = (o.is_takeout || o.order_type==='TAKEOUT');
-          const title = isTakeout ? '포장' : ('테이블 ' + (o.table ? (o.table.number || o.table.id) : '-'));
-          const items = (o.items||[]).map(function(i){ return i.menu_item_name + '×' + i.qty; }).join(', ');
+
+          const orderNo = o.order_no ? ('#'+o.order_no) : '-';
+          const flags = [];
+          if (o.table) flags.push('테이블 ' + (o.table.number || o.table.id));
+          if (o.is_takeout || o.order_type==='TAKEOUT') flags.push('포장');
+          const title = flags.length ? flags.join(' · ') : '주문';
+
+          const items = (o.items||[]).map(i => i.menu_item_name + '×' + i.qty).join(', ');
+
           html += ''
           + '<div class="card" onclick="markReady('+o.id+')">'
-          +   '<div class="title">'+title+'</div>'
+          +   '<div class="title">['+orderNo+'] '+title+'</div>'
           +   '<div class="muted">'+items+'</div>'
           + '</div>';
         }
