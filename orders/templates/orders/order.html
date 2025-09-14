@@ -59,6 +59,7 @@
           <div style="flex:1"></div>
         </div>
 
+        <!-- 항상 표시: 포장과 테이블 동시 입력 허용 -->
         <div class="form-row" id="table-row" style="margin-top:6px;">
           <label style="min-width:80px;">테이블 번호</label>
           <input id="table-number" class="form-control" placeholder="예) 5 (없으면 비워도 됨)" inputmode="numeric" style="max-width:180px;">
@@ -131,7 +132,6 @@
       cash: document.getElementById('cash-in'),
       isTakeout: document.getElementById('is-takeout'),
       tableNo: document.getElementById('table-number'),
-      tableRow: document.getElementById('table-row'),
       btnSubmit: document.getElementById('btn-submit'),
       btnReset: document.getElementById('btn-reset'),
     };
@@ -139,7 +139,6 @@
     // ---------- 메뉴 ----------
     async function loadMenus(){
       try{
-        // 지하: 주방 제공 메뉴만
         const d = await getJSON("{% url 'orders:menus' %}?scope=KITCHEN");
         const items = d.items||[];
         els.menu.innerHTML = items.map(m=>`
@@ -205,13 +204,6 @@
       recalcChange();
     }
 
-    // ---------- 폼 로직 ----------
-    function syncTableInputVisibility(){
-      // 포장 체크 시 테이블 입력은 의미 없지만, 정책상 자유 입력 허용(숨기지 않음)
-      // 필요하면 아래 주석 해제하여 포장 체크 시 숨기도록 가능
-      // els.tableRow.style.display = els.isTakeout.checked ? 'none' : '';
-    }
-
     // ---------- 결제/거스름돈 ----------
     function recalcChange(){
       const {total} = calcTotals();
@@ -230,8 +222,9 @@
       const {total} = calcTotals();
       const received = Number(els.cash.value||0);
 
-      if(!(received >= total)){
-        if(!confirm('받은 금액이 총액보다 적습니다. 계속할까요?')) return;
+      if(!(received >= 0)){
+        alert('받은 금액을 입력해 주세요.');
+        return;
       }
 
       const order_type = isTakeout ? 'TAKEOUT' : 'DINE_IN';
@@ -244,11 +237,12 @@
           is_takeout: isTakeout,
           payment_method: (document.querySelector('input[name="pay"]:checked')?.value || 'CASH'),
           received_amount: received,
-          table_number: tableNo || null,
+          table_number: tableNo || null,   // 포장+테이블 동시 전송 허용
           note: '',
           items
         });
         resetAll(true);
+        alert('주문이 접수되었습니다.');
       }catch(e){
         alert('저장 실패: ' + (e.message||e));
       }finally{
@@ -262,10 +256,8 @@
       renderCart();       // 합계/거스름돈 0으로 갱신
       els.cash.value = '';// 받은 금액 비움
       recalcChange();     // 0원 표시 보장
-      // 테이블/포장도 초기화
       els.isTakeout.checked = false;
       els.tableNo.value = '';
-      syncTableInputVisibility();
     }
 
     // ---------- init ----------
@@ -273,13 +265,11 @@
       loadMenus();
       renderCart();
       els.cash.addEventListener('input', recalcChange);
-      els.isTakeout.addEventListener('change', syncTableInputVisibility);
       els.btnSubmit.addEventListener('click', onSubmit);
       els.btnReset.addEventListener('click', ()=> resetAll(true));
-      syncTableInputVisibility();
     });
 
-    // 전역 헬퍼(버튼에서 호출)
+    // 전역 헬퍼
     window.addItem = addItem;
     window.promptQty = promptQty;
     window.setItemQty = setItemQty;
