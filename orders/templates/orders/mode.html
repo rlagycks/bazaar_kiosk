@@ -1,0 +1,31 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>모드 선택 - 바자회 키오스크</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
+</head>
+<body>
+
+<div class="screen active">
+  <div class="header">
+    <h2>모드 선택</h2>
+    <div>
+      <a class="btn btn-secondary" href="{% url 'orders:logout' %}">로그아웃</a>
+    </div>
+  </div>
+
+  <div class="content">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;">
+      <a class="btn btn-primary" style="text-align:center" href="{% url 'orders:kitchen' %}">주방 화면</a>
+      <a class="btn btn-secondary" style="text-align:center" href="{% url 'orders:serve' %}">서빙(홀)</a>
+      <a class="btn btn-secondary" style="text-align:center" href="{% url 'orders:counter' %}">카운터(포장/부스)</a>
+      <a class="btn btn-secondary" style="text-align:center" href="{% url 'orders:booth' %}">부스</a>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
