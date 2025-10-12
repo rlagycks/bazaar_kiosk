@@ -38,6 +38,7 @@ def _serialize_order(o: Order) -> Dict[str, Any]:
         "payment_method": o.payment_method,
         "received_amount": o.received_amount,
         "total_price": o.total_price,
+        "note": o.note,
         "change_amount": (o.received_amount or 0) - (o.total_price or 0) if o.received_amount is not None else None,
         "created_at": timezone.localtime(o.created_at).isoformat(),
         "items": [
@@ -48,6 +49,9 @@ def _serialize_order(o: Order) -> Dict[str, Any]:
                 "qty": i.qty,
                 "unit_price": i.unit_price,
                 "line_total": i.qty * (i.unit_price or 0),
+                "prepared_qty": i.prepared_qty,
+                "remaining_qty": i.remaining_qty,
+                "is_prepared": i.is_prepared,
             }
             for i in o.items.all()
         ],
@@ -114,7 +118,7 @@ def orders_collection(request: HttpRequest):
         )
         if floor in (FloorChoices.B1, FloorChoices.F1):
             qs = qs.filter(floor=floor)
-        if status in (OrderStatus.PREPARING, OrderStatus.READY):
+        if status in (OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.CANCELLED):
             qs = qs.filter(status=status)
         if types:
             qs = qs.filter(order_type__in=types)
@@ -224,8 +228,8 @@ def order_status(request: HttpRequest, order_id: int):
     except ValueError as e:
         return HttpResponseBadRequest(str(e))
     new_status = (payload.get("status") or "").upper()
-    if new_status not in (OrderStatus.PREPARING, OrderStatus.READY):
-        return HttpResponseBadRequest("status는 PREPARING/READY만 허용됩니다.")
+    if new_status not in (OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.CANCELLED):
+        return HttpResponseBadRequest("status는 PREPARING/READY/CANCELLED만 허용됩니다.")
 
     try:
         order = (
@@ -241,6 +245,70 @@ def order_status(request: HttpRequest, order_id: int):
     return JsonResponse(_serialize_order(order), status=200)
 
 
+def _sync_order_status_from_items(order: Order) -> None:
+    if order.status == OrderStatus.CANCELLED:
+        return
+    remaining_exists = order.items.filter(prepared_qty__lt=F("qty")).exists()
+    desired = OrderStatus.PREPARING if remaining_exists else OrderStatus.READY
+    if order.status != desired:
+        order.status = desired
+        order.save(update_fields=["status", "updated_at"])
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def order_item_progress(request: HttpRequest, item_id: int):
+    try:
+        payload = _parse_json(request)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e))
+
+    prepared_qty = payload.get("prepared_qty", None)
+    done_flag = payload.get("done", None)
+
+    try:
+        with transaction.atomic():
+            item = (
+                OrderItem.objects.select_related("order", "menu_item")
+                .select_for_update()
+                .get(id=item_id)
+            )
+            order = item.order
+            if order.status == OrderStatus.CANCELLED:
+                return HttpResponseBadRequest("취소된 주문입니다.")
+
+            if prepared_qty is None:
+                if done_flag is None:
+                    return HttpResponseBadRequest("prepared_qty 또는 done 값이 필요합니다.")
+                prepared_qty = item.qty if bool(done_flag) else 0
+
+            try:
+                prepared_qty = int(prepared_qty)
+            except (TypeError, ValueError):
+                return HttpResponseBadRequest("prepared_qty는 정수여야 합니다.")
+
+            if prepared_qty < 0 or prepared_qty > item.qty:
+                return HttpResponseBadRequest("prepared_qty 범위 오류")
+
+            if prepared_qty != item.prepared_qty:
+                item.prepared_qty = prepared_qty
+                item.save(update_fields=["prepared_qty"])
+
+            # 상태 동기화
+            _sync_order_status_from_items(order)
+            order.refresh_from_db()
+    except OrderItem.DoesNotExist:
+        raise Http404("주문 품목이 존재하지 않습니다.")
+
+    order = (
+        Order.objects.filter(id=order.id)
+        .select_related("table")
+        .prefetch_related("items", "items__menu_item")
+        .get()
+    )
+    return JsonResponse(_serialize_order(order), status=200)
+
+
 # ---------- 간이 통계(카운터용) ----------
 @require_http_methods(["GET"])
 def stats_menu_counts(request: HttpRequest):
@@ -252,6 +320,7 @@ def stats_menu_counts(request: HttpRequest):
     qs = (
         OrderItem.objects.filter(
             order__floor=floor,
+            order__status__in=[OrderStatus.PREPARING, OrderStatus.READY],
             order__created_at__date=today,
         )
         .values("menu_item__name")
@@ -264,6 +333,28 @@ def stats_menu_counts(request: HttpRequest):
 
     data = [
         {"name": r["menu_item__name"], "qty": r["qty_sum"], "amount": r["amount"] or 0}
+        for r in qs
+    ]
+    return JsonResponse({"items": data}, status=200)
+
+
+@require_http_methods(["GET"])
+def kitchen_menu_summary(request: HttpRequest):
+    floor = (request.GET.get("floor") or FloorChoices.B1).upper()
+    if floor not in (FloorChoices.B1, FloorChoices.F1):
+        return HttpResponseBadRequest("floor 파라미터(B1/F1)가 필요합니다.")
+
+    qs = OrderItem.objects.filter(
+        order__status=OrderStatus.PREPARING,
+        order__floor=floor,
+    ).values("menu_item_id", "menu_item__name")
+
+    qs = qs.annotate(
+        pending=Sum(F("qty") - F("prepared_qty"), output_field=IntegerField()),
+    ).filter(pending__gt=0).order_by("-pending", "menu_item__name")
+
+    data = [
+        {"menu_item_id": r["menu_item_id"], "name": r["menu_item__name"], "pending": r["pending"]}
         for r in qs
     ]
     return JsonResponse({"items": data}, status=200)

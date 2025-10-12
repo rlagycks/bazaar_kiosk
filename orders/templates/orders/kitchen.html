@@ -4,82 +4,259 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>지하 주방</title>
+  <title>주방 총괄</title>
   <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
   <style>
-    .wrap{max-width:1100px;margin:0 auto;padding:12px;}
-    .hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-    .hdr h2{margin:0;font-size:20px}
-    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-    @media (min-width:980px){.grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
-    .card{background:#fff;border:1px solid var(--color-border,#e5e7eb);border-radius:10px;padding:12px;cursor:pointer}
-    .title{font-weight:700;font-size:16px;margin-bottom:4px}
-    .muted{color:#6b7280;font-size:12px}
+    body{background:#f3f4f6;}
+    .wrap{max-width:1240px;margin:0 auto;padding:16px;}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
+    .hdr h2{margin:0;font-size:22px;}
+    .hdr .muted{margin-top:4px;}
+    .hdr-actions{display:flex;gap:8px;flex-wrap:wrap;}
+    .btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:10px;border:1px solid #d1d5db;background:#fff;font-weight:600;cursor:pointer;transition:all .15s ease;}
+    .btn.secondary{background:#2563eb;border-color:#2563eb;color:#fff;}
+    .btn.ghost{background:#fff;}
+    .btn.logout{background:#fef2f2;border-color:#fecaca;color:#b91c1c;}
+    .btn[disabled]{opacity:.6;cursor:wait;}
+    .panel{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;}
+    .panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;}
+    .panel-title{margin:0;font-size:18px;}
+    .board{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;}
+    .order-card{border:1px solid #e5e7eb;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;background:#f9fafb;}
+    .order-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+    .order-badge{font-weight:700;font-size:20px;color:#111827;}
+    .order-meta{color:#6b7280;font-size:13px;line-height:1.5;}
+    .order-items{display:flex;flex-direction:column;gap:8px;}
+    .order-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px;border-radius:10px;border:1px solid rgba(209,213,219,0.8);background:#fff;transition:border-color .15s ease, background .15s ease;}
+    .order-item.done{background:#dcfce7;border-color:#34d399;}
+    .item-info{flex:1;min-width:0;}
+    .item-name{font-weight:600;}
+    .item-status{display:flex;align-items:center;gap:8px;margin-top:2px;font-size:13px;color:#6b7280;}
+    .item-status .status-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:#e5e7eb;color:#374151;font-weight:600;font-size:12px;}
+    .order-item.done .item-status{color:#047857;}
+    .order-item.done .item-status .status-pill{background:#bbf7d0;color:#047857;}
+    .item-actions{display:flex;align-items:center;gap:6px;}
+    .todo-btn{min-width:56px;padding:8px 12px;border-radius:999px;border:1px solid #dc2626;background:#fee2e2;color:#b91c1c;font-weight:700;cursor:pointer;transition:all .15s ease;}
+    .todo-btn.minus{background:#ede9fe;border-color:#a855f7;color:#5b21b6;}
+    .todo-btn.is-done{background:#34d399;border-color:#059669;color:#fff;}
+    .todo-btn.reset{background:#f3f4f6;border-color:#d1d5db;color:#1f2937;}
+    .todo-btn[disabled]{opacity:.6;cursor:wait;}
+    .order-note{margin-top:4px;padding:8px 10px;border-radius:8px;border:1px dashed #f97316;background:#fff7ed;color:#c2410c;font-size:13px;}
+    .empty{color:#6b7280;text-align:center;padding:48px 0;font-size:15px;border:1px dashed #d1d5db;border-radius:12px;background:#fff;}
+    .muted{color:#6b7280;font-size:13px;}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="hdr">
-      <h2>지하 주방</h2>
-      <div class="muted">준비중 목록 · 탭하면 “준비완료”</div>
+      <div>
+        <h2>주방 총괄</h2>
+        <div class="muted">주문별 ToDo 버튼을 눌러 완료 처리하면 모든 메뉴가 완료된 주문은 자동으로 목록에서 제외됩니다.</div>
+      </div>
+      <div class="hdr-actions">
+        <a class="btn ghost" href="{% url 'orders:kitchen-monitor' %}" target="_blank" rel="noopener">모니터 열기</a>
+        <button class="btn secondary" id="btnReload">새로고침</button>
+        <a class="btn logout" href="{% url 'orders:logout' %}">로그아웃</a>
+      </div>
     </div>
 
-    <div id="grid" class="grid"></div>
+    <section class="panel">
+      <div class="panel-head">
+        <h3 class="panel-title">진행 중 주문</h3>
+        <div id="status" class="muted">-</div>
+      </div>
+      <div id="board" class="board">
+        <div class="empty">대기 중인 주문이 없습니다.</div>
+      </div>
+    </section>
   </div>
 
   <script>
-    function getCookie(name){
-      const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');return m?m.pop():'';
-    }
-    async function getJSON(url){
-      const r=await fetch(url,{credentials:'same-origin'}); if(!r.ok) throw new Error('HTTP '+r.status); return r.json();
-    }
-    async function patchJSON(url, data){
-      const r=await fetch(url,{method:'PATCH',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')||''},body:JSON.stringify(data||{})});
-      if(!r.ok){const t=await r.text().catch(()=> '');throw new Error(t||('HTTP '+r.status));}
+    const getCookie = (name)=>{
+      const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+      return m?decodeURIComponent(m.pop()):'';
+    };
+    const CSRF = getCookie('csrftoken');
+    const BOARD = document.getElementById('board');
+    const STATUS = document.getElementById('status');
+    const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT&limit=200";
+    const ITEM_URL = "{% url 'orders:order-item-progress' 0 %}";
+    const AUTO_MS = 5000;
+    let pollTimer = null;
+    let isLoading = false;
+
+    const escapeHtml = (value)=>{
+      if (value == null) return '';
+      return String(value)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    };
+
+    const formatOrderNo = (no)=>{
+      if (!no) return '-';
+      return '#' + String(no).padStart(3,'0');
+    };
+
+    const formatTime = (iso)=>{
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+    };
+
+    async function fetchJSON(url, options){
+      const r = await fetch(url, Object.assign({credentials:'same-origin'}, options||{}));
+      if (!r.ok){
+        const text = await r.text().catch(()=> '');
+        throw new Error(text || ('HTTP '+r.status));
+      }
       return r.json();
     }
 
-    async function load(){
-      const url = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT&limit=100";
-      try{
-        const d = await getJSON(url);
-        const list = d.results || [];
-        let html = '';
-        for (let k=0;k<list.length;k++){
-          const o = list[k];
-
-          const orderNo = o.order_no ? ('#'+o.order_no) : '-';
-          const flags = [];
-          if (o.table) flags.push('테이블 ' + (o.table.number || o.table.id));
-          if (o.is_takeout || o.order_type==='TAKEOUT') flags.push('포장');
-          const title = flags.length ? flags.join(' · ') : '주문';
-
-          const items = (o.items||[]).map(i => i.menu_item_name + '×' + i.qty).join(', ');
-
-          html += ''
-          + '<div class="card" onclick="markReady('+o.id+')">'
-          +   '<div class="title">['+orderNo+'] '+title+'</div>'
-          +   '<div class="muted">'+items+'</div>'
-          + '</div>';
+    function renderOrders(list){
+      if (!list.length){
+        BOARD.innerHTML = '<div class="empty">대기 중인 주문이 없습니다.</div>';
+        return;
+      }
+      const html = list.map(order=>{
+        const tags = [];
+        if (order.table){
+          const num = order.table.number || order.table.id;
+          const name = order.table.name ? (' ('+order.table.name+')') : '';
+          tags.push('테이블 ' + num + name);
         }
-        document.getElementById('grid').innerHTML = html || '<div class="muted">대기 주문 없음</div>';
+        if (order.is_takeout || order.order_type === 'TAKEOUT'){
+          tags.push('포장');
+        }
+        const time = formatTime(order.created_at);
+        if (time) tags.push(time);
+        const note = (order.note || '').trim();
+        const itemsHtml = (order.items || []).map(item=>{
+          const done = !!item.is_prepared;
+          const totalQty = Number(item.qty) || 0;
+          const preparedQty = Number(item.prepared_qty) || 0;
+          const statusText = `완료 ${preparedQty} / ${totalQty}`;
+          const isComplete = preparedQty >= totalQty && totalQty > 0;
+          return ''
+            + '<div class="order-item'+(done ? ' done' : '')+'">'
+            +   '<div class="item-info">'
+            +     '<div class="item-name">'+ escapeHtml(item.menu_item_name) +'</div>'
+            +     '<div class="item-status">'
+            +       '<span class="status-pill">'+ escapeHtml(statusText) +'</span>'
+            +     '</div>'
+            +   '</div>'
+            +   '<div class="item-actions">'
+            +     '<button class="todo-btn minus"'
+            +             ' data-item-id="'+ item.id +'"'
+            +             ' data-prepared="'+ preparedQty +'"'
+            +             ' data-total="'+ totalQty +'">-1</button>'
+            +     '<button class="todo-btn'
+            +         (done ? ' is-done' : '')
+            +         (isComplete ? ' reset' : '')
+            +       '" data-item-id="'+ item.id +'"'
+            +          ' data-prepared="'+ preparedQty +'"'
+            +          ' data-total="'+ totalQty +'">'
+            +       (isComplete ? '완료' : '+1')
+            +     '</button>'
+            +   '</div>'
+            + '</div>';
+        }).join('');
+        return ''
+          + '<section class="order-card" data-order-id="'+order.id+'">'
+          +   '<header class="order-head">'
+          +     '<div class="order-badge">'+ escapeHtml(formatOrderNo(order.order_no)) +'</div>'
+          +     '<div class="order-meta">'+ (tags.join(' · ') || '주문') +'</div>'
+          +   '</header>'
+          +   '<div class="order-items">'+ (itemsHtml || '<div class="item-qty">품목 없음</div>') +'</div>'
+          +   (note ? '<div class="order-note">요청사항: '+ escapeHtml(note) +'</div>' : '')
+          + '</section>';
+      }).join('');
+      BOARD.innerHTML = html;
+    }
+
+    async function loadOrders(){
+      if (isLoading) return;
+      isLoading = true;
+      try{
+        const data = await fetchJSON(ORDERS_URL);
+        renderOrders(data.results || []);
+        const stamp = new Date();
+        STATUS.textContent = '갱신: ' + stamp.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+          + ' · 대기 주문 ' + ((data.results || []).length) + '건';
       }catch(e){
-        document.getElementById('grid').innerHTML = '<div class="muted">로딩 실패</div>';
+        STATUS.textContent = '로딩 실패: ' + e.message;
+      }finally{
+        isLoading = false;
       }
     }
 
-    async function markReady(id){
+    async function setPreparedQty(itemId, preparedQty, button){
+      if (!itemId) return;
+      if (button) button.disabled = true;
       try{
-        await patchJSON("{% url 'orders:order-status' 0 %}".replace('/0/','/'+id+'/'), {status:'READY'});
-      }catch(e){ alert('상태 변경 실패'); }
-      load();
+        await fetchJSON(ITEM_URL.replace('/0/','/'+itemId+'/'), {
+          method:'PATCH',
+          headers:{
+            'Content-Type':'application/json',
+            'X-CSRFToken': CSRF || ''
+          },
+          body: JSON.stringify({prepared_qty: preparedQty})
+        });
+        await loadOrders();
+      }catch(e){
+        alert('처리 실패: ' + e.message);
+      }finally{
+        if (button) button.disabled = false;
+      }
     }
 
-    window.markReady = markReady;
-    document.addEventListener('DOMContentLoaded', function(){
-      load();
-      setInterval(load, 5000);
+    document.getElementById('btnReload').addEventListener('click', ()=>{
+      loadOrders();
+    });
+
+    BOARD.addEventListener('click', (ev)=>{
+      const btn = ev.target.closest('.todo-btn');
+      if (!btn) return;
+      const itemId = btn.dataset.itemId;
+      const total = Number(btn.dataset.total || '0');
+      const prepared = Number(btn.dataset.prepared || '0');
+      if (!itemId) return;
+
+      if (btn.classList.contains('minus')){
+        const next = Math.max(0, prepared - 1);
+        setPreparedQty(itemId, next, btn);
+        return;
+      }
+
+      if (prepared >= total && total > 0){
+        if (!confirm('완료 수량을 0으로 초기화할까요?')) return;
+        setPreparedQty(itemId, 0, btn);
+      }else{
+        const next = total > 0 ? Math.min(total, prepared + 1) : 0;
+        setPreparedQty(itemId, next, btn);
+      }
+    });
+
+    function startPolling(){
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(loadOrders, AUTO_MS);
+    }
+
+    document.addEventListener('visibilitychange', ()=>{
+      if (document.hidden){
+        if (pollTimer) clearInterval(pollTimer);
+      }else{
+        loadOrders();
+        startPolling();
+      }
+    });
+
+    document.addEventListener('DOMContentLoaded', ()=>{
+      loadOrders();
+      startPolling();
     });
   </script>
 </body>

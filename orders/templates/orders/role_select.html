@@ -19,8 +19,9 @@
 
   <form method="post" action="{% url 'orders:login_pin' %}" class="card" style="max-width:520px;margin:0 auto;">
     {% csrf_token %}
+    {% with choices=role_choices|default:roles %}
     <div class="grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px;">
-      {% for value, label in roles %}
+      {% for value, label in choices %}
       <label class="tile">
         <input type="radio" name="role" value="{{ value }}" required>
         <div class="tile-body">
@@ -30,6 +31,7 @@
       </label>
       {% endfor %}
     </div>
+    {% endwith %}
 
     <div class="form-row" style="margin-top:16px;">
       <label class="form-label">PIN</label>

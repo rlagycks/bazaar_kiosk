@@ -25,6 +25,7 @@
     }
     .role-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,.06); }
     .role-card:active { transform: translateY(0); box-shadow: none; }
+    .role-card.active { border-color:#2563eb; box-shadow:0 0 0 2px rgba(37,99,235,.15); }
     .role-name { font-weight: 700; }
     .role-desc { font-size: .875rem; opacity: .7; margin-top: 4px; }
     .pin-panel {
@@ -50,41 +51,16 @@
     <div class="role-title">역할 선택</div>
 
     <div class="role-grid" id="roleGrid">
-      <!-- 주문(모바일) -->
-      <div class="role-card" data-role="ORDER" data-next="/orders/order/">
+      {% for card in role_cards %}
+      <div class="role-card" data-role="{{ card.code }}" data-next="{{ card.next }}">
         <div>
-          <div class="role-name">주문</div>
-          <div class="role-desc">서빙 · 주문 입력</div>
+          <div class="role-name">{{ card.label }}</div>
+          <div class="role-desc">{{ card.desc }}</div>
         </div>
       </div>
-      <!-- 지하 카운터 -->
-      <div class="role-card" data-role="B1_COUNTER" data-next="/orders/b1-counter/">
-        <div>
-          <div class="role-name">지하 카운터</div>
-          <div class="role-desc">결제 · 모니터링</div>
-        </div>
-      </div>
-      <!-- 1층 카운터 -->
-      <div class="role-card" data-role="F1_COUNTER" data-next="/orders/f1-counter/">
-        <div>
-          <div class="role-name">1층 카운터</div>
-          <div class="role-desc">부스 주문/결제</div>
-        </div>
-      </div>
-      <!-- 지하 주방 -->
-      <div class="role-card" data-role="KITCHEN" data-next="/orders/kitchen/">
-        <div>
-          <div class="role-name">주방</div>
-          <div class="role-desc">조리 · 상태변경</div>
-        </div>
-      </div>
-      <!-- 1층 부스 -->
-      <div class="role-card" data-role="F1_BOOTH" data-next="/orders/f1-booth/">
-        <div>
-          <div class="role-name">1층 부스</div>
-          <div class="role-desc">수령 · 상태변경</div>
-        </div>
-      </div>
+      {% empty %}
+      <div class="muted">선택 가능한 역할이 없습니다. 관리자에게 문의하세요.</div>
+      {% endfor %}
     </div>
 
     <form id="loginForm" class="pin-panel" method="post" action="{% url 'orders:login' %}">
@@ -113,9 +89,12 @@
       const enterBtn  = document.getElementById('enterBtn');
       const label     = document.getElementById('selectedRoleLabel');
 
-      grid.addEventListener('click', (e) => {
-        const card = e.target.closest('.role-card');
+      const lastRole = "{{ last_role|default:'' }}".trim();
+
+      function selectCard(card, focusPin=true){
         if(!card) return;
+        for(const el of grid.querySelectorAll('.role-card')) el.classList.remove('active');
+        card.classList.add('active');
         const role = card.dataset.role;
         const next = card.dataset.next;
         roleInput.value = role;
@@ -123,7 +102,25 @@
         label.textContent = `선택한 역할: ${card.querySelector('.role-name').textContent}`;
         pinInput.disabled = false;
         enterBtn.disabled = false;
-        pinInput.focus();
+        if(focusPin){
+          pinInput.focus();
+        }
+      }
+
+      if(lastRole){
+        const pre = grid.querySelector(`.role-card[data-role="${lastRole}"]`);
+        if(pre){ selectCard(pre); }
+      }
+
+      if(!roleInput.value){
+        const firstCard = grid.querySelector('.role-card');
+        if(firstCard){ selectCard(firstCard, false); }
+      }
+
+      grid.addEventListener('click', (e) => {
+        const card = e.target.closest('.role-card');
+        if(!card) return;
+        selectCard(card);
       });
 
       // 모바일에서 엔터로 제출 편하게

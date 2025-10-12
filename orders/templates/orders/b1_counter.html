@@ -14,7 +14,7 @@
     @media (max-width:960px){.layout{grid-template-columns:1fr;}}
     .panel{background:#fff;border:1px solid var(--color-border,#e5e7eb);border-radius:10px;padding:12px}
     .title{font-weight:700;margin:0 0 8px 0}
-    .order{border-bottom:1px solid #e5e7eb;padding:10px 0}
+    .order{position:relative;border-bottom:1px solid #e5e7eb;padding:12px 0 10px 0}
     .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
     .muted{color:#6b7280;font-size:12px}
     .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:9999px;border:1px solid #d1d5db;background:#fff}
@@ -24,6 +24,9 @@
     .badge.pay.cash{background:#111827;color:#fff;border-color:#111827}
     .badge.pay.ticket{background:#4338ca;color:#fff;border-color:#4338ca}
     .num{font-variant-numeric:tabular-nums}
+    .cancel-btn{position:absolute;top:10px;right:0;background:transparent;border:none;color:#9ca3af;font-size:20px;line-height:1;cursor:pointer;padding:4px;}
+    .cancel-btn:hover{color:#ef4444;}
+    .cancel-btn:disabled{opacity:0.35;cursor:not-allowed;}
   </style>
 </head>
 <body>
@@ -50,6 +53,12 @@
 
   <script>
     const KRW = n => (Number(n)||0).toLocaleString('ko-KR');
+    const getCookie = (name)=>{
+      const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+      return m?decodeURIComponent(m.pop()):'';
+    };
+    const CSRF = getCookie('csrftoken');
+    const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
 
     async function getJSON(url){
       const r=await fetch(url,{credentials:'same-origin'});
@@ -57,11 +66,28 @@
       return r.json();
     }
 
+    async function patchJSON(url, data){
+      const r = await fetch(url,{
+        method:'PATCH',
+        credentials:'same-origin',
+        headers:{
+          'Content-Type':'application/json',
+          'X-CSRFToken': CSRF || ''
+        },
+        body: JSON.stringify(data||{})
+      });
+      if(!r.ok){
+        const txt = await r.text().catch(()=> '');
+        throw new Error(txt || ('HTTP '+r.status));
+      }
+      return r.json();
+    }
+
     async function loadRecent(){
       const url = "{% url 'orders:orders-collection' %}" + "?floor=B1&types=DINE_IN,TAKEOUT&limit=50";
       try{
         const d = await getJSON(url);
-        const list = d.results || [];
+        const list = (d.results || []).filter(o => o.status !== 'CANCELLED');
         let html = '';
         for (let k=0;k<list.length;k++){
           const o = list[k];
@@ -87,9 +113,13 @@
           const payIsTicket = (o.payment_method === 'TICKET');
           const payBadgeCls = 'badge pay ' + (payIsTicket ? 'ticket' : 'cash');
           const payLabel    = payIsTicket ? '티켓' : '현금';
+          const cancelBtn = (o.status !== 'READY')
+            ? '<button class="cancel-btn" onclick="cancelOrder('+o.id+')">×</button>'
+            : '';
 
           html += ''
             + '<div class="order">'
+            +   cancelBtn
             +   '<div class="row">'
             +     '<div><strong>['+orderNo+'] '+title+'</strong> '
             +       '<span class="badge '+statusClass+'">'+statusName+'</span>'
@@ -130,6 +160,19 @@
     function tick(){
       loadRecent(); loadStats();
     }
+
+    async function cancelOrder(orderId){
+      if(!orderId) return;
+      if(!confirm('이 주문을 취소할까요?')) return;
+      try{
+        await patchJSON(ORDER_STATUS_URL.replace('/0/','/'+orderId+'/'), {status:'CANCELLED'});
+        tick();
+      }catch(e){
+        alert('취소 실패: '+e.message);
+      }
+    }
+    window.cancelOrder = cancelOrder;
+
     document.addEventListener('DOMContentLoaded', function(){
       tick();
       setInterval(tick, 5000);
