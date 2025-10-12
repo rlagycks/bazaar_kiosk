@@ -89,6 +89,10 @@ else:
         "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}
     }
 
+# --- Supabase realtime ---
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+
 # --- 정적 파일(WhiteNoise) ---
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
@@ -119,7 +123,6 @@ def parse_role_pins(raw: str) -> dict[str, str]:
             role, pin = pair.split(":", 1)
             result[role.strip().upper()] = pin.strip()
     return result
-
 
 ROLE_PINS = parse_role_pins(os.environ.get(
     "ROLE_PINS",

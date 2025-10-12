@@ -14,7 +14,8 @@
     @media (max-width:960px){.layout{grid-template-columns:1fr;}}
     .panel{background:#fff;border:1px solid var(--color-border,#e5e7eb);border-radius:10px;padding:12px}
     .title{font-weight:700;margin:0 0 8px 0}
-    .order{border-bottom:1px solid #e5e7eb;padding:10px 0}
+    .order{border-bottom:1px solid #e5e7eb;padding:12px 0 10px 0}
+    .order-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
     .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
     .muted{color:#6b7280;font-size:12px}
     .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:9999px;border:1px solid #d1d5db;background:#fff}
@@ -23,14 +24,19 @@
     .badge.pay{margin-left:6px}
     .badge.pay.cash{background:#111827;color:#fff;border-color:#111827}
     .badge.pay.ticket{background:#4338ca;color:#fff;border-color:#4338ca}
+    .badge.pay.combo{background:#2563eb;color:#fff;border-color:#2563eb}
     .num{font-variant-numeric:tabular-nums}
+    .order-total{margin:6px 0 4px 0;font-weight:600;}
+    .cancel-btn{background:transparent;border:none;color:#9ca3af;font-size:20px;line-height:1;cursor:pointer;padding:0 4px;}
+    .cancel-btn:hover{color:#ef4444;}
+    .cancel-btn:disabled{opacity:0.35;cursor:not-allowed;}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="hdr">
       <h2>지하 카운터</h2>
-      <div class="muted">최근 주문 & 판매 현황 · 5초마다 갱신</div>
+      <div class="muted">최근 주문 & 판매 현황 · 실시간 반영</div>
     </div>
 
     <div class="layout">
@@ -48,8 +54,17 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
+    const SUPABASE_URL = "{{ supabase_url|default:'' }}";
+    const SUPABASE_ANON_KEY = "{{ supabase_anon_key|default:'' }}";
     const KRW = n => (Number(n)||0).toLocaleString('ko-KR');
+    const getCookie = (name)=>{
+      const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+      return m?decodeURIComponent(m.pop()):'';
+    };
+    const CSRF = getCookie('csrftoken');
+    const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
 
     async function getJSON(url){
       const r=await fetch(url,{credentials:'same-origin'});
@@ -57,11 +72,28 @@
       return r.json();
     }
 
+    async function patchJSON(url, data){
+      const r = await fetch(url,{
+        method:'PATCH',
+        credentials:'same-origin',
+        headers:{
+          'Content-Type':'application/json',
+          'X-CSRFToken': CSRF || ''
+        },
+        body: JSON.stringify(data||{})
+      });
+      if(!r.ok){
+        const txt = await r.text().catch(()=> '');
+        throw new Error(txt || ('HTTP '+r.status));
+      }
+      return r.json();
+    }
+
     async function loadRecent(){
       const url = "{% url 'orders:orders-collection' %}" + "?floor=B1&types=DINE_IN,TAKEOUT&limit=50";
       try{
         const d = await getJSON(url);
-        const list = d.results || [];
+        const list = (d.results || []).filter(o => o.status !== 'CANCELLED');
         let html = '';
         for (let k=0;k<list.length;k++){
           const o = list[k];
@@ -78,27 +110,42 @@
           // 품목, 금액
           const items = (o.items||[]).map(i => i.menu_item_name + '×' + i.qty).join(', ');
           const total = '₩'+KRW(o.total_price||0);
-          const got   = (o.received_amount!=null) ? ('₩'+KRW(o.received_amount)) : '-';
-          const chg   = (o.change_amount!=null) ? ('₩'+KRW(o.change_amount)) : '-';
+          const cashAmt = Number(o.received_cash_amount||0);
+          const ticketAmt = Number(o.received_ticket_amount||0);
+          const gotParts = [];
+          if(cashAmt){ gotParts.push('현금 ₩'+KRW(cashAmt)); }
+          if(ticketAmt){ gotParts.push('티켓 ₩'+KRW(ticketAmt)); }
+          const got = gotParts.length ? gotParts.join(' + ') : ((o.received_amount!=null) ? ('₩'+KRW(o.received_amount)) : '-');
+          const changeValue = (o.change_amount!=null) ? Math.max(0, o.change_amount) : null;
+          const chg   = (changeValue!=null) ? ('₩'+KRW(changeValue)) : '-';
 
           // 상태/결제
           const statusClass = (o.status==='READY') ? 'ready' : 'prep';
-          const statusName  = (o.status==='READY') ? '준비완료' : '준비중';
-          const payIsTicket = (o.payment_method === 'TICKET');
-          const payBadgeCls = 'badge pay ' + (payIsTicket ? 'ticket' : 'cash');
-          const payLabel    = payIsTicket ? '티켓' : '현금';
+      const statusName  = (o.status==='READY') ? '준비완료' : '준비중';
+      let payBadgeCls = 'badge pay cash';
+      let payLabel = '현금';
+      if(o.payment_method === 'TICKET'){
+        payBadgeCls = 'badge pay ticket';
+        payLabel = '티켓';
+      }else if(o.payment_method === 'CASH_TICKET'){
+        payBadgeCls = 'badge pay combo';
+        payLabel = '현금+티켓';
+      }
+      const cancelBtn = (o.status !== 'READY')
+        ? '<button class="cancel-btn" onclick="cancelOrder('+o.id+')">×</button>'
+        : '';
 
           html += ''
             + '<div class="order">'
-            +   '<div class="row">'
+            +   '<div class="order-head">'
             +     '<div><strong>['+orderNo+'] '+title+'</strong> '
             +       '<span class="badge '+statusClass+'">'+statusName+'</span>'
             +       '<span class="'+payBadgeCls+'">'+payLabel+'</span>'
             +     '</div>'
-            +     '<div class="num">'+ total +'</div>'
+            +     cancelBtn
             +   '</div>'
             +   '<div class="muted">'+items+'</div>'
-            +   '<div class="muted">받은돈: '+got+' · 거스름돈: '+chg+'</div>'
+            +   '<div class="muted">총액: '+total+' · 받은돈: '+got+' · 거스름돈: '+chg+'</div>'
             + '</div>';
         }
         document.getElementById('recent').innerHTML = html || '<div class="muted">주문 없음</div>';
@@ -127,12 +174,92 @@
       }
     }
 
+    const AUTO_MS = 5000;
+    let pollTimer = null;
+    let supabaseClient = null;
+    let realtimeChannel = null;
+    let realtimeEnabled = false;
+    let refreshTimer = null;
+
     function tick(){
       loadRecent(); loadStats();
     }
+
+    function scheduleRefresh(){
+      if(refreshTimer) return;
+      refreshTimer = setTimeout(()=>{
+        refreshTimer = null;
+        tick();
+      }, 200);
+    }
+
+    function startPolling(){
+      if(realtimeEnabled) return;
+      if(pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(tick, AUTO_MS);
+    }
+
+    function stopPolling(){
+      if(pollTimer){
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    function initRealtime(){
+      if(!SUPABASE_URL || !SUPABASE_ANON_KEY || typeof window.supabase === "undefined"){
+        startPolling();
+        return;
+      }
+      try{
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        realtimeChannel = supabaseClient.channel('b1-counter')
+          .on('postgres_changes',{event:'*',schema:'public',table:'orders_order'}, scheduleRefresh)
+          .on('postgres_changes',{event:'*',schema:'public',table:'orders_orderitem'}, scheduleRefresh);
+        realtimeChannel.subscribe((status)=>{
+          if(status === 'SUBSCRIBED'){
+            realtimeEnabled = true;
+            stopPolling();
+          }
+        });
+      }catch(e){
+        console.error('Supabase realtime init 실패', e);
+        startPolling();
+      }
+    }
+
+    async function cancelOrder(orderId){
+      if(!orderId) return;
+      if(!confirm('이 주문을 취소할까요?')) return;
+      try{
+        await patchJSON(ORDER_STATUS_URL.replace('/0/','/'+orderId+'/'), {status:'CANCELLED'});
+        scheduleRefresh();
+      }catch(e){
+        alert('취소 실패: '+e.message);
+      }
+    }
+    window.cancelOrder = cancelOrder;
+
     document.addEventListener('DOMContentLoaded', function(){
       tick();
-      setInterval(tick, 5000);
+      initRealtime();
+      if(!realtimeEnabled){
+        startPolling();
+      }
+    });
+
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.hidden){
+        stopPolling();
+      }else if(!realtimeEnabled){
+        startPolling();
+      }
+    });
+
+    window.addEventListener('beforeunload', ()=>{
+      if(supabaseClient && realtimeChannel){
+        supabaseClient.removeChannel(realtimeChannel);
+      }
     });
   </script>
 </body>

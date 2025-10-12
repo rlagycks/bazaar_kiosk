@@ -23,7 +23,6 @@
 
     <div class="menu-categories">
       <div>
-        <div class="category-tabs" id="catTabs"></div>
         <div class="menu-items" id="menuGrid"></div>
       </div>
 
@@ -52,7 +51,7 @@
   const CSRF=getCookie('csrftoken');
   const KRW=function(n){return (n||0).toLocaleString('ko-KR');};
 
-  let tables=[], categories=[], items=[];
+  let tables=[], items=[];
   let selectedTableId=null;
   let cart=[];
 
@@ -81,34 +80,16 @@
   async function loadMenus(){
     const r = await fetch('/orders/menus/?scope=KITCHEN');
     const d = await r.json();
-    categories = (d.categories||[]);
     items = (d.items||[]);
-    renderCategories();
     renderMenuGrid();
   }
-  function renderCategories(){
-    const wrap = document.getElementById('catTabs');
-    if (!categories.length){ wrap.innerHTML=''; return; }
-    const activeId = + (wrap.querySelector('.tab-btn.active')?.dataset.id || categories[0].id);
-    wrap.innerHTML = categories.map(function(c){
-      return '<button class="tab-btn'+(c.id===activeId?' active':'')+'" data-id="'+c.id+'">'+c.name+'</button>';
-    }).join('');
-    for (const b of wrap.querySelectorAll('.tab-btn')){
-      b.onclick=function(){
-        for (const x of wrap.querySelectorAll('.tab-btn')) x.classList.remove('active');
-        b.classList.add('active');
-        renderMenuGrid();
-      }
-    }
-  }
-  function currentCategoryId(){
-    const btn = document.querySelector('#catTabs .tab-btn.active');
-    return btn? +btn.dataset.id : (categories[0]?.id || null);
-  }
   function renderMenuGrid(){
-    const catId=currentCategoryId();
     const grid=document.getElementById('menuGrid');
-    const list = items.filter(function(m){return !catId || m.category_id===catId;});
+    const list = items.slice().sort(function(a,b){
+      return a.sort_index === b.sort_index
+        ? a.name.localeCompare(b.name)
+        : (a.sort_index||0) - (b.sort_index||0);
+    });
     grid.innerHTML = list.map(function(m){
       return '<div class="menu-item" data-id="'+m.id+'"><h4>'+m.name+'</h4><div class="price">₩'+KRW(m.price)+'</div></div>';
     }).join('');
