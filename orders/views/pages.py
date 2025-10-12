@@ -11,14 +11,10 @@ def order_page(request):
 def b1_counter_page(request):
     return render(request, "orders/b1_counter.html")
 
-@require_roles("F1_COUNTER")
-def f1_counter_page(request):
-    return render(request, "orders/f1_counter.html")
-
-@require_roles("KITCHEN")
+@require_roles("KITCHEN_LEAD")
 def kitchen_page(request):
     return render(request, "orders/kitchen.html")
 
-@require_roles("F1_BOOTH")
-def f1_booth_page(request):
-    return render(request, "orders/f1_booth.html")
+@require_roles("KITCHEN", "KITCHEN_LEAD")
+def kitchen_monitor_page(request):
+    return render(request, "orders/kitchen_monitor.html")

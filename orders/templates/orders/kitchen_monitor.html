@@ -1,0 +1,118 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>주방 모니터</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
+  <style>
+    body{background:#f3f4f6;}
+    .wrap{max-width:1240px;margin:0 auto;padding:16px;}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;gap:12px;flex-wrap:wrap;}
+    .hdr h2{margin:0;font-size:22px;}
+    .hdr .muted{color:#6b7280;font-size:14px;}
+    .panel{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;}
+    .card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:18px;min-height:120px;display:flex;flex-direction:column;justify-content:center;align-items:center;box-shadow:0 12px 24px rgba(15,23,42,.08);}
+    .card h3{margin:0;font-size:18px;font-weight:700;text-align:center;color:#111827;}
+    .card .count{margin-top:12px;font-size:36px;font-weight:800;color:#2563eb;}
+    .empty{grid-column:1/-1;text-align:center;padding:48px 0;border:1px dashed #d1d5db;border-radius:12px;color:#6b7280;font-size:16px;background:#fff;}
+    #status{color:#6b7280;font-size:13px;text-align:right;margin-top:12px;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hdr">
+      <div>
+        <h2>주방 모니터</h2>
+        <div class="muted">메뉴별 준비 대기 수량</div>
+      </div>
+      <div id="status" class="muted">-</div>
+    </div>
+
+    <section class="panel">
+      <div id="board" class="grid">
+        <div class="empty">대기 중인 메뉴가 없습니다.</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const BOARD = document.getElementById('board');
+    const STATUS = document.getElementById('status');
+    const URL = "{% url 'orders:kitchen-menu-summary' %}" + "?floor=B1";
+    const POLL_MS = 5000;
+    let timer = null;
+    let busy = false;
+
+    async function fetchJSON(url){
+      const r = await fetch(url,{credentials:'same-origin'});
+      if(!r.ok){
+        const text = await r.text().catch(()=> '');
+        throw new Error(text || ('HTTP '+r.status));
+      }
+      return r.json();
+    }
+
+    function render(items){
+      if(!items.length){
+        BOARD.innerHTML = '<div class="empty">대기 중인 메뉴가 없습니다.</div>';
+        return;
+      }
+      const html = items.map(row=>{
+        return ''
+          + '<article class="card">'
+          +   '<h3>'+ escapeHtml(row.name) +'</h3>'
+          +   '<div class="count">'+ row.pending +'</div>'
+          + '</article>';
+      }).join('');
+      BOARD.innerHTML = html;
+    }
+
+    const escapeHtml = (value)=>{
+      if(value == null) return '';
+      return String(value)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    };
+
+    async function load(){
+      if(busy) return;
+      busy = true;
+      try{
+        const data = await fetchJSON(URL);
+        render(data.items || []);
+        const now = new Date();
+        STATUS.textContent = '갱신: ' + now.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      }catch(e){
+        STATUS.textContent = '로딩 실패: ' + e.message;
+      }finally{
+        busy = false;
+      }
+    }
+
+    function start(){
+      if(timer) clearInterval(timer);
+      timer = setInterval(load, POLL_MS);
+    }
+
+    document.addEventListener('DOMContentLoaded', ()=>{
+      load();
+      start();
+    });
+
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.hidden){
+        if(timer) clearInterval(timer);
+      }else{
+        load();
+        start();
+      }
+    });
+  </script>
+</body>
+</html>

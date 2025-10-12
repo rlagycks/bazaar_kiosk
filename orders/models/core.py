@@ -22,6 +22,7 @@ class OrderType(models.TextChoices):
 class OrderStatus(models.TextChoices):
     PREPARING = "PREPARING", "준비중"
     READY     = "READY", "완료"
+    CANCELLED = "CANCELLED", "취소"
 
 
 class OrderSource(models.TextChoices):
@@ -147,6 +148,7 @@ class OrderItem(models.Model):
     menu_item = models.ForeignKey(MenuItem, on_delete=models.PROTECT, related_name="order_items")
     qty = models.PositiveIntegerField()
     unit_price = models.PositiveIntegerField(blank=True, null=True)
+    prepared_qty = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ["id"]
@@ -155,3 +157,11 @@ class OrderItem(models.Model):
     @property
     def line_total(self) -> int:
         return int(self.qty) * int(self.unit_price or 0)
+
+    @property
+    def remaining_qty(self) -> int:
+        return max(0, int(self.qty) - int(self.prepared_qty or 0))
+
+    @property
+    def is_prepared(self) -> bool:
+        return self.remaining_qty == 0
