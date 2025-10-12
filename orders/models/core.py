@@ -11,6 +11,7 @@ class FloorChoices(models.TextChoices):
 class PaymentMethod(models.TextChoices):
     CASH   = "CASH", "현금"
     TICKET = "TICKET", "티켓"
+    CASH_TICKET = "CASH_TICKET", "현금+티켓"
 
 
 class OrderType(models.TextChoices):
@@ -47,19 +48,7 @@ class Table(models.Model):
         return f"테이블 {self.number}{' · ' + self.name if self.name else ''}"
 
 
-class MenuCategory(models.Model):
-    name = models.CharField(max_length=50, unique=True)
-    sort_index = models.IntegerField(default=0)
-
-    class Meta:
-        ordering = ["sort_index", "name"]
-
-    def __str__(self):
-        return self.name
-
-
 class MenuItem(models.Model):
-    category = models.ForeignKey(MenuCategory, on_delete=models.PROTECT, related_name="items")
     name = models.CharField(max_length=100)
     price = models.PositiveIntegerField()
     is_active = models.BooleanField(default=True)
@@ -78,11 +67,9 @@ class MenuItem(models.Model):
     updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
-        ordering = ["category__sort_index", "sort_index", "name"]
-        unique_together = (("category", "name"),)
+        ordering = ["sort_index", "name"]
         indexes = [
             models.Index(fields=["is_active", "sort_index", "name"]),
-            models.Index(fields=["category", "is_active", "visible_counter", "visible_booth", "visible_kitchen"]),
         ]
 
     def __str__(self):
@@ -105,8 +92,10 @@ class Order(models.Model):
 
     # 지하 주문서 확장
     is_takeout = models.BooleanField(default=False)  # 지하: 포장 여부
-    payment_method = models.CharField(max_length=10, choices=PaymentMethod.choices, default=PaymentMethod.CASH)
+    payment_method = models.CharField(max_length=12, choices=PaymentMethod.choices, default=PaymentMethod.CASH)
     received_amount = models.PositiveIntegerField(null=True, blank=True)
+    received_cash_amount = models.PositiveIntegerField(null=True, blank=True)
+    received_ticket_amount = models.PositiveIntegerField(null=True, blank=True)
 
     # 공통
     total_price = models.PositiveIntegerField(default=0)
@@ -148,6 +137,7 @@ class OrderItem(models.Model):
     menu_item = models.ForeignKey(MenuItem, on_delete=models.PROTECT, related_name="order_items")
     qty = models.PositiveIntegerField()
     unit_price = models.PositiveIntegerField(blank=True, null=True)
+    service_mode = models.CharField(max_length=10, choices=OrderType.choices, default=OrderType.DINE_IN)
     prepared_qty = models.PositiveIntegerField(default=0)
 
     class Meta:
