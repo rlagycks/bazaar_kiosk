@@ -5,18 +5,17 @@ from django.db.models import Q
 
 class FloorChoices(models.TextChoices):
     B1 = "B1", "지하"
-    F1 = "F1", "1층"
 
 
 class PaymentMethod(models.TextChoices):
     CASH   = "CASH", "현금"
     TICKET = "TICKET", "티켓"
+    CASH_TICKET = "CASH_TICKET", "현금+티켓"
 
 
 class OrderType(models.TextChoices):
     DINE_IN = "DINE_IN", "매장"
     TAKEOUT = "TAKEOUT", "포장"
-    BOOTH   = "BOOTH", "부스(1층)"
 
 
 class OrderStatus(models.TextChoices):
@@ -26,11 +25,9 @@ class OrderStatus(models.TextChoices):
 
 
 class OrderSource(models.TextChoices):
-    ORDER   = "ORDER", "서빙(모바일)"
-    B1      = "B1_COUNTER", "지하 카운터"
-    F1      = "F1_COUNTER", "1층 카운터"
+    ORDER   = "ORDER", "주문(서빙)"
+    COUNTER = "B1_COUNTER", "주방 카운터"
     KITCHEN = "KITCHEN", "주방"
-    BOOTH   = "F1_BOOTH", "1층 부스"
 
 
 class Table(models.Model):
@@ -47,26 +44,14 @@ class Table(models.Model):
         return f"테이블 {self.number}{' · ' + self.name if self.name else ''}"
 
 
-class MenuCategory(models.Model):
-    name = models.CharField(max_length=50, unique=True)
-    sort_index = models.IntegerField(default=0)
-
-    class Meta:
-        ordering = ["sort_index", "name"]
-
-    def __str__(self):
-        return self.name
-
-
 class MenuItem(models.Model):
-    category = models.ForeignKey(MenuCategory, on_delete=models.PROTECT, related_name="items")
     name = models.CharField(max_length=100)
     price = models.PositiveIntegerField()
     is_active = models.BooleanField(default=True)
 
     # 채널 가시성
     visible_counter = models.BooleanField(default=True)   # 카운터 공통
-    visible_booth   = models.BooleanField(default=False)  # 1층 부스
+    visible_booth   = models.BooleanField(default=False)  # 부스 채널(현재 미사용)
     visible_kitchen = models.BooleanField(default=True)   # 지하 주방(=식사류)
 
     # 관리
@@ -78,11 +63,9 @@ class MenuItem(models.Model):
     updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
-        ordering = ["category__sort_index", "sort_index", "name"]
-        unique_together = (("category", "name"),)
+        ordering = ["sort_index", "name"]
         indexes = [
             models.Index(fields=["is_active", "sort_index", "name"]),
-            models.Index(fields=["category", "is_active", "visible_counter", "visible_booth", "visible_kitchen"]),
         ]
 
     def __str__(self):
@@ -91,8 +74,8 @@ class MenuItem(models.Model):
 
 class Order(models.Model):
     # 핵심
-    floor = models.CharField(max_length=2, choices=FloorChoices.choices,default=FloorChoices.B1)  # B1/F1
-    order_type = models.CharField(max_length=10, choices=OrderType.choices)  # DINE_IN/TAKEOUT/BOOTH
+    floor = models.CharField(max_length=2, choices=FloorChoices.choices,default=FloorChoices.B1)  # 단일 지하 운영
+    order_type = models.CharField(max_length=10, choices=OrderType.choices)  # DINE_IN/TAKEOUT
     status = models.CharField(max_length=10, choices=OrderStatus.choices, default=OrderStatus.PREPARING)
     source = models.CharField(max_length=12, choices=OrderSource.choices, default=OrderSource.ORDER)
 
@@ -105,8 +88,10 @@ class Order(models.Model):
 
     # 지하 주문서 확장
     is_takeout = models.BooleanField(default=False)  # 지하: 포장 여부
-    payment_method = models.CharField(max_length=10, choices=PaymentMethod.choices, default=PaymentMethod.CASH)
+    payment_method = models.CharField(max_length=12, choices=PaymentMethod.choices, default=PaymentMethod.CASH)
     received_amount = models.PositiveIntegerField(null=True, blank=True)
+    received_cash_amount = models.PositiveIntegerField(null=True, blank=True)
+    received_ticket_amount = models.PositiveIntegerField(null=True, blank=True)
 
     # 공통
     total_price = models.PositiveIntegerField(default=0)
@@ -117,12 +102,12 @@ class Order(models.Model):
 
     class Meta:
         constraints = [
-            # 테이블 규칙: 지하 매장/포장 외에는 테이블이 없어야 함
+            # 테이블 규칙: 모든 지하 주문은 테이블(테이블 번호·포장 슬롯)을 가져야 함
             models.CheckConstraint(
                 name="orders_table_rule",
                 check=Q(
                     Q(order_type=OrderType.DINE_IN, floor=FloorChoices.B1, table__isnull=False)
-                    | Q(~Q(order_type=OrderType.DINE_IN), table__isnull=True)
+                    | Q(order_type=OrderType.TAKEOUT, floor=FloorChoices.B1, table__isnull=False)
                 ),
             ),
             # 층+일자+번호 유니크(번호가 있을 때만)
@@ -148,6 +133,7 @@ class OrderItem(models.Model):
     menu_item = models.ForeignKey(MenuItem, on_delete=models.PROTECT, related_name="order_items")
     qty = models.PositiveIntegerField()
     unit_price = models.PositiveIntegerField(blank=True, null=True)
+    service_mode = models.CharField(max_length=10, choices=OrderType.choices, default=OrderType.DINE_IN)
     prepared_qty = models.PositiveIntegerField(default=0)
 
     class Meta:

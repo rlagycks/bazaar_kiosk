@@ -15,8 +15,9 @@ urlpatterns = [
     # 화면
     path("order/",             pages.order_page,          name="order"),
     path("b1-counter/",        pages.b1_counter_page,     name="b1-counter"),
-    path("kitchen/",           pages.kitchen_page,        name="kitchen"),
-    path("kitchen/monitor/",   pages.kitchen_monitor_page, name="kitchen-monitor"),
+    path("kitchen/",           pages.kitchen_overview_page,    name="kitchen"),
+    path("kitchen/hall/",      pages.kitchen_hall_page,       name="kitchen-hall"),
+    path("kitchen/takeout/",   pages.kitchen_takeout_page,    name="kitchen-takeout"),
 
     # API
     path("tables/",                 api.tables_list,          name="tables"),

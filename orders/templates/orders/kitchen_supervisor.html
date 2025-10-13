@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>주방 총괄</title>
+  <title>{{ page_title }}</title>
   <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
   <style>
     body{background:#f3f4f6;}
@@ -23,9 +23,17 @@
     .panel-title{margin:0;font-size:18px;}
     .board{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;}
     .order-card{border:1px solid #e5e7eb;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;background:#f9fafb;}
-    .order-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
-    .order-badge{font-weight:700;font-size:20px;color:#111827;}
-    .order-meta{color:#6b7280;font-size:13px;line-height:1.5;}
+    .order-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;}
+    .order-table{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;}
+    .table-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:12px;font-size:15px;font-weight:700;color:#111827;align-self:flex-start;}
+    .table-badge.table{background:#dbeafe;}
+    .table-badge.takeout{background:#fef3c7;color:#b45309;}
+    .table-badge.mixed{background:#ede9fe;color:#5b21b6;}
+    .order-head-right{display:flex;align-items:center;gap:6px;}
+    .order-badge{font-weight:600;font-size:16px;color:#111827;min-width:56px;text-align:right;}
+    .order-cancel{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;background:transparent;color:#ef4444;font-size:20px;font-weight:700;cursor:pointer;transition:color .12s ease;}
+    .order-cancel:hover{color:#b91c1c;}
+    .order-cancel:disabled{opacity:.4;cursor:not-allowed;}
     .order-items{display:flex;flex-direction:column;gap:8px;}
     .order-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px;border-radius:10px;border:1px solid rgba(209,213,219,0.8);background:#fff;transition:border-color .15s ease, background .15s ease;}
     .order-item.done{background:#dcfce7;border-color:#34d399;}
@@ -35,6 +43,9 @@
     .item-status .status-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:#e5e7eb;color:#374151;font-weight:600;font-size:12px;}
     .order-item.done .item-status{color:#047857;}
     .order-item.done .item-status .status-pill{background:#bbf7d0;color:#047857;}
+    .mode-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;margin-bottom:4px;}
+    .mode-pill.dine{background:#e0f2fe;color:#0369a1;}
+    .mode-pill.takeout{background:#fef3c7;color:#b45309;}
     .item-actions{display:flex;align-items:center;gap:6px;}
     .todo-btn{min-width:56px;padding:8px 12px;border-radius:999px;border:1px solid #dc2626;background:#fee2e2;color:#b91c1c;font-weight:700;cursor:pointer;transition:all .15s ease;}
     .todo-btn.minus{background:#ede9fe;border-color:#a855f7;color:#5b21b6;}
@@ -50,28 +61,29 @@
   <div class="wrap">
     <div class="hdr">
       <div>
-        <h2>주방 총괄</h2>
-        <div class="muted">주문별 ToDo 버튼을 눌러 완료 처리하면 모든 메뉴가 완료된 주문은 자동으로 목록에서 제외됩니다.</div>
+        <h2>{{ page_title }}</h2>
+        <div class="muted">{{ page_hint|default:"주문을 관리하세요." }}</div>
       </div>
       <div class="hdr-actions">
-        <a class="btn ghost" href="{% url 'orders:kitchen-monitor' %}" target="_blank" rel="noopener">모니터 열기</a>
         <button class="btn secondary" id="btnReload">새로고침</button>
         <a class="btn logout" href="{% url 'orders:logout' %}">로그아웃</a>
       </div>
     </div>
 
     <section class="panel">
-      <div class="panel-head">
-        <h3 class="panel-title">진행 중 주문</h3>
-        <div id="status" class="muted">-</div>
-      </div>
-      <div id="board" class="board">
-        <div class="empty">대기 중인 주문이 없습니다.</div>
-      </div>
+      <header class="panel-head">
+        <h3 class="panel-title">대기 주문</h3>
+        <div id="status" class="muted">주문을 불러오는 중...</div>
+      </header>
+        <div id="board" class="board"></div>
     </section>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
+    const SUPABASE_URL = "{{ supabase_url|default:'' }}";
+    const SUPABASE_ANON_KEY = "{{ supabase_anon_key|default:'' }}";
+    const MODE_SCOPE = "{{ mode_scope|default:'ALL' }}";
     const getCookie = (name)=>{
       const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
       return m?decodeURIComponent(m.pop()):'';
@@ -81,7 +93,12 @@
     const STATUS = document.getElementById('status');
     const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT&limit=200";
     const ITEM_URL = "{% url 'orders:order-item-progress' 0 %}";
+    const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
     const AUTO_MS = 5000;
+    let supabaseClient = null;
+    let realtimeChannel = null;
+    let realtimeEnabled = false;
+    let refreshTimer = null;
     let pollTimer = null;
     let isLoading = false;
 
@@ -107,6 +124,27 @@
       return d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     };
 
+    function getModeCounts(order){
+      const counts = {DINE_IN:0, TAKEOUT:0};
+      (order.items||[]).forEach(item=>{
+        const raw = (item.service_mode || order.order_type || '').toUpperCase();
+        const key = raw === 'TAKEOUT' ? 'TAKEOUT' : 'DINE_IN';
+        counts[key] += 1;
+      });
+      return counts;
+    }
+
+    function includeOrder(order){
+      const counts = getModeCounts(order);
+      if (MODE_SCOPE === 'TAKEOUT'){
+        return counts.DINE_IN === 0 && counts.TAKEOUT > 0;
+      }
+      if (MODE_SCOPE === 'HALL'){
+        return counts.DINE_IN > 0;
+      }
+      return true;
+    }
+
     async function fetchJSON(url, options){
       const r = await fetch(url, Object.assign({credentials:'same-origin'}, options||{}));
       if (!r.ok){
@@ -122,27 +160,25 @@
         return;
       }
       const html = list.map(order=>{
-        const tags = [];
-        if (order.table){
-          const num = order.table.number || order.table.id;
-          const name = order.table.name ? (' ('+order.table.name+')') : '';
-          tags.push('테이블 ' + num + name);
-        }
-        if (order.is_takeout || order.order_type === 'TAKEOUT'){
-          tags.push('포장');
-        }
         const time = formatTime(order.created_at);
-        if (time) tags.push(time);
         const note = (order.note || '').trim();
+        const orderMode = (order.order_type || '').toUpperCase();
+        const modeCounts = {DINE_IN:0, TAKEOUT:0};
         const itemsHtml = (order.items || []).map(item=>{
           const done = !!item.is_prepared;
           const totalQty = Number(item.qty) || 0;
           const preparedQty = Number(item.prepared_qty) || 0;
           const statusText = `완료 ${preparedQty} / ${totalQty}`;
           const isComplete = preparedQty >= totalQty && totalQty > 0;
+          const rawMode = (item.service_mode || orderMode || '').toUpperCase();
+          const itemMode = rawMode === 'TAKEOUT' ? 'TAKEOUT' : 'DINE_IN';
+          modeCounts[itemMode] += 1;
+          const itemModeLabel = itemMode === 'TAKEOUT' ? '포장' : '홀';
+          const itemModeClass = itemMode === 'TAKEOUT' ? 'takeout' : 'dine';
           return ''
             + '<div class="order-item'+(done ? ' done' : '')+'">'
             +   '<div class="item-info">'
+            +     '<span class="mode-pill '+itemModeClass+'">'+itemModeLabel+'</span>'
             +     '<div class="item-name">'+ escapeHtml(item.menu_item_name) +'</div>'
             +     '<div class="item-status">'
             +       '<span class="status-pill">'+ escapeHtml(statusText) +'</span>'
@@ -164,11 +200,54 @@
             +   '</div>'
             + '</div>';
         }).join('');
+        const hasTable = !!order.table;
+        let tableLabel = '';
+        let tableBadgeClass = 'table';
+        const dineCount = modeCounts.DINE_IN;
+        const takeCount = modeCounts.TAKEOUT;
+        if (hasTable){
+          const num = order.table.number || order.table.id;
+          const name = order.table.name ? (' ('+order.table.name+')') : '';
+          const baseLabel = '테이블 ' + num + name;
+          if (dineCount === 0 && takeCount > 0){
+            tableLabel = '포장 ' + num + name;
+            tableBadgeClass = 'takeout';
+          }else{
+            tableLabel = baseLabel;
+            if(takeCount > 0 && dineCount > 0){
+              tableBadgeClass = 'mixed';
+            }
+          }
+        }else if(dineCount === 0 && takeCount > 0){
+          tableLabel = '포장 주문';
+          tableBadgeClass = 'takeout';
+        }else if(dineCount > 0 && takeCount > 0){
+          tableLabel = '홀+포장 주문';
+          tableBadgeClass = 'mixed';
+        }else{
+          tableLabel = '홀 주문';
+        }
+        const modeSummary = modeCounts.TAKEOUT && modeCounts.DINE_IN
+          ? '홀+포장'
+          : (modeCounts.TAKEOUT ? '포장' : '홀');
+        const metaParts = [];
+        if(hasTable && dineCount > 0 && takeCount > 0){
+          metaParts.push(modeSummary);
+        }
+        if(time) metaParts.push(time);
+        const metaText = metaParts.join(' · ');
+        const canCancel = order.status !== 'CANCELLED' && order.status !== 'READY';
         return ''
           + '<section class="order-card" data-order-id="'+order.id+'">'
           +   '<header class="order-head">'
-          +     '<div class="order-badge">'+ escapeHtml(formatOrderNo(order.order_no)) +'</div>'
-          +     '<div class="order-meta">'+ (tags.join(' · ') || '주문') +'</div>'
+          +     '<div class="order-table">'
+          +       '<div class="table-badge '+tableBadgeClass+'">'+ escapeHtml(tableLabel) +'</div>'
+          +       (metaText ? '<div class="order-meta">'+ escapeHtml(metaText) +'</div>' : '')
+          +     '</div>'
+          +     '<div class="order-head-right">'
+          +       '<div class="order-badge">'+ escapeHtml(formatOrderNo(order.order_no)) +'</div>'
+          +       (canCancel ? '<button class="order-cancel" data-order-id="'+order.id+'">×</button>' : '')
+          +     '</div>'
           +   '</header>'
           +   '<div class="order-items">'+ (itemsHtml || '<div class="item-qty">품목 없음</div>') +'</div>'
           +   (note ? '<div class="order-note">요청사항: '+ escapeHtml(note) +'</div>' : '')
@@ -182,18 +261,46 @@
       isLoading = true;
       try{
         const data = await fetchJSON(ORDERS_URL);
-        renderOrders(data.results || []);
+        const results = (data.results || []).slice().sort((a,b)=>{
+          const ta = new Date(a.created_at).getTime();
+          const tb = new Date(b.created_at).getTime();
+          return ta - tb;
+        });
+        const filtered = results.filter(includeOrder);
+        renderOrders(filtered);
         const stamp = new Date();
+        const filteredCount = filtered.length;
         STATUS.textContent = '갱신: ' + stamp.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
-          + ' · 대기 주문 ' + ((data.results || []).length) + '건';
+          + ' · 대기 주문 ' + filteredCount + '건';
       }catch(e){
-        STATUS.textContent = '로딩 실패: ' + e.message;
-      }finally{
-        isLoading = false;
+        console.error('주문 불러오기 실패', e);
+        BOARD.innerHTML = '<div class="empty">주문을 불러오지 못했습니다.</div>';
+        STATUS.textContent = '주문 로드 실패';
       }
     }
 
-    async function setPreparedQty(itemId, preparedQty, button){
+    async function cancelOrder(orderId, button){
+      if (!orderId) return;
+      if (!confirm('이 주문을 취소할까요?')) return;
+      if (button) button.disabled = true;
+      try{
+        await fetchJSON(ORDER_STATUS_URL.replace('/0/','/'+orderId+'/'), {
+          method:'PATCH',
+          headers:{
+            'Content-Type':'application/json',
+            'X-CSRFToken': CSRF || ''
+          },
+          body: JSON.stringify({status:'CANCELLED'})
+        });
+        await loadOrders();
+      }catch(e){
+        alert('취소 실패: ' + e.message);
+      }finally{
+        if (button) button.disabled = false;
+      }
+    }
+
+    async function setPreparedQty(itemId, nextQty, button){
       if (!itemId) return;
       if (button) button.disabled = true;
       try{
@@ -203,11 +310,11 @@
             'Content-Type':'application/json',
             'X-CSRFToken': CSRF || ''
           },
-          body: JSON.stringify({prepared_qty: preparedQty})
+          body: JSON.stringify({prepared_qty: nextQty})
         });
         await loadOrders();
       }catch(e){
-        alert('처리 실패: ' + e.message);
+        alert('수량 업데이트 실패: ' + e.message);
       }finally{
         if (button) button.disabled = false;
       }
@@ -218,6 +325,12 @@
     });
 
     BOARD.addEventListener('click', (ev)=>{
+      const cancel = ev.target.closest('.order-cancel');
+      if(cancel){
+        const orderId = cancel.dataset.orderId;
+        cancelOrder(orderId, cancel);
+        return;
+      }
       const btn = ev.target.closest('.todo-btn');
       if (!btn) return;
       const itemId = btn.dataset.itemId;
@@ -240,23 +353,69 @@
       }
     });
 
+    function scheduleRefresh(){
+      if (refreshTimer) return;
+      refreshTimer = setTimeout(()=>{
+        refreshTimer = null;
+        loadOrders();
+      }, 200);
+    }
+
     function startPolling(){
+      if (realtimeEnabled) return;
       if (pollTimer) clearInterval(pollTimer);
       pollTimer = setInterval(loadOrders, AUTO_MS);
     }
 
+    function stopPolling(){
+      if (pollTimer){
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    function initRealtime(){
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY || typeof window.supabase === "undefined"){
+        startPolling();
+        return;
+      }
+      try{
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        realtimeChannel = supabaseClient.channel('kitchen-orders')
+          .on('postgres_changes',{event:'*',schema:'public',table:'orders_order'}, scheduleRefresh)
+          .on('postgres_changes',{event:'*',schema:'public',table:'orders_orderitem'}, scheduleRefresh);
+        realtimeChannel.subscribe((status)=>{
+          if(status === 'SUBSCRIBED'){
+            realtimeEnabled = true;
+            stopPolling();
+          }
+        });
+      }catch(e){
+        console.error('Supabase realtime init 실패', e);
+        startPolling();
+      }
+    }
+
     document.addEventListener('visibilitychange', ()=>{
       if (document.hidden){
-        if (pollTimer) clearInterval(pollTimer);
-      }else{
-        loadOrders();
+        stopPolling();
+      }else if (!realtimeEnabled){
         startPolling();
       }
     });
 
     document.addEventListener('DOMContentLoaded', ()=>{
       loadOrders();
-      startPolling();
+      initRealtime();
+      if (!realtimeEnabled){
+        startPolling();
+      }
+    });
+
+    window.addEventListener('beforeunload', ()=>{
+      if (supabaseClient && realtimeChannel){
+        supabaseClient.removeChannel(realtimeChannel);
+      }
     });
   </script>
 </body>

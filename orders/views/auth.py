@@ -6,10 +6,11 @@ from django.shortcuts import render, redirect
 from django.urls import reverse
 
 ROLE_DEFINITIONS = [
-    ("ORDER",          "서빙",       "서빙 · 주문 입력",       "orders:order"),
-    ("B1_COUNTER",     "지하 카운터", "결제 · 모니터링",        "orders:b1-counter"),
-    ("KITCHEN",        "주방",        "메뉴별 대기 수량 확인",   "orders:kitchen-monitor"),
-    ("KITCHEN_LEAD",   "주방 총괄",   "조리 진행 · 완료 처리",  "orders:kitchen"),
+    ("ORDER",           "주문(서빙)",   "테이블 주문 · 서빙 전용 화면", "orders:order"),
+    ("B1_COUNTER",      "주방 카운터",  "결제 · 주문 현황 모니터링",    "orders:b1-counter"),
+    ("KITCHEN",         "주방",        "모든 주문을 한 화면에서 확인",  "orders:kitchen"),
+    ("KITCHEN_HALL",    "홀 총괄",      "홀 주문 · 혼합 주문 집중 관리", "orders:kitchen-hall"),
+    ("KITCHEN_TAKEOUT", "포장 총괄",    "포장 주문만 모아서 확인",      "orders:kitchen-takeout"),
 ]
 
 ROLE_TO_URLNAME = {code: urlname for code, _, _, urlname in ROLE_DEFINITIONS}

@@ -2,10 +2,7 @@ from __future__ import annotations
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import (
-    Table, MenuCategory, MenuItem,
-    Order, OrderItem,
-)
+from .models import Table, MenuItem, Order, OrderItem
 
 # ---- 공용 유틸: 모델에 실제 존재하는 필드만 골라서 사용 ----
 def _field_names(model):
@@ -24,28 +21,21 @@ class TableAdmin(admin.ModelAdmin):
     search_fields = _present(Table, "number", "name")
     ordering = _present(Table, "sort_index", "number")
 
-# ---- MenuCategory ----
-@admin.register(MenuCategory)
-class MenuCategoryAdmin(admin.ModelAdmin):
-    list_display = _present(MenuCategory, "name", "sort_index")
-    ordering = _present(MenuCategory, "sort_index", "name")
-    search_fields = _present(MenuCategory, "name",)
-
 # ---- MenuItem ----
 @admin.register(MenuItem)
 class MenuItemAdmin(admin.ModelAdmin):
     list_display = _present(
         MenuItem,
-        "name", "price", "category", "is_active",
+        "name", "price", "is_active",
         "visible_counter", "visible_booth", "visible_kitchen",
         "sort_index", "sku",
     )
     list_filter = _present(
         MenuItem,
-        "is_active", "visible_counter", "visible_booth", "visible_kitchen", "category",
+        "is_active", "visible_counter", "visible_booth", "visible_kitchen",
     )
     search_fields = _present(MenuItem, "name", "sku")
-    ordering = _present(MenuItem, "category", "sort_index", "name")
+    ordering = _present(MenuItem, "sort_index", "name")
     list_editable = _present(
         MenuItem,
         "price", "is_active", "visible_counter", "visible_booth", "visible_kitchen", "sort_index",

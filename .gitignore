@@ -83,3 +83,7 @@ Thumbs.db
 local_settings.py
 
 *.csv
+__pycache__/
+*.py[cod]
+.venv/
+*.sqlite3
