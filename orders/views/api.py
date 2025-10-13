@@ -8,12 +8,13 @@ from django.views.decorators.csrf import csrf_exempt  # 개발 편의. 운영 �
 from django.db import transaction
 from django.db.models import Sum, F, IntegerField
 from django.utils import timezone
+from functools import lru_cache
 
 from orders.models import (
     FloorChoices, PaymentMethod, OrderType, OrderStatus, OrderSource,
     Table, MenuItem, Order, OrderItem,
 )
-from orders.services import allocate_floor_order_no, recalc_totals
+from orders.services import allocate_floor_order_no
 
 
 # ---------- 공용 ----------
@@ -74,6 +75,11 @@ def _order_base_queryset():
         Order.objects.select_related("table")
         .prefetch_related("items", "items__menu_item")
     )
+
+
+@lru_cache(maxsize=128)
+def _get_table_by_number(number: int) -> Table:
+    return Table.objects.get(number=number, is_active=True)
 
 
 # ---------- 메뉴/테이블 ----------
@@ -166,7 +172,7 @@ def orders_collection(request: HttpRequest):
         if not table_number_raw:
             return HttpResponseBadRequest("매장 주문은 테이블 번호가 필요합니다(포장 제외).")
         try:
-            table = Table.objects.get(number=int(table_number_raw), is_active=True)
+            table = _get_table_by_number(int(table_number_raw))
         except Exception:
             return HttpResponseBadRequest("유효한 테이블 번호가 아닙니다.")
     elif order_type == OrderType.TAKEOUT:
@@ -179,7 +185,7 @@ def orders_collection(request: HttpRequest):
         if not (101 <= table_no <= 120):
             return HttpResponseBadRequest("포장 주문 번호는 101~120 범위여야 합니다.")
         try:
-            table = Table.objects.get(number=table_no, is_active=True)
+            table = _get_table_by_number(table_no)
         except Table.DoesNotExist:
             return HttpResponseBadRequest("등록되지 않은 포장 번호입니다.")
 
@@ -276,21 +282,33 @@ def orders_collection(request: HttpRequest):
             received_ticket_amount=ticket_value or None,
             note=note[:200],
         )
-        for mid, qty, mode in parsed:
-            m = mi_map[mid]
-            OrderItem.objects.create(
+        item_objects = [
+            OrderItem(
                 order=order,
-                menu_item=m,
+                menu_item=mi_map[mid],
                 qty=qty,
-                unit_price=m.price,
+                unit_price=mi_map[mid].price,
                 service_mode=mode,
             )
+            for mid, qty, mode in parsed
+        ]
+        OrderItem.objects.bulk_create(item_objects, batch_size=len(item_objects) or 1)
+
+        total_price = sum(
+            (mi_map[mid].price or 0) * qty for mid, qty, _ in parsed
+        )
+        Order.objects.filter(pk=order.pk).update(total_price=total_price)
+        order.total_price = total_price
 
         allocate_floor_order_no(order)  # 층별 일자 카운터 부여
-        recalc_totals(order)            # 합계 계산
-        order.refresh_from_db()
 
-    order = _order_base_queryset().get(id=order.id)
+        created_items = list(
+            OrderItem.objects.select_related("menu_item")
+            .filter(order=order)
+            .order_by("id")
+        )
+
+    order._prefetched_objects_cache = {"items": created_items}
     return JsonResponse(_serialize_order(order), status=201)
 
 
