@@ -378,8 +378,8 @@
       let {cash: cashAmt, ticket: ticketAmt} = getReceivedAmounts();
       if(Number.isNaN(cashAmt)) cashAmt = 0;
       if(Number.isNaN(ticketAmt)) ticketAmt = 0;
-      const dueAfterTicket = Math.max(0, total - ticketAmt);
-      const change = Math.max(0, cashAmt - dueAfterTicket);
+      const surplus = (cashAmt || 0) + (ticketAmt || 0) - total;
+      const change = Math.max(0, surplus);
       els.change.textContent = KRW(change)+'원';
     }
 

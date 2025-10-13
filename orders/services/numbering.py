@@ -27,12 +27,20 @@ def _sequence_name(floor: str | None) -> str:
 def _allocate_via_sequence(order: Order) -> None:
     seq_name = _sequence_name(order.floor)
     today = timezone.localdate()
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT nextval(%s)", [seq_name])
-        next_no = cursor.fetchone()[0]
-    Order.objects.filter(pk=order.pk).update(order_no=next_no, order_date=today)
-    order.order_no = next_no
-    order.order_date = today
+    while True:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT nextval(%s)", [seq_name])
+            next_no = cursor.fetchone()[0]
+        try:
+            Order.objects.filter(pk=order.pk).update(order_no=next_no, order_date=today)
+        except IntegrityError as exc:
+            message = exc.__cause__.diag.constraint_name if getattr(exc.__cause__, "diag", None) else str(exc)
+            if message and "uq_floor_date_no" in message:
+                continue
+            raise
+        order.order_no = next_no
+        order.order_date = today
+        break
 
 
 def _allocate_via_counter(order: Order, *, max_retries: int) -> None:
