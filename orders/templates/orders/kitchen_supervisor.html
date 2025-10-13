@@ -276,6 +276,8 @@
         console.error('주문 불러오기 실패', e);
         BOARD.innerHTML = '<div class="empty">주문을 불러오지 못했습니다.</div>';
         STATUS.textContent = '주문 로드 실패';
+      }finally{
+        isLoading = false;
       }
     }
 
