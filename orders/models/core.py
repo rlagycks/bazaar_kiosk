@@ -5,7 +5,6 @@ from django.db.models import Q
 
 class FloorChoices(models.TextChoices):
     B1 = "B1", "지하"
-    F1 = "F1", "1층"
 
 
 class PaymentMethod(models.TextChoices):
@@ -17,7 +16,6 @@ class PaymentMethod(models.TextChoices):
 class OrderType(models.TextChoices):
     DINE_IN = "DINE_IN", "매장"
     TAKEOUT = "TAKEOUT", "포장"
-    BOOTH   = "BOOTH", "부스(1층)"
 
 
 class OrderStatus(models.TextChoices):
@@ -27,11 +25,9 @@ class OrderStatus(models.TextChoices):
 
 
 class OrderSource(models.TextChoices):
-    ORDER   = "ORDER", "서빙(모바일)"
-    B1      = "B1_COUNTER", "지하 카운터"
-    F1      = "F1_COUNTER", "1층 카운터"
+    ORDER   = "ORDER", "주문(서빙)"
+    COUNTER = "B1_COUNTER", "주방 카운터"
     KITCHEN = "KITCHEN", "주방"
-    BOOTH   = "F1_BOOTH", "1층 부스"
 
 
 class Table(models.Model):
@@ -55,7 +51,7 @@ class MenuItem(models.Model):
 
     # 채널 가시성
     visible_counter = models.BooleanField(default=True)   # 카운터 공통
-    visible_booth   = models.BooleanField(default=False)  # 1층 부스
+    visible_booth   = models.BooleanField(default=False)  # 부스 채널(현재 미사용)
     visible_kitchen = models.BooleanField(default=True)   # 지하 주방(=식사류)
 
     # 관리
@@ -78,8 +74,8 @@ class MenuItem(models.Model):
 
 class Order(models.Model):
     # 핵심
-    floor = models.CharField(max_length=2, choices=FloorChoices.choices,default=FloorChoices.B1)  # B1/F1
-    order_type = models.CharField(max_length=10, choices=OrderType.choices)  # DINE_IN/TAKEOUT/BOOTH
+    floor = models.CharField(max_length=2, choices=FloorChoices.choices,default=FloorChoices.B1)  # 단일 지하 운영
+    order_type = models.CharField(max_length=10, choices=OrderType.choices)  # DINE_IN/TAKEOUT
     status = models.CharField(max_length=10, choices=OrderStatus.choices, default=OrderStatus.PREPARING)
     source = models.CharField(max_length=12, choices=OrderSource.choices, default=OrderSource.ORDER)
 
@@ -106,12 +102,12 @@ class Order(models.Model):
 
     class Meta:
         constraints = [
-            # 테이블 규칙: 지하 매장/포장 외에는 테이블이 없어야 함
+            # 테이블 규칙: 모든 지하 주문은 테이블(테이블 번호·포장 슬롯)을 가져야 함
             models.CheckConstraint(
                 name="orders_table_rule",
                 check=Q(
                     Q(order_type=OrderType.DINE_IN, floor=FloorChoices.B1, table__isnull=False)
-                    | Q(~Q(order_type=OrderType.DINE_IN), table__isnull=True)
+                    | Q(order_type=OrderType.TAKEOUT, floor=FloorChoices.B1, table__isnull=False)
                 ),
             ),
             # 층+일자+번호 유니크(번호가 있을 때만)

@@ -1,17 +1,16 @@
 from __future__ import annotations
 import json
 from typing import Any, Dict, List
-from datetime import date
 
 from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest, Http404
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt  # 개발 편의. 운영 전 제거 권장.
 from django.db import transaction
-from django.db.models import Q, Sum, F, IntegerField
+from django.db.models import Sum, F, IntegerField
 from django.utils import timezone
 
 from orders.models import (
-    FloorChoices, PaymentMethod, OrderType, OrderStatus,
+    FloorChoices, PaymentMethod, OrderType, OrderStatus, OrderSource,
     Table, MenuItem, Order, OrderItem,
 )
 from orders.services import allocate_floor_order_no, recalc_totals
@@ -88,13 +87,6 @@ def menus_list(request: HttpRequest):
     # 스코프/채널 필터
     if scope in ("KITCHEN", "B1"):
         qs = qs.filter(visible_kitchen=True)
-    elif scope in ("F1", "BOOTH") or channel == "BOOTH":
-        qs = qs.filter(visible_booth=True)
-    elif scope == "COUNTER":
-        if channel == "BOOTH":
-            qs = qs.filter(visible_booth=True)
-        else:
-            qs = qs.filter(visible_counter=True)
     else:
         qs = qs.filter(visible_counter=True)
 
@@ -128,7 +120,9 @@ def orders_collection(request: HttpRequest):
             .prefetch_related("items", "items__menu_item")
             .order_by("-created_at", "-id")
         )
-        if floor in (FloorChoices.B1, FloorChoices.F1):
+        if floor and floor != FloorChoices.B1:
+            return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
+        if floor == FloorChoices.B1:
             qs = qs.filter(floor=floor)
         if status in (OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.CANCELLED):
             qs = qs.filter(status=status)
@@ -144,14 +138,14 @@ def orders_collection(request: HttpRequest):
     except ValueError as e:
         return HttpResponseBadRequest(str(e))
 
-    floor = (p.get("floor") or "").upper()            # "B1" | "F1" (필수)
-    order_type = (p.get("order_type") or "").upper()  # B1: DINE_IN/TAKEOUT, F1: BOOTH
+    floor = (p.get("floor") or FloorChoices.B1).upper()
+    order_type = (p.get("order_type") or "").upper()
     items = p.get("items") or []                      # [{menu_item_id, qty}, ...]
     note = (p.get("note") or "").strip()
 
-    if floor not in (FloorChoices.B1, FloorChoices.F1):
-        return HttpResponseBadRequest("floor 파라미터가 필요합니다(B1/F1).")
-    if order_type not in (OrderType.DINE_IN, OrderType.TAKEOUT, OrderType.BOOTH):
+    if floor != FloorChoices.B1:
+        return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
+    if order_type not in (OrderType.DINE_IN, OrderType.TAKEOUT):
         return HttpResponseBadRequest("order_type이 유효하지 않습니다.")
 
     # 지하 주문서 확장 필드
@@ -166,27 +160,26 @@ def orders_collection(request: HttpRequest):
     # 테이블 (지하 매장 전용 규칙)
     table = None
     table_number_raw = (p.get("table_number") or "").strip()
-    if floor == FloorChoices.B1:
-        if order_type == OrderType.DINE_IN and not is_takeout:
-            if not table_number_raw:
-                return HttpResponseBadRequest("지하 매장 주문은 테이블 번호가 필요합니다(포장 제외).")
-            try:
-                table = Table.objects.get(number=int(table_number_raw), is_active=True)
-            except Exception:
-                return HttpResponseBadRequest("유효한 테이블 번호가 아닙니다.")
-        elif order_type == OrderType.TAKEOUT:
-            if not table_number_raw:
-                return HttpResponseBadRequest("포장 주문은 101~120 번호를 입력해야 합니다.")
-            try:
-                table_no = int(table_number_raw)
-            except ValueError:
-                return HttpResponseBadRequest("포장 주문 번호는 숫자여야 합니다.")
-            if not (101 <= table_no <= 120):
-                return HttpResponseBadRequest("포장 주문 번호는 101~120 범위여야 합니다.")
-            try:
-                table = Table.objects.get(number=table_no, is_active=True)
-            except Table.DoesNotExist:
-                return HttpResponseBadRequest("등록되지 않은 포장 번호입니다.")
+    if order_type == OrderType.DINE_IN and not is_takeout:
+        if not table_number_raw:
+            return HttpResponseBadRequest("매장 주문은 테이블 번호가 필요합니다(포장 제외).")
+        try:
+            table = Table.objects.get(number=int(table_number_raw), is_active=True)
+        except Exception:
+            return HttpResponseBadRequest("유효한 테이블 번호가 아닙니다.")
+    elif order_type == OrderType.TAKEOUT:
+        if not table_number_raw:
+            return HttpResponseBadRequest("포장 주문은 101~120 번호를 입력해야 합니다.")
+        try:
+            table_no = int(table_number_raw)
+        except ValueError:
+            return HttpResponseBadRequest("포장 주문 번호는 숫자여야 합니다.")
+        if not (101 <= table_no <= 120):
+            return HttpResponseBadRequest("포장 주문 번호는 101~120 범위여야 합니다.")
+        try:
+            table = Table.objects.get(number=table_no, is_active=True)
+        except Table.DoesNotExist:
+            return HttpResponseBadRequest("등록되지 않은 포장 번호입니다.")
 
     def _to_int(value):
         if value in (None, ""):
@@ -260,19 +253,19 @@ def orders_collection(request: HttpRequest):
     # 스코프별 허용 메뉴
     for mid, _, mode in parsed:
         m = mi_map[mid]
-        if floor == FloorChoices.B1:
-            if order_type in (OrderType.DINE_IN, OrderType.TAKEOUT) and not m.visible_kitchen:
-                return HttpResponseBadRequest("지하 주문에는 주방 메뉴만 선택 가능합니다.")
-        else:
-            if order_type == OrderType.BOOTH and not m.visible_booth:
-                return HttpResponseBadRequest("1층 주문에는 부스 메뉴만 선택 가능합니다.")
+        if not m.visible_kitchen:
+            return HttpResponseBadRequest("주방 메뉴만 선택 가능합니다.")
+
+    source_raw = (p.get("source") or OrderSource.COUNTER).upper()
+    if source_raw not in OrderSource.values:
+        source_raw = OrderSource.COUNTER
 
     with transaction.atomic():
         order = Order.objects.create(
             floor=floor,
             order_type=order_type,
             status=OrderStatus.PREPARING,
-            source=("B1_COUNTER" if floor == FloorChoices.B1 else "F1_COUNTER"),
+            source=source_raw,
             table=table,
             is_takeout=is_takeout,
             payment_method=payment_method,
@@ -399,9 +392,9 @@ def order_item_progress(request: HttpRequest, item_id: int):
 # ---------- 간이 통계(카운터용) ----------
 @require_http_methods(["GET"])
 def stats_menu_counts(request: HttpRequest):
-    floor = (request.GET.get("floor") or "").upper()
-    if floor not in (FloorChoices.B1, FloorChoices.F1):
-        return HttpResponseBadRequest("floor 파라미터(B1/F1)가 필요합니다.")
+    floor = (request.GET.get("floor") or FloorChoices.B1).upper()
+    if floor != FloorChoices.B1:
+        return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
 
     today = timezone.localdate()
     qs = (
@@ -428,8 +421,8 @@ def stats_menu_counts(request: HttpRequest):
 @require_http_methods(["GET"])
 def kitchen_menu_summary(request: HttpRequest):
     floor = (request.GET.get("floor") or FloorChoices.B1).upper()
-    if floor not in (FloorChoices.B1, FloorChoices.F1):
-        return HttpResponseBadRequest("floor 파라미터(B1/F1)가 필요합니다.")
+    if floor != FloorChoices.B1:
+        return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
 
     qs = OrderItem.objects.filter(
         order__status=OrderStatus.PREPARING,

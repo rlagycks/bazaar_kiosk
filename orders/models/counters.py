@@ -4,7 +4,7 @@ from django.db import models
 
 class FloorOrderCounter(models.Model):
     date = models.DateField(db_index=True)
-    floor = models.CharField(max_length=2)  # "B1" / "F1"
+    floor = models.CharField(max_length=2)  # 현재는 "B1"만 사용
     last_no = models.PositiveIntegerField(default=0)
 
     class Meta:
