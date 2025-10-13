@@ -92,13 +92,15 @@
     const BOARD = document.getElementById('board');
     const STATUS = document.getElementById('status');
     const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT&limit=200";
+    const ORDER_DETAIL_URL = "{% url 'orders:order-detail' 0 %}";
     const ITEM_URL = "{% url 'orders:order-item-progress' 0 %}";
     const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
     const AUTO_MS = 5000;
+    const ORDER_STORE = new Map();
+    const ORDER_REFRESH_QUEUE = new Set();
     let supabaseClient = null;
     let realtimeChannel = null;
     let realtimeEnabled = false;
-    let refreshTimer = null;
     let pollTimer = null;
     let isLoading = false;
 
@@ -256,22 +258,39 @@
       BOARD.innerHTML = html;
     }
 
+    function upsertOrder(order){
+      if (!order || order.status !== 'PREPARING'){
+        if (order && ORDER_STORE.has(order.id)){
+          ORDER_STORE.delete(order.id);
+        }
+        return;
+      }
+      ORDER_STORE.set(order.id, order);
+    }
+
+    function renderFromStore(){
+      const ordered = Array.from(ORDER_STORE.values())
+        .filter(includeOrder)
+        .sort((a,b)=> new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      renderOrders(ordered);
+      const stamp = new Date();
+      STATUS.textContent = '갱신: ' + stamp.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+        + ' · 대기 주문 ' + ordered.length + '건';
+    }
+
+    function replaceOrders(list){
+      ORDER_STORE.clear();
+      list.forEach(order=> upsertOrder(order));
+      renderFromStore();
+    }
+
     async function loadOrders(){
       if (isLoading) return;
       isLoading = true;
       try{
         const data = await fetchJSON(ORDERS_URL);
-        const results = (data.results || []).slice().sort((a,b)=>{
-          const ta = new Date(a.created_at).getTime();
-          const tb = new Date(b.created_at).getTime();
-          return ta - tb;
-        });
-        const filtered = results.filter(includeOrder);
-        renderOrders(filtered);
-        const stamp = new Date();
-        const filteredCount = filtered.length;
-        STATUS.textContent = '갱신: ' + stamp.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
-          + ' · 대기 주문 ' + filteredCount + '건';
+        const results = data.results || [];
+        replaceOrders(results);
       }catch(e){
         console.error('주문 불러오기 실패', e);
         BOARD.innerHTML = '<div class="empty">주문을 불러오지 못했습니다.</div>';
@@ -281,12 +300,42 @@
       }
     }
 
+    async function refreshOrder(orderId){
+      if (!orderId) return;
+      try{
+        const res = await fetch(ORDER_DETAIL_URL.replace('/0/','/'+orderId+'/'), {credentials:'same-origin'});
+        if (res.status === 404){
+          ORDER_STORE.delete(orderId);
+          renderFromStore();
+          return;
+        }
+        if (!res.ok){
+          throw new Error('HTTP '+res.status);
+        }
+        const order = await res.json();
+        upsertOrder(order);
+        renderFromStore();
+      }catch(e){
+        console.error('단건 주문 갱신 실패', e);
+      }
+    }
+
+    function queueOrderRefresh(orderId){
+      if (!orderId) return;
+      if (ORDER_REFRESH_QUEUE.has(orderId)) return;
+      ORDER_REFRESH_QUEUE.add(orderId);
+      setTimeout(()=>{
+        ORDER_REFRESH_QUEUE.delete(orderId);
+        refreshOrder(orderId);
+      }, 120);
+    }
+
     async function cancelOrder(orderId, button){
       if (!orderId) return;
       if (!confirm('이 주문을 취소할까요?')) return;
       if (button) button.disabled = true;
       try{
-        await fetchJSON(ORDER_STATUS_URL.replace('/0/','/'+orderId+'/'), {
+        const updated = await fetchJSON(ORDER_STATUS_URL.replace('/0/','/'+orderId+'/'), {
           method:'PATCH',
           headers:{
             'Content-Type':'application/json',
@@ -294,7 +343,8 @@
           },
           body: JSON.stringify({status:'CANCELLED'})
         });
-        await loadOrders();
+        upsertOrder(updated);
+        renderFromStore();
       }catch(e){
         alert('취소 실패: ' + e.message);
       }finally{
@@ -306,7 +356,7 @@
       if (!itemId) return;
       if (button) button.disabled = true;
       try{
-        await fetchJSON(ITEM_URL.replace('/0/','/'+itemId+'/'), {
+        const updated = await fetchJSON(ITEM_URL.replace('/0/','/'+itemId+'/'), {
           method:'PATCH',
           headers:{
             'Content-Type':'application/json',
@@ -314,12 +364,30 @@
           },
           body: JSON.stringify({prepared_qty: nextQty})
         });
-        await loadOrders();
+        upsertOrder(updated);
+        renderFromStore();
       }catch(e){
         alert('수량 업데이트 실패: ' + e.message);
       }finally{
         if (button) button.disabled = false;
       }
+    }
+
+    function handleOrderEvent(payload){
+      const targetId = (payload.new && payload.new.id) || (payload.old && payload.old.id);
+      if (payload.eventType === 'DELETE'){
+        if (targetId){
+          ORDER_STORE.delete(targetId);
+          renderFromStore();
+        }
+        return;
+      }
+      queueOrderRefresh(targetId);
+    }
+
+    function handleOrderItemEvent(payload){
+      const orderId = (payload.new && payload.new.order_id) || (payload.old && payload.old.order_id);
+      queueOrderRefresh(orderId);
     }
 
     document.getElementById('btnReload').addEventListener('click', ()=>{
@@ -355,14 +423,6 @@
       }
     });
 
-    function scheduleRefresh(){
-      if (refreshTimer) return;
-      refreshTimer = setTimeout(()=>{
-        refreshTimer = null;
-        loadOrders();
-      }, 200);
-    }
-
     function startPolling(){
       if (realtimeEnabled) return;
       if (pollTimer) clearInterval(pollTimer);
@@ -384,14 +444,19 @@
       try{
         supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         realtimeChannel = supabaseClient.channel('kitchen-orders')
-          .on('postgres_changes',{event:'*',schema:'public',table:'orders_order'}, scheduleRefresh)
-          .on('postgres_changes',{event:'*',schema:'public',table:'orders_orderitem'}, scheduleRefresh);
+          .on('postgres_changes',{event:'*',schema:'public',table:'orders_order'}, handleOrderEvent)
+          .on('postgres_changes',{event:'*',schema:'public',table:'orders_orderitem'}, handleOrderItemEvent);
         realtimeChannel.subscribe((status)=>{
           if(status === 'SUBSCRIBED'){
             realtimeEnabled = true;
             stopPolling();
           }
         });
+        setTimeout(()=>{
+          if (!realtimeEnabled){
+            startPolling();
+          }
+        }, 2000);
       }catch(e){
         console.error('Supabase realtime init 실패', e);
         startPolling();
@@ -409,9 +474,6 @@
     document.addEventListener('DOMContentLoaded', ()=>{
       loadOrders();
       initRealtime();
-      if (!realtimeEnabled){
-        startPolling();
-      }
     });
 
     window.addEventListener('beforeunload', ()=>{

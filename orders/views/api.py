@@ -69,6 +69,13 @@ def _serialize_order(o: Order) -> Dict[str, Any]:
     }
 
 
+def _order_base_queryset():
+    return (
+        Order.objects.select_related("table")
+        .prefetch_related("items", "items__menu_item")
+    )
+
+
 # ---------- 메뉴/테이블 ----------
 @require_http_methods(["GET"])
 def tables_list(request: HttpRequest):
@@ -114,12 +121,7 @@ def orders_collection(request: HttpRequest):
             limit = 50
         limit = max(1, min(limit, 200))
 
-        qs = (
-            Order.objects.all()
-            .select_related("table")
-            .prefetch_related("items", "items__menu_item")
-            .order_by("-created_at", "-id")
-        )
+        qs = _order_base_queryset().order_by("-created_at", "-id")
         if floor and floor != FloorChoices.B1:
             return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
         if floor == FloorChoices.B1:
@@ -288,12 +290,7 @@ def orders_collection(request: HttpRequest):
         recalc_totals(order)            # 합계 계산
         order.refresh_from_db()
 
-    order = (
-        Order.objects.filter(id=order.id)
-        .select_related("table")
-        .prefetch_related("items", "items__menu_item")
-        .get()
-    )
+    order = _order_base_queryset().get(id=order.id)
     return JsonResponse(_serialize_order(order), status=201)
 
 
@@ -310,11 +307,7 @@ def order_status(request: HttpRequest, order_id: int):
         return HttpResponseBadRequest("status는 PREPARING/READY/CANCELLED만 허용됩니다.")
 
     try:
-        order = (
-            Order.objects.select_related("table")
-            .prefetch_related("items", "items__menu_item")
-            .get(id=order_id)
-        )
+        order = _order_base_queryset().get(id=order_id)
     except Order.DoesNotExist:
         raise Http404("주문이 존재하지 않습니다.")
 
@@ -380,12 +373,7 @@ def order_item_progress(request: HttpRequest, item_id: int):
     except OrderItem.DoesNotExist:
         raise Http404("주문 품목이 존재하지 않습니다.")
 
-    order = (
-        Order.objects.filter(id=order.id)
-        .select_related("table")
-        .prefetch_related("items", "items__menu_item")
-        .get()
-    )
+    order = _order_base_queryset().get(id=order.id)
     return JsonResponse(_serialize_order(order), status=200)
 
 
@@ -438,3 +426,12 @@ def kitchen_menu_summary(request: HttpRequest):
         for r in qs
     ]
     return JsonResponse({"items": data}, status=200)
+
+
+@require_http_methods(["GET"])
+def order_detail(request: HttpRequest, order_id: int):
+    try:
+        order = _order_base_queryset().get(id=order_id)
+    except Order.DoesNotExist:
+        raise Http404("주문이 존재하지 않습니다.")
+    return JsonResponse(_serialize_order(order), status=200)

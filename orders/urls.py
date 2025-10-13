@@ -23,6 +23,7 @@ urlpatterns = [
     path("tables/",                 api.tables_list,          name="tables"),
     path("menus/",                  api.menus_list,           name="menus"),
     path("api/orders/",             api.orders_collection,    name="orders-collection"),
+    path("api/orders/<int:order_id>/detail", api.order_detail, name="order-detail"),
     path("api/orders/<int:order_id>/status", api.order_status, name="order-status"),
     path("api/orders/items/<int:item_id>/progress", api.order_item_progress, name="order-item-progress"),
     path("api/kitchen/menu-summary", api.kitchen_menu_summary, name="kitchen-menu-summary"),
