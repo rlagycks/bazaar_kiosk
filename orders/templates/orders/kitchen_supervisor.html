@@ -91,7 +91,7 @@
     const CSRF = getCookie('csrftoken');
     const BOARD = document.getElementById('board');
     const STATUS = document.getElementById('status');
-    const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT&limit=200";
+    const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT&limit=80";
     const ORDER_DETAIL_URL = "{% url 'orders:order-detail' 0 %}";
     const ITEM_URL = "{% url 'orders:order-item-progress' 0 %}";
     const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
@@ -335,7 +335,7 @@
       if (!confirm('이 주문을 취소할까요?')) return;
       if (button) button.disabled = true;
       try{
-        const updated = await fetchJSON(ORDER_STATUS_URL.replace('/0/','/'+orderId+'/'), {
+        await fetchJSON(ORDER_STATUS_URL.replace('/0/','/'+orderId+'/'), {
           method:'PATCH',
           headers:{
             'Content-Type':'application/json',
@@ -343,8 +343,7 @@
           },
           body: JSON.stringify({status:'CANCELLED'})
         });
-        upsertOrder(updated);
-        renderFromStore();
+        queueOrderRefresh(orderId);
       }catch(e){
         alert('취소 실패: ' + e.message);
       }finally{
@@ -356,7 +355,7 @@
       if (!itemId) return;
       if (button) button.disabled = true;
       try{
-        const updated = await fetchJSON(ITEM_URL.replace('/0/','/'+itemId+'/'), {
+        const result = await fetchJSON(ITEM_URL.replace('/0/','/'+itemId+'/'), {
           method:'PATCH',
           headers:{
             'Content-Type':'application/json',
@@ -364,8 +363,9 @@
           },
           body: JSON.stringify({prepared_qty: nextQty})
         });
-        upsertOrder(updated);
-        renderFromStore();
+        if (result?.id){
+          queueOrderRefresh(result.id);
+        }
       }catch(e){
         alert('수량 업데이트 실패: ' + e.message);
       }finally{

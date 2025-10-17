@@ -66,7 +66,7 @@
     const CSRF = getCookie('csrftoken');
     const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
     const ORDER_DETAIL_URL = "{% url 'orders:order-detail' 0 %}";
-    const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&types=DINE_IN,TAKEOUT&limit=200";
+    const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&types=DINE_IN,TAKEOUT&limit=80";
     const AUTO_MS = 5000;
     const RECENT_LIMIT = 50;
     const STATS_REFRESH_MS = 30 * 60 * 1000;
@@ -298,9 +298,8 @@
       if(!orderId) return;
       if(!confirm('이 주문을 취소할까요?')) return;
       try{
-        const updated = await patchJSON(ORDER_STATUS_URL.replace('/0/','/'+orderId+'/'), {status:'CANCELLED'});
-        upsertOrder(updated);
-        renderRecent();
+        await patchJSON(ORDER_STATUS_URL.replace('/0/','/'+orderId+'/'), {status:'CANCELLED'});
+        queueOrderRefresh(orderId);
       }catch(e){
         alert('취소 실패: '+e.message);
       }

@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest, Http404
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt  # 개발 편의. 운영 전 제거 권장.
+from django.views.decorators.cache import cache_page
 from django.db import transaction
 from django.db.models import Sum, F, IntegerField
 from django.utils import timezone
@@ -83,6 +84,7 @@ def _get_table_by_number(number: int) -> Table:
 
 
 # ---------- 메뉴/테이블 ----------
+@cache_page(60)
 @require_http_methods(["GET"])
 def tables_list(request: HttpRequest):
     qs = Table.objects.filter(is_active=True).order_by("sort_index", "number")
@@ -90,6 +92,7 @@ def tables_list(request: HttpRequest):
     return JsonResponse({"items": items})
 
 
+@cache_page(60)
 @require_http_methods(["GET"])
 def menus_list(request: HttpRequest):
     scope = (request.GET.get("scope") or "").upper()
@@ -333,7 +336,7 @@ def order_status(request: HttpRequest, order_id: int):
 
     order.save(update_fields=["status", "updated_at"])
 
-    return JsonResponse(_serialize_order(order), status=200)
+    return JsonResponse({"id": order.id, "status": order.status}, status=200)
 
 
 def _sync_order_status_from_items(order: Order) -> None:
@@ -391,8 +394,7 @@ def order_item_progress(request: HttpRequest, item_id: int):
     except OrderItem.DoesNotExist:
         raise Http404("주문 품목이 존재하지 않습니다.")
 
-    order = _order_base_queryset().get(id=order.id)
-    return JsonResponse(_serialize_order(order), status=200)
+    return JsonResponse({"id": order.id}, status=200)
 
 
 # ---------- 간이 통계(카운터용) ----------
@@ -407,7 +409,7 @@ def stats_menu_counts(request: HttpRequest):
         OrderItem.objects.filter(
             order__floor=floor,
             order__status__in=[OrderStatus.PREPARING, OrderStatus.READY],
-            order__created_at__date=today,
+            order__order_date=today,
         )
         .values("menu_item__name")
         .annotate(
@@ -430,9 +432,11 @@ def kitchen_menu_summary(request: HttpRequest):
     if floor != FloorChoices.B1:
         return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
 
+    today = timezone.localdate()
     qs = OrderItem.objects.filter(
         order__status=OrderStatus.PREPARING,
         order__floor=floor,
+        order__order_date=today,
     ).values("menu_item_id", "menu_item__name")
 
     qs = qs.annotate(
