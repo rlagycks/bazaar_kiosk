@@ -7,9 +7,11 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt  # 개발 편의. 운영 전 제거 권장.
 from django.views.decorators.cache import cache_page
 from django.db import transaction
-from django.db.models import Sum, F, IntegerField
+from django.db.models import Sum, F, IntegerField, Count
+from django.db.models.functions import TruncHour
 from django.utils import timezone
 from functools import lru_cache
+from datetime import datetime
 
 from orders.models import (
     FloorChoices, PaymentMethod, OrderType, OrderStatus, OrderSource,
@@ -76,6 +78,33 @@ def _order_base_queryset():
         Order.objects.select_related("table")
         .prefetch_related("items", "items__menu_item")
     )
+
+
+def _parse_date(date_str: str | None) -> datetime | None:
+    if not date_str:
+        return None
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _date_limits(request: HttpRequest):
+    start = _parse_date(request.GET.get("start_date"))
+    end = _parse_date(request.GET.get("end_date"))
+    start_date = start.date() if start else None
+    end_date = end.date() if end else None
+    return start_date, end_date
+
+
+def _filtered_orders(request: HttpRequest):
+    start_date, end_date = _date_limits(request)
+    qs = Order.objects.filter(status__in=[OrderStatus.PREPARING, OrderStatus.READY])
+    if start_date:
+        qs = qs.filter(created_at__date__gte=start_date)
+    if end_date:
+        qs = qs.filter(created_at__date__lte=end_date)
+    return qs, start_date, end_date
 
 
 @lru_cache(maxsize=128)
@@ -457,3 +486,104 @@ def order_detail(request: HttpRequest, order_id: int):
     except Order.DoesNotExist:
         raise Http404("주문이 존재하지 않습니다.")
     return JsonResponse(_serialize_order(order), status=200)
+
+
+@require_http_methods(["GET"])
+def stats_dashboard(request: HttpRequest):
+    orders_qs, start_date, end_date = _filtered_orders(request)
+    floor = (request.GET.get("floor") or "").upper()
+    if floor:
+        if floor not in FloorChoices.values:
+            return HttpResponseBadRequest("유효하지 않은 floor 값입니다.")
+        orders_qs = orders_qs.filter(floor=floor)
+
+    items_filters = {
+        "order__status__in": [OrderStatus.PREPARING, OrderStatus.READY],
+    }
+    if start_date:
+        items_filters["order__created_at__date__gte"] = start_date
+    if end_date:
+        items_filters["order__created_at__date__lte"] = end_date
+    if floor:
+        items_filters["order__floor"] = floor
+
+    totals = orders_qs.aggregate(
+        total_revenue=Sum("total_price"),
+        cash_total=Sum("received_cash_amount"),
+        ticket_total=Sum("received_ticket_amount"),
+        order_count=Count("id"),
+    )
+    total_orders = totals.get("order_count") or 0
+    total_revenue = totals.get("total_revenue") or 0
+    cash_total = totals.get("cash_total") or 0
+    ticket_total = totals.get("ticket_total") or 0
+
+    items_qs = OrderItem.objects.filter(**items_filters)
+    item_totals = items_qs.aggregate(
+        item_count=Sum("qty"),
+        item_revenue=Sum(F("qty") * F("unit_price"), output_field=IntegerField()),
+    )
+    total_items = item_totals.get("item_count") or 0
+
+    menu_breakdown = list(
+        items_qs.values("menu_item__name")
+        .annotate(
+            qty=Sum("qty"),
+            amount=Sum(F("qty") * F("unit_price"), output_field=IntegerField()),
+        )
+        .order_by("-qty", "menu_item__name")
+    )
+
+    hourly = list(
+        orders_qs.annotate(hour=TruncHour("created_at"))
+        .values("hour")
+        .annotate(
+            orders=Count("id"),
+            revenue=Sum("total_price"),
+        )
+        .order_by("hour")
+    )
+    for row in hourly:
+        hour = row["hour"]
+        row["hour_label"] = hour.astimezone(timezone.get_current_timezone()).strftime("%H:%M") if hour else ""
+        row["orders"] = row["orders"] or 0
+        row["revenue"] = row["revenue"] or 0
+
+    total_payment = cash_total + ticket_total
+    payment_breakdown = {
+        "cash": cash_total,
+        "ticket": ticket_total,
+        "cash_ratio": float(cash_total) / total_payment if total_payment else 0.0,
+        "ticket_ratio": float(ticket_total) / total_payment if total_payment else 0.0,
+    }
+
+    response = {
+        "period": {
+            "start_date": start_date.isoformat() if start_date else None,
+            "end_date": end_date.isoformat() if end_date else None,
+            "floor": floor or None,
+        },
+        "summary": {
+            "orders": total_orders,
+            "items": total_items,
+            "revenue": total_revenue,
+        },
+        "payment": payment_breakdown,
+        "menu": [
+            {
+                "name": row["menu_item__name"],
+                "qty": row["qty"],
+                "amount": row["amount"] or 0,
+            }
+            for row in menu_breakdown
+        ],
+        "hourly": [
+            {
+                "hour": row["hour_label"],
+                "orders": row["orders"],
+                "revenue": row["revenue"],
+            }
+            for row in hourly
+        ],
+    }
+    return JsonResponse(response, status=200)
