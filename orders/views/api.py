@@ -7,7 +7,7 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt  # 개발 편의. 운영 전 제거 권장.
 from django.views.decorators.cache import cache_page
 from django.db import transaction
-from django.db.models import Sum, F, IntegerField, Count
+from django.db.models import Sum, F, IntegerField, Count, Max
 from django.db.models.functions import TruncHour
 from django.utils import timezone
 from functools import lru_cache
@@ -100,10 +100,14 @@ def _date_limits(request: HttpRequest):
 def _filtered_orders(request: HttpRequest):
     start_date, end_date = _date_limits(request)
     qs = Order.objects.filter(status__in=[OrderStatus.PREPARING, OrderStatus.READY])
+    if start_date is None and end_date is None:
+        latest = qs.aggregate(latest=Max("order_date")).get("latest")
+        if latest:
+            start_date = end_date = latest
     if start_date:
-        qs = qs.filter(created_at__date__gte=start_date)
+        qs = qs.filter(order_date__gte=start_date)
     if end_date:
-        qs = qs.filter(created_at__date__lte=end_date)
+        qs = qs.filter(order_date__lte=end_date)
     return qs, start_date, end_date
 
 
@@ -501,9 +505,9 @@ def stats_dashboard(request: HttpRequest):
         "order__status__in": [OrderStatus.PREPARING, OrderStatus.READY],
     }
     if start_date:
-        items_filters["order__created_at__date__gte"] = start_date
+        items_filters["order__order_date__gte"] = start_date
     if end_date:
-        items_filters["order__created_at__date__lte"] = end_date
+        items_filters["order__order_date__lte"] = end_date
     if floor:
         items_filters["order__floor"] = floor
 
@@ -543,9 +547,16 @@ def stats_dashboard(request: HttpRequest):
         )
         .order_by("hour")
     )
+    current_tz = timezone.get_current_timezone()
     for row in hourly:
         hour = row["hour"]
-        row["hour_label"] = hour.astimezone(timezone.get_current_timezone()).strftime("%H:%M") if hour else ""
+        if hour:
+            if timezone.is_naive(hour):
+                hour = timezone.make_aware(hour, timezone.utc)
+            hour_local = hour.astimezone(current_tz)
+            row["hour_label"] = hour_local.strftime("%H:%M")
+        else:
+            row["hour_label"] = ""
         row["orders"] = row["orders"] or 0
         row["revenue"] = row["revenue"] or 0
 
