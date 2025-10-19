@@ -98,17 +98,11 @@ def _date_limits(request: HttpRequest):
 
 
 def _filtered_orders(request: HttpRequest):
-    start_date, end_date = _date_limits(request)
-    qs = Order.objects.filter(status__in=[OrderStatus.PREPARING, OrderStatus.READY])
-    if start_date is None and end_date is None:
-        latest = qs.aggregate(latest=Max("order_date")).get("latest")
-        if latest:
-            start_date = end_date = latest
-    if start_date:
-        qs = qs.filter(order_date__gte=start_date)
-    if end_date:
-        qs = qs.filter(order_date__lte=end_date)
-    return qs, start_date, end_date
+    qs = Order.objects.filter(
+        status__in=[OrderStatus.PREPARING, OrderStatus.READY],
+        order_date=datetime(2025, 10, 18).date(),
+    )
+    return qs, datetime(2025, 10, 18).date(), datetime(2025, 10, 18).date()
 
 
 @lru_cache(maxsize=128)
