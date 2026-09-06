@@ -1,76 +1,74 @@
-# Prompt 03 — Implement one approved phase
+# 프롬프트 03 — 승인된 단계 하나 구현
 
-Recommended model: GPT-6 Astra
+권장 모델: GPT-6 Astra
 
-Recommended reasoning: `high` by default; use `xhigh` for schema, security, or
-concurrency-heavy phases
+권장 추론 수준: 기본값은 `high`이며, 스키마, 보안 또는 동시성 비중이 큰 단계에는
+`xhigh`를 사용하세요.
 
-Replace every angle-bracket placeholder before use.
+사용하기 전에 모든 꺾쇠괄호 플레이스홀더를 바꾸세요.
 
 ```text
-Implement exactly one approved Bazaar Kiosk modernization phase.
+승인된 Bazaar Kiosk 현대화 단계 하나만 정확히 구현하세요.
 
-PHASE: <step number and title>
-APPROVED SCOPE: <copy the approved tasks and explicit exclusions>
-ACCEPTANCE CRITERIA: <copy the phase exit criteria plus user amendments>
-BASE COMMIT OR BRANCH: <verified ref; do not invent it>
-USER DECISIONS USED: <accepted D-IDs>
+단계: <단계 번호와 제목>
+승인된 범위: <승인된 작업과 명시적인 제외 범위를 복사>
+인수 기준: <단계 종료 조건과 사용자가 추가한 내용을 복사>
+기준 커밋 또는 브랜치: <검증된 참조(ref). 임의로 만들지 말 것>
+사용한 사용자 결정: <승인된 D-ID 목록>
 
-Read AGENTS.md, docs/modernization/README.md, BASELINE.md, ANALYSIS_REPORT.md,
-RISK_REGISTER.md, BLUEPRINT.md, DECISIONS.md, and WORKLOG.md before editing. Inspect
-the current branch, status, and diff, and preserve all user or concurrent-agent
-changes. Work on a dedicated phase branch/worktree; do not edit main/develop
-directly.
+편집하기 전에 AGENTS.md, docs/modernization/README.md, BASELINE.md,
+ANALYSIS_REPORT.md, RISK_REGISTER.md, BLUEPRINT.md, DECISIONS.md 및 WORKLOG.md를
+읽으세요. 현재 브랜치, 상태 및 diff를 조사하고 모든 사용자 또는 동시 작업 에이전트의
+변경 사항을 보존하세요. 전용 단계 브랜치/worktree에서 작업하고 main/develop을 직접
+편집하지 마세요.
 
-Treat this prompt as authorization to carry the approved phase through analysis,
-implementation, focused refactoring, tests, verification, and documentation.
-Infer routine implementation details and persist until every acceptance criterion
-is satisfied or a concrete blocker remains. Do not stop after restating a plan and
-do not request permission for reversible local work already inside scope.
+이 프롬프트는 승인된 단계를 분석, 구현, 집중적인 리팩터링, 테스트, 검증 및 문서화까지
+완수할 권한을 부여합니다. 일상적인 구현 세부 사항은 추론하고 모든 인수 기준을 충족하거나
+구체적인 차단 요인이 남을 때까지 끈기 있게 진행하세요. 계획을 다시 진술한 뒤 멈추지 말고,
+이미 범위 안에 있는 되돌릴 수 있는 로컬 작업에 대한 허가를 요청하지 마세요.
 
-Ask me only if a missing answer would change money, permissions, persisted data,
-operator behavior, an external system, or an irreversible action. Before asking,
-finish all independent authorized work and present the concrete alternatives and
-evidence. Do not deploy, mutate production data, push/merge, rewrite history,
-delete remote refs, or change GitHub settings without explicit authorization.
+누락된 답변에 따라 금전, 권한, 영속 데이터, 운영자 동작, 외부 시스템 또는 되돌릴 수
+없는 작업에 관한 결정이 달라지는 경우에만 나에게 질문하세요. 질문하기 전에 독립적으로
+수행 가능한 승인된 작업을 모두 완료하고 구체적인 대안과 증거를 제시하세요. 명시적인
+승인 없이 배포하거나, 프로덕션 데이터를 변경하거나, push/merge하거나, 기록을
+재작성하거나, 원격 ref를
+삭제하거나, GitHub 설정을 변경하지 마세요.
 
-Establish a failing regression or characterization test before changing behavior
-when a meaningful test can observe it. Keep server-side prices, totals,
-authorization, state transitions, and numbering authoritative. Preserve existing
-contracts unless an accepted decision explicitly changes them. Use forward-only,
-data-safe migrations by default and never edit history merely to clean it up. The
-only exception is blueprint step 1 after the user explicitly approves the exact
-published-artifact repair and both fresh-install and already-applied paths are
-designed and verified.
+의미 있는 테스트로 동작을 관찰할 수 있다면 동작을 변경하기 전에 실패하는 회귀 테스트
+또는 특성화 테스트를 먼저 마련하세요. 서버 측의 가격, 합계, 인가, 상태 전이 및 번호
+부여를 권위 있는 기준으로 유지하세요. 승인됨(accepted) 상태의 결정에 계약 변경이 명시되지
+않은 한 기존 계약을 보존하세요. 기본적으로 정방향 전용(forward-only) 방식의 데이터 안전
+마이그레이션을 사용하고, 단지 정리하려는 목적으로 마이그레이션 기록을 편집하지 마세요.
+유일한 예외는 사용자가 공개된 산출물의 정확한 수정 내용을 명시적으로 승인하고 신규 설치
+경로와 이미 적용된 경로를 모두 설계하고 검증한 경우의 블루프린트 1단계입니다.
 
-Use PostgreSQL for sequence, lock, constraint, migration, and concurrency claims.
-Use safe DOM rendering for dynamic data. Measure performance before and after with
-the same workload; do not claim optimization from code structure. Calibrate tests
-to the phase: run focused checks first, then required broader checks once. Do not
-add redundant tests that only duplicate implementation details.
+시퀀스, 잠금, 제약 조건, 마이그레이션 및 동시성에 관한 주장은 PostgreSQL로 검증하세요.
+동적 데이터에는 안전한 DOM 렌더링을 사용하세요. 동일한 워크로드로 변경 전후의 성능을
+측정하고, 코드 구조만으로 최적화됐다고 주장하지 마세요. 테스트 범위는 해당 단계에 맞게
+조정하세요. 집중 검사를 먼저 실행한 다음 필요한 범위가 더 넓은 검사를 한 번 실행하세요.
+구현 세부 사항만 중복 확인하는 불필요한 테스트를 추가하지 마세요.
 
-If collaboration tools can save time or improve quality, delegate independent,
-non-overlapping slices with explicit file ownership. Keep one owner for coupled
-domain/schema/API changes. Do not redo delegated work, and review every returned
-change before integration.
+협업 도구로 시간을 절약하거나 품질을 높일 수 있다면 파일 소유권을 명시하여 서로
+독립적이고 겹치지 않는 작업 조각을 위임하세요. 결합된 도메인/스키마/API 변경의 책임자는
+한 명으로 유지하세요. 위임한 작업을 다시 수행하지 말고, 반환된 모든 변경 사항을 통합하기
+전에 검토하세요.
 
-Keep the diff reviewable. Do not mix unrelated dependency upgrades, formatting,
-dead-code removal, UI redesign, or architecture changes into this phase. If you
-discover important out-of-scope work, add it to RISK_REGISTER.md or the work log
-with evidence instead of silently expanding scope.
+diff를 검토 가능한 크기로 유지하세요. 관련 없는 의존성 업그레이드, 서식 변경, 미사용
+코드 제거, UI 재설계 또는 아키텍처 변경을 이 단계에 섞지 마세요. 범위를 벗어난 중요한
+작업을 발견하면 조용히 범위를 확장하지 말고 증거와 함께 RISK_REGISTER.md 또는 작업
+로그에 추가하세요.
 
-Before completion:
+완료하기 전에 다음을 수행하세요.
 
-1. Run the phase-specific checks and every global gate from AGENTS.md and
-   BLUEPRINT.md that applies to the changed surface and identified risk.
-2. Review the diff for security, data loss, concurrency, compatibility, error
-   handling, and unnecessary complexity.
-3. Update relevant docs, accepted decisions, risk statuses, and WORKLOG.md.
-4. Run git diff --check and report any check that could not run with the exact
-   reason and risk.
+1. 단계별 검사와 AGENTS.md 및 BLUEPRINT.md에 정의된 전체 관문 중 변경 영역과 확인된
+   위험에 적용되는 모든 관문을 실행하세요.
+2. 보안, 데이터 손실, 동시성, 호환성, 오류 처리 및 불필요한 복잡성 측면에서 diff를
+   검토하세요.
+3. 관련 문서, 승인됨(accepted) 상태의 결정, 위험 상태 및 WORKLOG.md를 업데이트하세요.
+4. git diff --check를 실행하고, 실행할 수 없었던 검사가 있다면 정확한 사유와 위험을
+   보고하세요.
 
-In the final response, lead with the completed outcome. Then list changed files,
-behavior/contract changes, migrations, tests and measured results, remaining
-risks, rollback notes, and the next blueprint gate. Do not claim completion while
-an acceptance criterion is unverified.
+최종 응답에서는 완료한 결과를 먼저 제시하세요. 그런 다음 변경한 파일, 동작/계약 변경,
+마이그레이션, 테스트 및 측정 결과, 남은 위험, 롤백 참고 사항 및 다음 블루프린트 관문을
+나열하세요. 검증되지 않은 인수 기준이 남아 있는 동안 완료했다고 주장하지 마세요.
 ```

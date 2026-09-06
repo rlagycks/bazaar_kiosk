@@ -1,133 +1,131 @@
-# Bazaar Kiosk modernization blueprint
+# Bazaar Kiosk 현대화 청사진
 
-Status: Draft for analysis and user decisions
+상태: 분석 및 사용자 의사결정을 위한 초안
 
-Last updated: 2026-09-06
+최종 수정일: 2026-09-06
 
-## Objective
+## 목표
 
-Turn the legacy event kiosk into a secure, testable, concurrency-safe,
-observable, and maintainable Django service without disrupting the operator
-workflow or silently changing financial and ordering rules.
+운영자 워크플로를 방해하거나 재무 및 주문 규칙을 암묵적으로 변경하지
+않으면서, 레거시 이벤트 키오스크를 안전하고 테스트 가능하며 동시성에
+안전하고 관측 및 유지보수가 가능한 Django 서비스로 전환한다.
 
-Each implementation step is sized for one reviewable PR. If evidence shows that
-a step cannot fit without mixing independent risks, split it before coding and
-record the dependency change. A fresh agent must read `AGENTS.md`, `BASELINE.md`,
-the latest analysis/risk reports, accepted decisions, and `WORKLOG.md` before
-executing any step.
+각 구현 단계는 검토 가능한 PR 하나에 맞는 규모로 구성한다. 독립적인
+위험을 섞지 않고는 한 단계에 담을 수 없다는 증거가 나오면 코딩 전에
+단계를 분할하고 의존성 변경을 기록한다. 새 에이전트는 어떤 단계든 실행하기
+전에 `AGENTS.md`, `BASELINE.md`, 최신 분석/위험 보고서, 승인된 의사결정,
+`WORKLOG.md`를 읽어야 한다.
 
-## Dependency graph
+## 의존성 그래프
 
 ```text
-0 Evidence and operational contract
-├── G Git governance (remote actions stay separately approval-gated)
-└── 1 PostgreSQL bootstrap compatibility
-    └── 2 Reproducible tests and CI
-        ├── 3 API authorization and CSRF
-        │   ├── 4A Identity, session, and deployment security
-        │   └── 4B Content and external-realtime security
-        └── 5 Numbering and transaction safety
-            └── 6 Order command, status, and idempotency integrity
-                └── 7 Payment, admin, and historical-data integrity
+0 증거 및 운영 계약
+├── G Git 거버넌스(원격 작업은 별도 승인 게이트 유지)
+└── 1 PostgreSQL 부트스트랩 호환성
+    └── 2 재현 가능한 테스트 및 CI
+        ├── 3 API 권한 부여 및 CSRF
+        │   ├── 4A 사용자 식별, 세션 및 배포 보안
+        │   └── 4B 콘텐츠 및 외부 실시간 기능 보안
+        └── 5 번호 부여 및 트랜잭션 안전성
+            └── 6 주문 명령, 상태 및 멱등성 무결성
+                └── 7 결제, 관리자 및 과거 데이터 무결성
 
-{3, 4A, 4B, 5, 6, 7} -> 8 Retrieval, reporting, and cache correctness
-8 -> 9 Stable application/API boundaries
-{4B, 8, 9} -> 10 Measured performance and realtime reliability
-{4B, 8, 9} -> 11 Frontend maintainability and operator resilience
-{4A, 5, 6, 7, 10, 11} -> 12A Observability and deployment readiness
-12A -> 12B Final integration and release audit
+{3, 4A, 4B, 5, 6, 7} -> 8 조회, 보고 및 캐시 정확성
+8 -> 9 안정적인 애플리케이션/API 경계
+{4B, 8, 9} -> 10 측정 기반 성능 및 실시간 기능 신뢰성
+{4B, 8, 9} -> 11 프런트엔드 유지보수성 및 운영자 복원력
+{4A, 5, 6, 7, 10, 11} -> 12A 관측 가능성 및 배포 준비
+12A -> 12B 최종 통합 및 릴리스 감사
 ```
 
-Steps 3 and 5 may begin in parallel after step 2 when they have separate owners.
-Steps 4A and 4B may also run in parallel with disjoint files and one security
-integration owner. Steps 10 and 11 may run in parallel only after step 9 freezes
-the relevant API contracts.
+단계 3과 5는 담당자가 서로 다르면 단계 2 이후 병렬로 시작할 수 있다.
+단계 4A와 4B도 파일 범위가 겹치지 않고 보안 통합 담당자가 한 명이면 병렬로
+실행할 수 있다. 단계 10과 11은 단계 9에서 관련 API 계약을 고정한 뒤에만
+병렬로 실행할 수 있다.
 
-## Conditional global gates
+## 조건부 전역 게이트
 
-Apply gates to the changed surface and identified risk. Documentation-only work
-does not need unrelated Django or database runs.
+변경 범위와 식별된 위험에 게이트를 적용한다. 문서만 변경하는 작업에는
+관련 없는 Django 또는 데이터베이스 실행이 필요하지 않다.
 
-- Documentation: verify relative links, code-fence balance, placeholders, and
-  `git diff --check`.
-- Python/Django: run `python manage.py check`, migration drift, focused tests, and
-  the required broader suite once.
-- Schema/data/concurrency: test both a fresh and upgrade path on the supported
-  PostgreSQL version. Rehearse old-application/new-schema compatibility or record
-  why only a forward fix is safe.
-- Security: run anonymous, wrong-role, CSRF, session, malformed-input, replay, and
-  stored-content cases relevant to the change. A rollback must retain established
-  protections; otherwise use a fail-closed maintenance mode.
-- Frontend: run focused browser journeys on approved devices/viewports, including
-  failed network and retry behavior.
-- Performance: archive the same before/after workload, data size, query/latency
-  evidence, and correctness checks.
+- 문서: 상대 링크, 코드 펜스 균형, 자리표시자 및 `git diff --check`를
+  검증한다.
+- Python/Django: `python manage.py check`, 마이그레이션 드리프트, 집중 테스트,
+  필요한 광범위 테스트 스위트를 각각 한 번 실행한다.
+- 스키마/데이터/동시성: 지원되는 PostgreSQL 버전에서 신규 설치와 업그레이드
+  경로를 모두 테스트한다. 구 애플리케이션/새 스키마 호환성을 예행 연습하거나
+  전진 수정만 안전한 이유를 기록한다.
+- 보안: 변경과 관련된 익명 사용자, 잘못된 역할, CSRF, 세션, 잘못된 입력,
+  재전송 및 저장 콘텐츠 사례를 실행한다. 롤백 시 기존 보호 장치를 유지해야
+  하며, 그렇지 못하면 실패 시 폐쇄되는 유지보수 모드를 사용한다.
+- 프런트엔드: 승인된 기기/뷰포트에서 네트워크 실패와 재시도 동작을 포함한
+  핵심 브라우저 여정을 실행한다.
+- 성능: 동일한 변경 전/후 워크로드, 데이터 크기, 쿼리/지연 시간 증거 및
+  정확성 검사를 보관한다.
 
-Every phase updates decisions, risk status, and `WORKLOG.md`. No phase authorizes a
-push, merge, tag, repository-setting change, deployment, production query, or
-production-data mutation.
+모든 단계에서 의사결정, 위험 상태 및 `WORKLOG.md`를 갱신한다. 어떤 단계도
+푸시, 병합, 태그, 저장소 설정 변경, 배포, 프로덕션 쿼리 또는 프로덕션 데이터
+변경을 승인하지 않는다.
 
-## Step 0 — Evidence and operational contract
+## 단계 0 — 증거 및 운영 계약
 
-- Effort: GPT-6 Astra `xhigh`
-- Dependencies: none
-- Primary writes: analysis/risk/decision/work-log Markdown only
-- Rollback: revert report wording while preserving superseded decisions
+- 작업량: GPT-6 Astra `xhigh`
+- 의존성: 없음
+- 주요 변경 범위: 분석/위험/의사결정/작업 로그 Markdown만 해당
+- 롤백: 대체된 의사결정은 보존하면서 보고서 문구를 되돌린다
 
-Context: Current behavior is mostly implicit in templates and views, and there are
-no tests. Security, payment, numbering, retention, realtime, and peak-load choices
-cannot be inferred safely from code alone.
+배경: 현재 동작은 대부분 템플릿과 뷰에 암묵적으로 들어 있고 테스트가 없다.
+보안, 결제, 번호 부여, 보존, 실시간 기능 및 최대 부하 관련 선택은 코드만으로
+안전하게 추론할 수 없다.
 
-Tasks:
+작업:
 
-1. Run `prompts/01_ANALYZE.md` with independent security, data/concurrency,
-   performance, frontend, operations, and Git workstreams where delegation helps.
-2. Produce evidence-linked `ANALYSIS_REPORT.md` and `RISK_REGISTER.md`. Mark each
-   item Reproduced, Code-supported, Production-dependent, or Hypothesis.
-3. Capture operator journeys: login, menu/table setup, order creation, mixed
-   payment, kitchen progress, cancellation, statistics, and recovery from network
-   loss or duplicate submission.
-4. Record production topology, supported versions, data volume, event schedule,
-   device/browser fleet, performance targets, and backup/restore expectations.
-5. Resolve or assign owners to pending decisions D-001 through D-013.
+1. 위임이 도움이 되는 경우 보안, 데이터/동시성, 성능, 프런트엔드, 운영 및
+   Git 작업 스트림을 독립적으로 구성해 `prompts/01_ANALYZE.md`를 실행한다.
+2. 증거가 연결된 `ANALYSIS_REPORT.md`와 `RISK_REGISTER.md`를 작성한다. 각
+   항목을 `재현됨(Reproduced)`, `코드로 뒷받침됨(Code-supported)`,
+   `프로덕션 의존(Production-dependent)`, `가설(Hypothesis)` 중 하나로 표시한다.
+3. 로그인, 메뉴/테이블 설정, 주문 생성, 복합 결제, 주방 처리, 취소, 통계,
+   네트워크 끊김 또는 중복 제출 후 복구 등 운영자 여정을 기록한다.
+4. 프로덕션 토폴로지, 지원 버전, 데이터 규모, 이벤트 일정, 기기/브라우저
+   구성, 성능 목표 및 백업/복원 기대치를 기록한다.
+5. 보류 중인 의사결정 D-001부터 D-013까지 해결하거나 담당자를 지정한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 git status --short --branch
 git diff --check
 ```
 
-Exit criteria:
+종료 조건:
 
-- Every Critical/High finding has a stable ID and code location or reproduction.
-- Business invariants and acceptance examples are understandable to operators.
-- Unknowns affecting money, permissions, data, or deployment have an owner.
-- No production code or remote state changed.
+- 모든 치명적/높음(Critical/High) 발견 사항에 안정적인 ID와 코드 위치 또는 재현 절차가 있다.
+- 비즈니스 불변 조건과 인수 예시를 운영자가 이해할 수 있다.
+- 금전, 권한, 데이터 또는 배포에 영향을 주는 미확정 사항마다 담당자가 있다.
+- 프로덕션 코드나 원격 상태가 변경되지 않았다.
 
-## Step G — Git governance and archive plan
+## 단계 G — Git 거버넌스 및 보관 계획
 
-- Effort: `high`
-- Dependencies: step 0 facts; may proceed beside steps 1 and 2
-- Primary writes: Git analysis/runbook/decision documents; remote refs only after
-  separate exact approval
-- Rollback: restore repository settings and refs from recorded immutable tip SHAs
+- 작업량: `high`
+- 의존성: 단계 0의 사실 정보. 단계 1 및 2와 병행 가능
+- 주요 변경 범위: Git 분석/런북/의사결정 문서. 원격 참조(ref)는 별도의 정확한
+  승인을 받은 뒤에만 변경
+- 롤백: 기록된 불변 말단 SHA에서 저장소 설정과 참조를 복원한다
 
-Context: `main` and `develop` have identical trees but divergent histories. Stale
-remote branches remain, and GitHub CLI authentication must be repaired before
-remote work.
+배경: `main`과 `develop`은 트리는 같지만 이력이 갈라져 있다. 오래된 원격
+브랜치가 남아 있으며, 원격 작업 전에 GitHub CLI 인증을 복구해야 한다.
 
-Tasks:
+작업:
 
-1. Complete a content-level secret scan and inventory unique commits on every ref.
-2. Decide the canonical branch, branch protection, required checks, and squash
-   merge policy.
-3. Prepare exact snapshot-tag, default-branch, protection, and stale-branch
-   commands without executing them.
-4. Execute only the specifically approved remote operations after backup evidence
-   and collaborator impact are reviewable.
+1. 콘텐츠 수준 비밀정보 검사를 완료하고 모든 참조의 고유 커밋을 목록화한다.
+2. 정식 브랜치, 브랜치 보호, 필수 검사 및 스쿼시 병합 정책을 결정한다.
+3. 정확한 스냅샷 태그, 기본 브랜치, 보호 및 오래된 브랜치 명령을 실행하지
+   않은 채 준비한다.
+4. 백업 증거와 협업자 영향을 검토할 수 있게 된 뒤, 구체적으로 승인된 원격
+   작업만 실행한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 git rev-list --left-right --count origin/main...origin/develop
@@ -135,117 +133,121 @@ git diff --stat origin/main..origin/develop
 git branch -a -vv
 ```
 
-Exit criteria:
+종료 조건:
 
-- Every branch is classified keep, tag/archive, or delete with evidence.
-- Canonical branch and retention policy are accepted decisions.
-- Any executed setting/ref change is verified and recoverable.
+- 모든 브랜치가 증거와 함께 유지, 태그 지정/보관 또는 삭제로 분류되어 있다.
+- 정식 브랜치와 보존 정책이 승인된 의사결정이다.
+- 실행된 모든 설정/참조 변경이 검증되었으며 복구 가능하다.
 
-## Step 1 — PostgreSQL bootstrap compatibility
+## 단계 1 — PostgreSQL 부트스트랩 호환성
 
-- Risks: BK-R005 and the bootstrap portion of BK-R003
-- Decisions: D-006 and D-008
-- Effort: `xhigh`
-- Dependencies: step 0 production-version and data-history facts
-- Primary ownership: `orders/migrations/`, disposable PostgreSQL bootstrap tooling,
-  migration runbook, and the smallest CI smoke job needed for this gate
-- Rollback: leave existing databases untouched; restore the recorded migration
-  artifact and use a fail-closed bootstrap procedure
+- 위험: BK-R005 및 BK-R003의 부트스트랩 부분
+- 의사결정: D-006 및 D-008
+- 작업량: `xhigh`
+- 의존성: 단계 0에서 확인한 프로덕션 버전 및 데이터 이력 사실
+- 주요 담당 범위: `orders/migrations/`, 일회용 PostgreSQL 부트스트랩 도구,
+  마이그레이션 런북 및 이 게이트에 필요한 최소 CI 스모크 작업
+- 롤백: 기존 데이터베이스는 건드리지 않고, 기록된 마이그레이션 산출물을
+  복원한 뒤 실패 시 폐쇄되는 부트스트랩 절차를 사용한다
 
-Context: Migration `0020` may call `setval` with zero on an empty default sequence.
-If that prevents migration `0020` from completing, an appended `0021` cannot repair
-a fresh install because Django never reaches it.
+배경: 마이그레이션 `0020`은 비어 있는 기본 시퀀스에 0으로 `setval`을 호출할
+수 있다. 이로 인해 마이그레이션 `0020`이 완료되지 않으면 Django가 뒤에 추가된
+`0021`까지 도달하지 못하므로 `0021`로 신규 설치를 복구할 수 없다.
 
-Tasks:
+작업:
 
-1. Reproduce the full migration chain on an empty supported PostgreSQL instance
-   and capture exact server version/output.
-2. Inventory production/staging databases that have already applied `0020` before
-   choosing a repair.
-3. Compare explicit repair paths: a reviewed narrow historical correction, a
-   replacement/squashed fresh-install chain that coexists with applied history, or
-   a deterministic pre-migration bootstrap. Do not silently edit history.
-4. Obtain the required user decision if the safe path changes a published
-   migration artifact.
-5. Implement the approved fresh-install and already-applied paths and document
-   their compatibility, checksums, backup, and recovery behavior.
+1. 지원되는 빈 PostgreSQL 인스턴스에서 전체 마이그레이션 체인을 재현하고
+   정확한 서버 버전/출력을 수집한다.
+2. 복구 방법을 선택하기 전에 `0020`이 이미 적용된 프로덕션/스테이징
+   데이터베이스를 목록화한다.
+3. 명시적인 복구 경로를 비교한다. 검토를 거친 제한적 이력 수정, 적용된 이력과
+   공존하는 신규 설치용 대체/스쿼시 체인 또는 결정적인 마이그레이션 전
+   부트스트랩을 검토한다. 이력을 암묵적으로 편집하지 않는다.
+4. 안전한 경로가 공개된 마이그레이션 산출물을 변경한다면 필요한 사용자
+   의사결정을 받는다.
+5. 승인된 신규 설치 경로와 기존 적용 경로를 구현하고 호환성, 체크섬, 백업 및
+   복구 동작을 문서화한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py migrate --plan
-# Run the documented disposable-PostgreSQL empty-database migration command.
+# 문서화된 일회용 PostgreSQL 빈 데이터베이스 마이그레이션 명령을 실행한다.
 python manage.py showmigrations orders
 ```
 
-Exit criteria:
+종료 조건:
 
-- Empty PostgreSQL reaches the latest migration from a clean database.
-- Already-applied databases have a verified no-op or forward-safe path.
-- No command can accidentally target an unverified or production database.
-- The first sequence value and empty/non-empty initialization match D-004 or are
-  explicitly deferred to step 5 without blocking bootstrap.
+- 빈 PostgreSQL 데이터베이스가 깨끗한 상태에서 최신 마이그레이션까지 도달한다.
+- 이미 적용된 데이터베이스에는 검증된 무작업 또는 전진 안전 경로가 있다.
+- 어떤 명령도 검증되지 않은 데이터베이스나 프로덕션 데이터베이스를 실수로
+  대상으로 삼을 수 없다.
+- 첫 시퀀스 값과 빈 상태/비어 있지 않은 상태의 초기화가 D-004와 일치하거나,
+  부트스트랩을 막지 않은 채 단계 5로 명시적으로 연기되어 있다.
 
-## Step 2 — Reproducible test and CI foundation
+## 단계 2 — 재현 가능한 테스트 및 CI 기반
 
-- Risk: BK-R004
-- Decisions: D-006, D-007, and D-008
-- Effort: `high`
-- Dependencies: step 1 green PostgreSQL bootstrap
-- Primary ownership: dependency/tooling files, `orders/tests/`, test fixtures, and
+- 위험: BK-R004
+- 의사결정: D-006, D-007 및 D-008
+- 작업량: `high`
+- 의존성: 단계 1의 PostgreSQL 부트스트랩 통과
+- 주요 담당 범위: 의존성/도구 파일, `orders/tests/`, 테스트 픽스처 및
   `.github/workflows/ci.yml`
-- Rollback: remove additive tooling/config while retaining baseline evidence and
-  migration-bootstrap protection
+- 롤백: 기준선 증거와 마이그레이션 부트스트랩 보호는 유지하면서 추가한
+  도구/설정을 제거한다
 
-Tasks:
+작업:
 
-1. Choose and document locking, supported Python/Django/PostgreSQL versions, and
-   one clean-checkout setup path.
-2. Add fixtures/factories for tables, menus, roles, orders, payment variants,
-   statuses, dates, and legacy rows.
-3. Characterize critical current API and operator behavior before refactoring.
-4. Run empty and upgrade migrations in disposable PostgreSQL CI.
-5. Add focused static/format checks and coverage reporting. Gate critical behavior
-   instead of selecting a vanity global percentage.
-6. Prove CI fails for an intentional regression, then remove the regression.
+1. 의존성 잠금 방식, 지원되는 Python/Django/PostgreSQL 버전 및 깨끗하게
+   체크아웃한 환경에서의 단일 설정 경로를 선택하고 문서화한다.
+2. 테이블, 메뉴, 역할, 주문, 결제 유형, 상태, 날짜 및 레거시 행에 대한
+   픽스처/팩토리를 추가한다.
+3. 리팩터링 전에 핵심 현행 API 및 운영자 동작을 특성화한다.
+4. 일회용 PostgreSQL CI에서 빈 데이터베이스 및 업그레이드 마이그레이션을
+   실행한다.
+5. 범위를 좁힌 정적/형식 검사와 커버리지 보고를 추가한다. 보여주기식 전역
+   비율을 정하지 말고 핵심 동작을 게이트로 삼는다.
+6. 의도적인 회귀로 CI가 실패하는지 입증한 뒤 그 회귀를 제거한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py check
 python manage.py makemigrations --check --dry-run
 python manage.py test
-# Run the documented PostgreSQL migration/integration CI command locally or in CI.
+# 문서화된 PostgreSQL 마이그레이션/통합 CI 명령을 로컬 또는 CI에서 실행한다.
 ```
 
-Exit criteria:
+종료 조건:
 
-- A clean checkout has one reproducible setup and test command.
-- Critical legacy flows have meaningful characterization tests.
-- SQLite smoke and PostgreSQL migration/integration checks pass.
-- CI does not depend on developer-global packages.
+- 깨끗하게 체크아웃한 환경에 재현 가능한 단일 설정 및 테스트 명령이 있다.
+- 핵심 레거시 흐름에 의미 있는 특성화 테스트가 있다.
+- SQLite 스모크 검사와 PostgreSQL 마이그레이션/통합 검사를 통과한다.
+- CI가 개발자 전역 패키지에 의존하지 않는다.
 
-## Step 3 — API authorization and CSRF
+## 단계 3 — API 권한 부여 및 CSRF
 
-- Risk: BK-R001
-- Decision: D-003; use the current identity mechanism only as a temporary input to
-  this access-control step
-- Effort: `high`
-- Dependencies: step 2
-- Primary ownership: route permission policy, API decorators/middleware, frontend
-  CSRF request paths, and `orders/tests/test_permissions.py`
-- Rollback: retain authorization and CSRF; if the application must roll back, use
-  compatible guards or fail closed
+- 위험: BK-R001
+- 의사결정: D-003. 현재 사용자 식별 메커니즘은 이 접근 제어 단계의 임시 입력으로만
+  사용한다
+- 작업량: `high`
+- 의존성: 단계 2
+- 주요 담당 범위: 경로 권한 정책, API 데코레이터/미들웨어, 프런트엔드 CSRF
+  요청 경로 및 `orders/tests/test_permissions.py`
+- 롤백: 권한 부여와 CSRF 보호를 유지한다. 애플리케이션을 롤백해야 한다면
+  호환되는 보호 장치를 사용하거나 실패 시 폐쇄한다
 
-Tasks:
+작업:
 
-1. Define a route-and-method permission matrix for page and JSON operations.
-2. Enforce authentication and role authorization on the server for every endpoint.
-3. Remove mutation CSRF exemptions and make legitimate clients send valid tokens.
-4. Standardize denied responses without leaking route or role details.
-5. Add anonymous, wrong-role, missing/invalid-CSRF, method, and stale-session tests.
+1. 페이지 및 JSON 작업에 대한 경로별·메서드별 권한 매트릭스를 정의한다.
+2. 모든 엔드포인트에 대해 서버에서 인증과 역할 권한 부여를 강제한다.
+3. 상태 변경 요청의 CSRF 예외를 제거하고 정상 클라이언트가 유효한 토큰을
+   보내도록 한다.
+4. 경로나 역할 세부 정보를 노출하지 않도록 거부 응답을 표준화한다.
+5. 익명 사용자, 잘못된 역할, 누락되거나 유효하지 않은 CSRF, 메서드 및 오래된
+   세션 테스트를 추가한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py test orders.tests.test_permissions
@@ -253,35 +255,35 @@ python manage.py check
 python manage.py makemigrations --check --dry-run
 ```
 
-Exit criteria:
+종료 조건:
 
-- Direct API calls cannot bypass page restrictions.
-- Every route/method has an executable permission expectation.
-- Existing authorized operator flows still complete.
-- A rollback cannot restore anonymous or CSRF-exempt mutation.
+- 직접 API 호출로 페이지 제한을 우회할 수 없다.
+- 모든 경로/메서드에 실행 가능한 권한 기대 조건이 있다.
+- 기존의 권한 있는 운영자 흐름이 계속 완료된다.
+- 롤백으로 익명 또는 CSRF 면제 상태 변경이 복원될 수 없다.
 
-## Step 4A — Identity, session, and deployment security
+## 단계 4A — 사용자 식별, 세션 및 배포 보안
 
-- Risk: BK-R002
-- Decisions: D-002 and D-003
-- Effort: `xhigh` for identity design, `high` for implementation
-- Dependencies: steps 2 and 3
-- Primary ownership: `orders/views/auth.py`, login UI, Django security settings,
-  environment validation, and `orders/tests/test_auth.py`
-- Rollback: preserve the established access boundary or enter fail-closed
-  maintenance mode; never restore known shared production defaults
+- 위험: BK-R002
+- 의사결정: D-002 및 D-003
+- 작업량: 사용자 식별 설계는 `xhigh`, 구현은 `high`
+- 의존성: 단계 2 및 3
+- 주요 담당 범위: `orders/views/auth.py`, 로그인 UI, Django 보안 설정, 환경
+  검증 및 `orders/tests/test_auth.py`
+- 롤백: 확립된 접근 경계를 유지하거나 실패 시 폐쇄되는 유지보수 모드로
+  전환한다. 알려진 프로덕션 공유 기본값을 절대 복원하지 않는다
 
-Tasks:
+작업:
 
-1. Replace committed operational defaults with fail-safe configuration and a
-   documented local-only path.
-2. Implement the accepted named-user, device, or shared-role identity model.
-3. Add login throttling/lockout, session rotation/expiry, logout, cookie, proxy,
-   HTTPS, host, and origin behavior appropriate to the deployment.
-4. Ensure logs and errors never expose PINs, credentials, or session material.
-5. Add brute-force, fixation, expiry, misconfiguration, and deployment-check tests.
+1. 커밋된 운영 기본값을 안전하게 실패하는 설정과 문서화된 로컬 전용 경로로
+   교체한다.
+2. 승인된 기명 사용자, 기기 또는 공유 역할 사용자 식별 모델을 구현한다.
+3. 배포 환경에 적합한 로그인 속도 제한/잠금, 세션 교체/만료, 로그아웃, 쿠키,
+   프록시, HTTPS, 호스트 및 출처 동작을 추가한다.
+4. 로그와 오류에 PIN, 자격 증명 또는 세션 정보가 절대 노출되지 않게 한다.
+5. 무차별 대입, 세션 고정, 만료, 잘못된 설정 및 배포 검사 테스트를 추가한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py test orders.tests.test_auth
@@ -289,222 +291,221 @@ python manage.py check
 python manage.py check --deploy
 ```
 
-Exit criteria:
+종료 조건:
 
-- Production-capable startup fails safely without required credentials/settings.
-- The accepted identity/session policy has positive and negative tests.
-- Deployment warnings are resolved or explicitly documented by topology.
+- 프로덕션용 시작 절차는 필수 자격 증명/설정이 없으면 안전하게 실패한다.
+- 승인된 사용자 식별/세션 정책에 성공 및 실패 테스트가 있다.
+- 배포 경고가 해결되었거나 토폴로지에 따라 명시적으로 문서화되어 있다.
 
-## Step 4B — Content and external-realtime security
+## 단계 4B — 콘텐츠 및 외부 실시간 기능 보안
 
-- Risk: BK-R011; external portion of BK-R001
-- Decision: the security portion of D-010 must be resolved here
-- Effort: `high`
-- Dependencies: steps 2 and 3; may run beside 4A with disjoint ownership
-- Primary ownership: dynamic DOM rendering, content escaping, CSP/third-party
-  scripts, Supabase client exposure/RLS evidence, and focused browser/security tests
-- Rollback: retain output escaping, CSP-equivalent protection, and RLS; otherwise
-  disable the affected UI/realtime path and fail closed
+- 위험: BK-R011 및 BK-R001의 외부 부분
+- 의사결정: D-010의 보안 부분을 여기서 해결해야 함
+- 작업량: `high`
+- 의존성: 단계 2 및 3. 담당 범위가 겹치지 않으면 4A와 병행 가능
+- 주요 담당 범위: 동적 DOM 렌더링, 콘텐츠 이스케이프, CSP/서드파티 스크립트,
+  Supabase 클라이언트 노출/RLS 증거 및 범위를 좁힌 브라우저/보안 테스트
+- 롤백: 출력 이스케이프, CSP에 상응하는 보호 및 RLS를 유지한다. 그렇지
+  못하면 영향받는 UI/실시간 경로를 비활성화하고 실패 시 폐쇄한다
 
-Tasks:
+작업:
 
-1. Trace every database/API string into HTML, attribute, URL, and JavaScript
-   contexts; reproduce stored-content cases before fixing them.
-2. Replace unsafe `innerHTML` and inline handler interpolation on critical paths
-   with safe DOM construction/event delegation.
-3. Review CDN script pinning/integrity and define the accepted content-security
-   policy.
-4. Verify Supabase tables, events, grants, Row Level Security, anonymous-key scope,
-   and data visibility. Treat unavailable external policy as Not verified.
-5. Add malicious menu/name/note strings and wrong-client realtime access cases.
+1. 모든 데이터베이스/API 문자열이 HTML, 속성, URL 및 JavaScript 컨텍스트로
+   전달되는 경로를 추적하고, 저장 콘텐츠 사례를 수정 전에 재현한다.
+2. 핵심 경로의 안전하지 않은 `innerHTML` 및 인라인 핸들러 보간을 안전한 DOM
+   생성/이벤트 위임으로 교체한다.
+3. CDN 스크립트 고정/무결성을 검토하고 승인된 콘텐츠 보안 정책을 정의한다.
+4. Supabase 테이블, 이벤트, 권한 부여, 행 수준 보안(RLS), 익명 키 범위 및
+   데이터 가시성을 검증한다. 확인할 수 없는 외부 정책은
+   `검증되지 않음(Not verified)`으로 취급한다.
+5. 악성 메뉴/이름/메모 문자열과 잘못된 클라이언트의 실시간 접근 사례를
+   추가한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py test orders.tests.test_content_security
-# Run the documented focused browser security journey.
+# 문서화된 범위 한정 브라우저 보안 여정을 실행한다.
 ```
 
-Exit criteria:
+종료 조건:
 
-- Stored strings render as text in every critical page/context.
-- Realtime anonymous access is explicitly allowed by verified RLS or disabled.
-- Removing the security change cannot be a normal rollback path.
+- 저장된 문자열이 모든 핵심 페이지/컨텍스트에서 텍스트로 렌더링된다.
+- 실시간 익명 접근이 검증된 RLS를 통해 명시적으로 허용되거나 비활성화되어 있다.
+- 보안 변경 제거는 일반적인 롤백 경로가 될 수 없다.
 
-## Step 5 — Numbering and transaction safety
+## 단계 5 — 번호 부여 및 트랜잭션 안전성
 
-- Risk: BK-R003; step 1 has already resolved BK-R005 bootstrap
-- Decisions: D-004 and D-006
-- Effort: `xhigh`
-- Dependencies: steps 1 and 2
-- Primary ownership: numbering service, forward-only schema changes if required,
-  and PostgreSQL concurrency/midnight tests
-- Rollback: preserve uniqueness and data readability; verify old-application/new-
-  schema behavior or define a forward-fix-only recovery
+- 위험: BK-R003. 단계 1에서 BK-R005 부트스트랩은 이미 해결됨
+- 의사결정: D-004 및 D-006
+- 작업량: `xhigh`
+- 의존성: 단계 1 및 2
+- 주요 담당 범위: 번호 부여 서비스, 필요한 경우 전진 전용 스키마 변경 및
+  PostgreSQL 동시성/자정 테스트
+- 롤백: 고유성과 데이터 가독성을 유지한다. 구 애플리케이션/새 스키마 동작을
+  검증하거나 전진 수정 전용 복구를 정의한다
 
-Tasks:
+작업:
 
-1. Turn D-004 into executable examples for first value, daily reset, timezone,
-   uniqueness, gaps, and repeats across days.
-2. Reproduce current PostgreSQL behavior for empty/non-empty state, midnight,
-   unique conflict, transaction failure, worker concurrency, and retry.
-3. Implement one backend-consistent allocation contract or document deliberately
-   different local-only behavior.
-4. Keep retries transaction-safe and bounded; do not catch a database error and
-   continue inside a broken transaction.
-5. Add forward-only migrations and compatibility/rollback evidence when needed.
+1. D-004를 첫 값, 일일 초기화, 시간대, 고유성, 번호 공백 및 날짜 간 번호
+   반복에 대한 실행 가능한 예시로 만든다.
+2. 빈 상태/비어 있지 않은 상태, 자정, 고유성 충돌, 트랜잭션 실패, 워커 동시성
+   및 재시도에 대한 현행 PostgreSQL 동작을 재현한다.
+3. 백엔드 전체에서 일관된 단일 할당 계약을 구현하거나, 의도적으로 다른 로컬
+   전용 동작을 문서화한다.
+4. 재시도는 트랜잭션에 안전하고 횟수가 제한되도록 한다. 데이터베이스 오류를
+   잡은 뒤 망가진 트랜잭션 안에서 계속 진행하지 않는다.
+5. 필요할 때 전진 전용 마이그레이션과 호환성/롤백 증거를 추가한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py test orders.tests.test_numbering
-# Repeat the numbering suite with the documented PostgreSQL DATABASE_URL.
+# 문서화된 PostgreSQL DATABASE_URL로 번호 부여 테스트 스위트를 반복한다.
 python manage.py makemigrations --check --dry-run
 ```
 
-Exit criteria:
+종료 조건:
 
-- Concurrent PostgreSQL tests prove the accepted uniqueness/reset contract.
-- Failures cannot leave a partially numbered order or poison an unnoticed
-  transaction.
-- Fresh and upgraded databases produce the same approved semantics.
+- 동시 PostgreSQL 테스트가 승인된 고유성/초기화 계약을 입증한다.
+- 실패로 인해 번호가 일부만 부여된 주문이 남거나 트랜잭션이 인지되지 않은 채
+  망가질 수 없다.
+- 신규 및 업그레이드 데이터베이스가 승인된 동일한 의미 체계를 제공한다.
 
-## Step 6 — Order command, status, and idempotency integrity
+## 단계 6 — 주문 명령, 상태 및 멱등성 무결성
 
-- Risks: domain portions of BK-R003 and the unregistered duplicate-submit/status
-  hypotheses from the analysis report
-- Decisions: D-003, D-004, D-007, and D-008
-- Effort: `xhigh`
-- Dependencies: steps 2 and 5
-- Primary ownership: order command services, status-transition policy,
-  idempotency/retry mechanism, endpoint adapters, and focused integration tests
-- Rollback: preserve idempotency keys/state compatibility; prove the old app can
-  read new rows or use a forward fix
+- 위험: BK-R003의 도메인 부분 및 분석 보고서에서 아직 등록되지 않은 중복
+  제출/상태 가설
+- 의사결정: D-003, D-004, D-007 및 D-008
+- 작업량: `xhigh`
+- 의존성: 단계 2 및 5
+- 주요 담당 범위: 주문 명령 서비스, 상태 전이 정책, 멱등성/재시도 메커니즘,
+  엔드포인트 어댑터 및 범위를 좁힌 통합 테스트
+- 롤백: 멱등성 키/상태 호환성을 유지한다. 구 애플리케이션이 새 행을 읽을 수
+  있음을 입증하거나 전진 수정을 사용한다
 
-Tasks:
+작업:
 
-1. Define allowed status transitions, cancellation behavior, item progress, and
-   retry/double-tap outcomes.
-2. Add a client-request identity/idempotency contract with retention and conflict
-   behavior.
-3. Move create/progress/status writes into atomic command services while keeping
-   endpoint compatibility.
-4. Test simultaneous progress updates, cancellation races, duplicate create,
-   timeout/retry, and partial-failure rollback.
-5. Add structured domain errors that adapters can map consistently in step 9.
+1. 허용된 상태 전이, 취소 동작, 항목 진행 상태 및 재시도/더블 탭 결과를
+   정의한다.
+2. 보존 및 충돌 동작을 포함한 클라이언트 요청 식별/멱등성 계약을 추가한다.
+3. 엔드포인트 호환성을 유지하면서 생성/진행/상태 쓰기를 원자적 명령 서비스로
+   이동한다.
+4. 동시 진행 상태 갱신, 취소 경합, 중복 생성, 시간 초과/재시도 및 부분 실패
+   롤백을 테스트한다.
+5. 단계 9에서 어댑터가 일관되게 매핑할 수 있는 구조화된 도메인 오류를 추가한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py test orders.tests.test_order_commands orders.tests.test_status
-# Repeat concurrency-sensitive cases on PostgreSQL.
+# 동시성에 민감한 사례를 PostgreSQL에서 반복한다.
 ```
 
-Exit criteria:
+종료 조건:
 
-- A retry or double tap cannot silently create the same order twice.
-- Invalid/racing transitions fail predictably without partial state.
-- Current authorized operator flows remain compatible.
+- 재시도나 더블 탭으로 동일한 주문이 암묵적으로 두 번 생성될 수 없다.
+- 유효하지 않거나 경합하는 전이는 부분 상태를 남기지 않고 예측 가능하게 실패한다.
+- 현재의 권한 있는 운영자 흐름이 호환성을 유지한다.
 
-## Step 7 — Payment, admin, and historical-data integrity
+## 단계 7 — 결제, 관리자 및 과거 데이터 무결성
 
-- Risks: BK-R007 and BK-R008
-- Decisions: D-005, D-008, D-011, and D-012
-- Effort: `xhigh`
-- Dependencies: steps 2 and 6
-- Primary ownership: payment/total service and constraints, Django admin write
-  policy, legacy-data reconciliation migration/query, and aggregate tests
-- Rollback: preserve original values and audit counts; rehearse old-app/new-schema
-  behavior before any backfill and define forward recovery for new writes
+- 위험: BK-R007 및 BK-R008
+- 의사결정: D-005, D-008, D-011 및 D-012
+- 작업량: `xhigh`
+- 의존성: 단계 2 및 6
+- 주요 담당 범위: 결제/합계 서비스와 제약 조건, Django 관리자 쓰기 정책,
+  레거시 데이터 조정 마이그레이션/쿼리 및 집계 테스트
+- 롤백: 원래 값과 감사 건수를 보존한다. 데이터 보충 전에 구 애플리케이션/새
+  스키마 동작을 예행 연습하고 새 쓰기에 대한 전진 복구를 정의한다
 
-Tasks:
+작업:
 
-1. Encode accepted cash, ticket, mixed, under/overpayment, change, cancellation,
-   and refund rules with server-authoritative integer KRW totals.
-2. Reject malformed, negative, overflow, inactive-menu, and inconsistent payment
-   inputs with stable errors.
-3. Decide whether admin order-item edits are prohibited or routed through the same
-   domain service. Cover add/edit/delete and status operations.
-4. Reconcile legacy `received_amount` with nullable split fields using an approved,
-   reversible/auditable path. Record row counts and before/after financial sums.
-5. Add database constraints only after proving existing rows satisfy them.
+1. 승인된 현금, 티켓, 복합, 과소/초과 결제, 거스름돈, 취소 및 환불 규칙을
+   서버가 기준이 되는 정수형 KRW 합계로 구현한다.
+2. 형식 오류, 음수, 오버플로, 비활성 메뉴 및 불일치 결제 입력을 안정적인
+   오류로 거부한다.
+3. 관리자의 주문 항목 편집을 금지할지, 동일한 도메인 서비스를 통하도록 할지
+   결정한다. 추가/편집/삭제 및 상태 작업을 모두 다룬다.
+4. 승인되고 되돌릴 수 있으며 감사 가능한 경로를 사용해 레거시
+   `received_amount`와 null 허용 분할 필드를 조정한다. 행 수와 변경 전/후 재무
+   합계를 기록한다.
+5. 기존 행이 제약 조건을 충족함을 입증한 뒤에만 데이터베이스 제약을 추가한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py test orders.tests.test_payments orders.tests.test_admin_integrity
 python manage.py test orders.tests.test_legacy_reconciliation
-# Run data and constraint checks on a sanitized PostgreSQL copy.
+# 정제된 PostgreSQL 복사본에서 데이터 및 제약 조건 검사를 실행한다.
 ```
 
-Exit criteria:
+종료 조건:
 
-- Item sums, stored totals, payment splits, change, and reports reconcile.
-- Admin cannot bypass financial invariants.
-- Historical-data handling has accepted before/after evidence and recovery steps.
+- 항목 합계, 저장된 총액, 결제 분할, 거스름돈 및 보고서가 일치한다.
+- 관리자가 재무 불변 조건을 우회할 수 없다.
+- 과거 데이터 처리에 승인된 변경 전/후 증거와 복구 단계가 있다.
 
-## Step 8 — Retrieval, reporting, and cache correctness
+## 단계 8 — 조회, 보고 및 캐시 정확성
 
-- Risks: BK-R006, BK-R009, and BK-R010; reporting use of BK-R007
-- Decisions: D-003, D-007, D-010, D-012, and D-013
-- Effort: `high`
-- Dependencies: steps 3, 4A, 4B, 5, 6, and 7
-- Primary ownership: selectors/query parameters, dashboard period/payment queries,
-  kitchen retrieval contract, cache invalidation/removal, and endpoint tests
-- Rollback: preserve secure endpoint guards and complete pending-order visibility;
-  do not restore a truncated or stale correctness path
+- 위험: BK-R006, BK-R009, BK-R010 및 보고에 사용하는 BK-R007
+- 의사결정: D-003, D-007, D-010, D-012 및 D-013
+- 작업량: `high`
+- 의존성: 단계 3, 4A, 4B, 5, 6 및 7
+- 주요 담당 범위: 선택기/쿼리 매개변수, 대시보드 기간/결제 쿼리, 주방 조회
+  계약, 캐시 무효화/제거 및 엔드포인트 테스트
+- 롤백: 안전한 엔드포인트 보호와 대기 주문 전체의 가시성을 유지한다. 잘리거나
+  오래되어 정확하지 않은 경로를 복원하지 않는다
 
-Tasks:
+작업:
 
-1. Define default and selected reporting periods, inclusive boundaries, invalid
-   input errors, and `Asia/Seoul` behavior. Remove the hard-coded event date.
-2. Make historical and current payment aggregates follow D-012 and reconcile with
-   order/item totals.
-3. Move kitchen mode/role filtering to an authorized server-side query. Define
-   pagination or a complete pending-work contract so the newest 80 mixed orders
-   cannot hide older work.
-4. Test more than 80 mixed pending orders across initial load, role views, polling,
-   realtime reconnect, cancellation, and completion.
-5. Replace mutable process-local ORM caching or add correct invalidation and
-   multi-worker semantics; test table/menu admin changes.
+1. 기본 및 선택 보고 기간, 양 끝을 포함하는 경계, 유효하지 않은 입력 오류 및
+   `Asia/Seoul` 동작을 정의한다. 하드코딩된 이벤트 날짜를 제거한다.
+2. 과거 및 현재 결제 집계가 D-012를 따르고 주문/항목 합계와 일치하게 한다.
+3. 주방 모드/역할 필터링을 권한이 적용되는 서버 측 쿼리로 이동한다. 여러 유형이
+   섞인 최신 주문 80개 때문에 더 오래된 작업이 숨겨지지 않도록 페이지네이션 또는 전체
+   대기 작업 계약을 정의한다.
+4. 초기 로드, 역할별 뷰, 폴링, 실시간 재연결, 취소 및 완료 전반에서 여러 유형이
+   섞인 대기 주문이 80개를 넘는 경우를 테스트한다.
+5. 변경 가능한 프로세스 로컬 ORM 캐시를 교체하거나 올바른 무효화 및 멀티 워커
+   의미 체계를 추가하고, 테이블/메뉴 관리자 변경을 테스트한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py test orders.tests.test_reporting orders.tests.test_kitchen_queries
 python manage.py test orders.tests.test_cache_behavior
 ```
 
-Exit criteria:
+종료 조건:
 
-- Dashboard periods and financial aggregates match accepted examples.
-- Every role sees all and only its pending work regardless of backlog size.
-- Cache behavior cannot use deactivated/stale mutable objects across workers.
+- 대시보드 기간과 재무 집계가 승인된 예시와 일치한다.
+- 적체 규모와 관계없이 모든 역할은 자신에게 해당하는 대기 작업 전체만 본다.
+- 어느 워커에서도 비활성화되었거나 오래된 변경 가능 객체를 캐시가 사용할 수 없다.
 
-## Step 9 — Stable application and API boundaries
+## 단계 9 — 안정적인 애플리케이션 및 API 경계
 
-- Risks: maintainability and inconsistent-error hypotheses from `BASELINE.md`
-- Decisions: D-003 and D-008
-- Effort: `high`
-- Dependencies: step 8 contract tests
-- Primary ownership: API adapters, validators, serializers, selectors, domain
-  service boundaries, error format, and compatibility tests
-- Rollback: preserve secure compatibility adapters while reverting internal
-  extraction; no schema changes unless split into a separate phase
+- 위험: `BASELINE.md`의 유지보수성 및 일관되지 않은 오류 가설
+- 의사결정: D-003 및 D-008
+- 작업량: `high`
+- 의존성: 단계 8의 계약 테스트
+- 주요 담당 범위: API 어댑터, 유효성 검사기, 직렬 변환기, 선택기, 도메인 서비스
+  경계, 오류 형식 및 호환성 테스트
+- 롤백: 내부 추출을 되돌리는 동안 안전한 호환성 어댑터를 유지한다. 별도
+  단계로 분할하지 않는 한 스키마를 변경하지 않는다
 
-Tasks:
+작업:
 
-1. Freeze and document current/target request, response, pagination, and error
-   contracts.
-2. Split transport validation, selectors, serializers, and transactional commands
-   into cohesive modules without behavior drift.
-3. Remove broad exception handling and unreachable/dead paths only with focused
-   reference and regression evidence.
-4. Keep URLs or version approved incompatible changes explicitly.
-5. Measure query counts before and after to prevent a refactor regression, without
-   calling this phase a performance optimization.
+1. 현재/목표 요청, 응답, 페이지네이션 및 오류 계약을 고정하고 문서화한다.
+2. 동작 변경 없이 전송 계층 검증, 선택기, 직렬 변환기 및 트랜잭션 명령을
+   응집도 높은 모듈로 분리한다.
+3. 범위를 좁힌 참조 및 회귀 증거가 있을 때만 광범위한 예외 처리와 도달할 수
+   없거나 사용되지 않는 경로를 제거한다.
+4. URL을 유지하거나 승인된 비호환 변경의 버전을 명시적으로 구분한다.
+5. 이 단계를 성능 최적화라고 부르지 않으면서 리팩터링 회귀를 방지하기 위해
+   변경 전후 쿼리 수를 측정한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py test orders.tests
@@ -512,198 +513,198 @@ python manage.py check
 python manage.py makemigrations --check --dry-run
 ```
 
-Exit criteria:
+종료 조건:
 
-- Executable tests define each endpoint and domain boundary.
-- Views coordinate rather than own financial/state logic.
-- Error and pagination behavior is deterministic and documented.
-- The full suite passes with no unexplained query regression.
+- 실행 가능한 테스트가 각 엔드포인트와 도메인 경계를 정의한다.
+- 뷰는 재무/상태 로직을 소유하지 않고 조정만 한다.
+- 오류 및 페이지네이션 동작이 결정적이며 문서화되어 있다.
+- 설명되지 않은 쿼리 회귀 없이 전체 테스트 스위트를 통과한다.
 
-## Step 10 — Measured performance and realtime reliability
+## 단계 10 — 측정 기반 성능 및 실시간 기능 신뢰성
 
-- Risks: performance/realtime hypotheses and D-010 failure modes
-- Decisions: D-006, D-007, and D-010
-- Effort: `xhigh` for profiling/concurrency, `high` for scoped fixes
-- Dependencies: steps 4B, 8, and 9
-- Primary ownership: benchmark/load scenarios, query/index changes, payload and
-  polling behavior, realtime deduplication/order/reconnect, and regression budgets
-- Rollback: disable a new optimization without losing secure complete retrieval;
-  retain a bounded, measured fallback
+- 위험: 성능/실시간 기능 가설 및 D-010 실패 모드
+- 의사결정: D-006, D-007 및 D-010
+- 작업량: 프로파일링/동시성은 `xhigh`, 범위를 좁힌 수정은 `high`
+- 의존성: 단계 4B, 8 및 9
+- 주요 담당 범위: 벤치마크/부하 시나리오, 쿼리/인덱스 변경, 페이로드 및 폴링
+  동작, 실시간 중복 제거/순서/재연결 및 회귀 예산
+- 롤백: 안전한 전체 조회를 잃지 않고 새 최적화를 비활성화한다. 제한되고 측정된
+  대체 경로를 유지한다
 
-Tasks:
+작업:
 
-1. Define realistic device, order, menu, history, burst, and latency/SLO workloads.
-2. Capture endpoint latency, query counts/plans, lock waits, payloads, polling
-   volume, browser work, and degraded behavior before changing code.
-3. Fix only measured bottlenecks and attach before/after evidence using identical
-   data and workloads.
-4. Verify realtime event coverage, authorization, ordering, deduplication,
-   reconnect, stale events, disconnects, and bounded polling fallback.
-5. Add PostgreSQL execution-plan evidence for every index change and regression
-   budgets for critical workloads.
+1. 현실적인 기기, 주문, 메뉴, 이력, 순간 폭주 및 지연 시간/SLO 워크로드를 정의한다.
+2. 코드를 변경하기 전에 엔드포인트 지연 시간, 쿼리 수/계획, 잠금 대기,
+   페이로드, 폴링 양, 브라우저 작업 및 성능 저하 시 동작을 수집한다.
+3. 측정된 병목만 수정하고 동일한 데이터와 워크로드를 사용한 변경 전/후 증거를
+   첨부한다.
+4. 실시간 이벤트 범위, 권한 부여, 순서, 중복 제거, 재연결, 오래된 이벤트,
+   연결 끊김 및 제한된 폴링 대체 경로를 검증한다.
+5. 모든 인덱스 변경에 PostgreSQL 실행 계획 증거를 추가하고 핵심 워크로드의
+   회귀 예산을 설정한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
-# Run the versioned benchmark/load command created by this phase twice: baseline
-# and candidate, against the same disposable PostgreSQL dataset.
+# 이 단계에서 만든 버전 관리 벤치마크/부하 명령을 동일한 일회용 PostgreSQL
+# 데이터 세트에 대해 기준선과 후보로 한 번씩 실행한다.
 python manage.py test orders.tests.test_realtime orders.tests.test_performance_contracts
 ```
 
-Exit criteria:
+종료 조건:
 
-- Each optimization has repeatable improvement evidence and unchanged correctness.
-- Target concurrency and degraded realtime/network states pass.
-- The fallback cannot create unbounded requests or hide pending work.
+- 각 최적화에 반복 가능한 개선 증거가 있고 정확성은 바뀌지 않는다.
+- 목표 동시성과 성능이 저하된 실시간/네트워크 상태를 통과한다.
+- 대체 경로가 무제한 요청을 만들거나 대기 작업을 숨길 수 없다.
 
-## Step 11 — Frontend maintainability and operator resilience
+## 단계 11 — 프런트엔드 유지보수성 및 운영자 복원력
 
-- Risks: large inline-template/duplication/accessibility hypotheses; BK-R011 must
-  already be closed by step 4B
-- Decisions: D-007, D-009, and D-010
-- Effort: `high`
-- Dependencies: steps 4B, 8, and 9; may run beside step 10
-- Primary ownership: extracted frontend modules/styles, event wiring, accessibility,
-  network/retry UX, dead-template evidence, and critical browser journeys
-- Rollback: retain secure rendering and request guards; if an old page cannot meet
-  those controls, disable it rather than expose it behind a switch
+- 위험: 대규모 인라인 템플릿/중복/접근성 가설. BK-R011은 단계 4B에서 이미
+  종료되어 있어야 함
+- 의사결정: D-007, D-009 및 D-010
+- 작업량: `high`
+- 의존성: 단계 4B, 8 및 9. 단계 10과 병행 가능
+- 주요 담당 범위: 추출한 프런트엔드 모듈/스타일, 이벤트 연결, 접근성,
+  네트워크/재시도 UX, 사용되지 않는 템플릿의 증거 및 핵심 브라우저 여정
+- 롤백: 안전한 렌더링과 요청 보호 장치를 유지한다. 이전 페이지가 이 통제를
+  충족할 수 없다면 스위치 뒤에 노출하지 말고 비활성화한다
 
-Tasks:
+작업:
 
-1. Preserve critical browser journeys while extracting duplicated inline code in
-   small slices.
-2. Replace remaining inline handlers and make loading/error/retry/double-submit
-   states explicit.
-3. Improve semantic controls, focus, keyboard/touch behavior, contrast, viewport
-   behavior, and assistive labels for approved devices.
-4. Remove dead templates/assets only after route, history, reference, and operator
-   confirmation.
-5. Evaluate a frontend framework only in a separate decision/plan; do not combine
-   a framework migration with this phase.
+1. 중복 인라인 코드를 작은 단위로 추출하면서 핵심 브라우저 여정을 보존한다.
+2. 남은 인라인 핸들러를 교체하고 로딩/오류/재시도/중복 제출 상태를 명시적으로
+   만든다.
+3. 승인된 기기에서 의미론적 컨트롤, 포커스, 키보드/터치 동작, 대비,
+   뷰포트 동작 및 보조 레이블을 개선한다.
+4. 경로, 이력, 참조 및 운영자 확인을 거친 뒤에만 사용되지 않는 템플릿/자산을
+   제거한다.
+5. 프런트엔드 프레임워크는 별도 의사결정/계획에서만 평가한다. 프레임워크
+   마이그레이션을 이 단계와 결합하지 않는다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py test orders.tests
-# Run the documented ordering, kitchen, counter, login, offline, and retry browser journeys.
+# 문서화된 주문, 주방, 카운터, 로그인, 오프라인 및 재시도 브라우저 여정을 실행한다.
 ```
 
-Exit criteria:
+종료 조건:
 
-- Approved operator journeys pass on target devices/viewports.
-- Failed network/retry states are clear and cannot duplicate orders.
-- Accessibility criteria pass automated checks and a manual touch workflow review.
-- No rollback path reintroduces unsafe rendering.
+- 승인된 운영자 여정이 대상 기기/뷰포트에서 통과한다.
+- 네트워크 실패/재시도 상태가 명확하며 주문을 중복시킬 수 없다.
+- 접근성 기준이 자동 검사와 수동 터치 워크플로 검토를 통과한다.
+- 어떤 롤백 경로도 안전하지 않은 렌더링을 다시 도입하지 않는다.
 
-## Step 12A — Observability and deployment readiness
+## 단계 12A — 관측 가능성 및 배포 준비
 
-- Risks: operations/deployment hypotheses from `BASELINE.md`
-- Decisions: D-002, D-006, D-007, D-008, and D-010
-- Effort: `high`
-- Dependencies: steps 4A, 5, 6, 7, 10, and 11
-- Primary ownership: logging/metrics/alerts, health/readiness, environment checks,
-  deployment/migration order, backups, restore and rollback runbooks
-- Rollback: a tested application/database rollback or explicit forward-fix plan;
-  preserve all established security controls
+- 위험: `BASELINE.md`의 운영/배포 가설
+- 의사결정: D-002, D-006, D-007, D-008 및 D-010
+- 작업량: `high`
+- 의존성: 단계 4A, 5, 6, 7, 10 및 11
+- 주요 담당 범위: 로그/메트릭/알림, 상태 확인/준비 상태, 환경 검사,
+  배포/마이그레이션 순서, 백업, 복원 및 롤백 런북
+- 롤백: 테스트를 마친 애플리케이션/데이터베이스 롤백 또는 명시적인 전진 수정
+  계획을 사용하고, 확립된 모든 보안 통제를 유지한다
 
-Tasks:
+작업:
 
-1. Add structured logs and correlation/idempotency identifiers without logging
-   credentials, PINs, sensitive notes, or payment data unnecessarily.
-2. Define health/readiness, metrics, actionable alerts, and expected degraded mode.
-3. Validate static files, HTTPS/proxy, database pooling, environment, migration
-   order, and startup failure behavior.
-4. Rehearse backup, restore, application rollback against the migrated schema, and
-   recovery from writes made by the new version using sanitized data.
-5. Produce operator incident and release runbooks.
+1. 자격 증명, PIN, 민감한 메모 또는 결제 데이터를 불필요하게 기록하지 않으면서
+   구조화된 로그와 상관관계/멱등성 식별자를 추가한다.
+2. 상태 확인/준비 상태, 메트릭, 조치 가능한 알림 및 예상되는 성능 저하 모드를
+   정의한다.
+3. 정적 파일, HTTPS/프록시, 데이터베이스 풀링, 환경, 마이그레이션 순서 및
+   시작 실패 동작을 검증한다.
+4. 정제된 데이터를 사용해 백업, 복원, 마이그레이션된 스키마에 대한
+   애플리케이션 롤백 및 새 버전이 기록한 쓰기의 복구를 예행 연습한다.
+5. 운영자용 장애 대응 및 릴리스 런북을 작성한다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 python manage.py check
 python manage.py check --deploy
 python manage.py test
-# Run the documented production-like deploy, backup, restore, and rollback rehearsal.
+# 문서화된 프로덕션 유사 배포, 백업, 복원 및 롤백 예행 연습을 실행한다.
 ```
 
-Exit criteria:
+종료 조건:
 
-- Logs/metrics reveal critical failures without sensitive-data leakage.
-- Backup restore and rollback/forward recovery are rehearsed, timed, and documented.
-- Deployment starts safely only with complete validated configuration.
+- 로그/메트릭이 민감한 데이터 누출 없이 중대한 실패를 드러낸다.
+- 백업 복원과 롤백/전진 복구를 예행 연습하고, 시간을 측정하고, 문서화했다.
+- 완전하게 검증된 설정이 있어야만 배포가 안전하게 시작된다.
 
-## Step 12B — Final integration and release audit
+## 단계 12B — 최종 통합 및 릴리스 감사
 
-- Effort: GPT-6 Astra `xhigh`
-- Dependencies: step 12A and every accepted release-scope phase
-- Primary writes: `FINAL_AUDIT.md`, risk/decision/work-log updates, and only tiny
-  already-decided regression fixes; larger fixes create a new phase
-- Rollback: no release action occurs in this audit; a NO-GO preserves current state
+- 작업량: GPT-6 Astra `xhigh`
+- 의존성: 단계 12A 및 승인된 릴리스 범위의 모든 단계
+- 주요 변경 범위: `FINAL_AUDIT.md`, 위험/의사결정/작업 로그 갱신 및 이미
+  결정된 아주 작은 회귀 수정만 해당. 더 큰 수정에는 새 단계를 만든다
+- 롤백: 이 감사에서는 릴리스 작업을 하지 않는다. NO-GO는 현재 상태를 보존한다
 
-Tasks:
+작업:
 
-1. Run `prompts/04_FINAL_AUDIT.md` with independent security, PostgreSQL/data,
-   performance/realtime, frontend/operator, and operations reviewers.
-2. Run every required suite in its documented environment and classify each gate
-   Pass, Fail, Not run, or Accepted risk.
-3. Trace every Critical/High risk to closed evidence or explicit user acceptance.
-4. Produce GO, NO-GO, or CONDITIONAL NO-GO. Only the user may accept a release
-   risk or authorize deployment.
+1. 독립적인 보안, PostgreSQL/데이터, 성능/실시간 기능, 프런트엔드/운영자 및
+   운영 검토자와 함께 `prompts/04_FINAL_AUDIT.md`를 실행한다.
+2. 문서화된 환경에서 모든 필수 테스트 스위트를 실행하고 각 게이트를
+   `통과(Pass)`, `실패(Fail)`, `실행 안 함(Not run)`, `수용된 위험(Accepted risk)`
+   중 하나로 분류한다.
+3. 모든 치명적/높음(Critical/High) 위험을 종료 증거 또는 명시적인 사용자 수용까지 추적한다.
+4. GO, NO-GO 또는 CONDITIONAL NO-GO를 도출한다. 릴리스 위험 수용이나 배포는
+   사용자만 승인할 수 있다.
 
-Minimum checks:
+최소 검사:
 
 ```bash
 git diff --check
 python manage.py check
 python manage.py makemigrations --check --dry-run
 python manage.py test
-# Run documented PostgreSQL, browser, security, load, restore, and rollback suites.
+# 문서화된 PostgreSQL, 브라우저, 보안, 부하, 복원 및 롤백 테스트 스위트를 실행한다.
 ```
 
-Exit criteria:
+종료 조건:
 
-- No required environment or critical invariant is silently unverified.
-- Release blockers are reproducible and assigned.
-- GO is supported by archived evidence and a tested rollback/recovery plan.
+- 필수 환경이나 핵심 불변 조건이 암묵적으로 미검증 상태에 남지 않는다.
+- 릴리스 차단 요인이 재현 가능하며 담당자가 지정되어 있다.
+- GO는 보관된 증거와 테스트를 마친 롤백/복구 계획으로 뒷받침된다.
 
-## Risk-to-phase ownership
+## 위험별 단계 담당
 
-| Risk | Owning step | Required closure evidence |
+| 위험 | 담당 단계 | 필수 종료 증거 |
 | --- | --- | --- |
-| BK-R001 | 3; external boundary in 4B | Route matrix and negative access/CSRF tests |
-| BK-R002 | 4A | Fail-safe configuration plus identity/session abuse tests |
-| BK-R003 | 5 | PostgreSQL midnight/contention/retry proof |
-| BK-R004 | 2 | Reproducible meaningful tests enforced by CI |
-| BK-R005 | 1 | Empty and already-applied PostgreSQL migration paths |
-| BK-R006 | 8 | Default/selected period and timezone tests |
-| BK-R007 | 7; reporting use in 8 | Legacy row reconciliation and aggregate before/after proof |
-| BK-R008 | 7 | Admin add/edit/delete policy and invariant tests |
-| BK-R009 | 8; degraded behavior in 10 | More-than-80 mixed backlog tests across load/poll/reconnect |
-| BK-R010 | 8 | Mutable update and multi-worker cache behavior tests |
-| BK-R011 | 4B | Stored-content browser tests and context audit |
+| BK-R001 | 3; 외부 경계는 4B | 경로 매트릭스 및 접근/CSRF 실패 테스트 |
+| BK-R002 | 4A | 안전하게 실패하는 설정과 사용자 식별/세션 악용 테스트 |
+| BK-R003 | 5 | PostgreSQL 자정/경합/재시도 입증 |
+| BK-R004 | 2 | CI에서 강제하는 재현 가능하고 의미 있는 테스트 |
+| BK-R005 | 1 | 빈 데이터베이스 및 기존 적용 PostgreSQL 마이그레이션 경로 |
+| BK-R006 | 8 | 기본/선택 기간 및 시간대 테스트 |
+| BK-R007 | 7; 보고에는 8에서 사용 | 레거시 행 조정 및 집계 변경 전/후 입증 |
+| BK-R008 | 7 | 관리자 추가/편집/삭제 정책 및 불변 조건 테스트 |
+| BK-R009 | 8; 성능 저하 동작은 10 | 로드/폴링/재연결 전반의 유형 혼합 적체 80개 초과 테스트 |
+| BK-R010 | 8 | 변경 가능한 값의 갱신 및 멀티 워커 캐시 동작 테스트 |
+| BK-R011 | 4B | 저장 콘텐츠 브라우저 테스트 및 컨텍스트 감사 |
 
-## Anti-patterns to reject
+## 거부해야 할 안티패턴
 
-- A big-bang rewrite before behavior and load are characterized.
-- An appended migration offered as a fix for an earlier migration that blocks the
-  chain before the new migration can run.
-- “Performance optimization” without a repeatable before/after measurement.
-- Editing or squashing applied migrations without an explicit dual-path plan.
-- Trusting page navigation, hidden buttons, or a Supabase anonymous key as
-  authorization.
-- Treating SQLite success as proof of PostgreSQL sequence/lock behavior.
-- Caching mutable ORM objects without invalidation and multi-worker semantics.
-- Securing one write path while API, admin, migration, or background paths bypass
-  the invariant.
-- A rollback that restores unauthenticated mutation, CSRF exemptions, unsafe
-  rendering, or incompatible old-application/new-schema behavior.
-- Combining dependency, architecture, UI, data, and Git-history changes in one PR.
-- Raising test counts with assertions that merely mirror implementation.
+- 동작과 부하를 특성화하기 전에 수행하는 전면 재작성.
+- 새 마이그레이션이 실행되기 전에 체인을 막는 앞선 마이그레이션의 수정책으로
+  뒤에 마이그레이션을 추가하는 방식.
+- 반복 가능한 변경 전/후 측정이 없는 “성능 최적화”.
+- 명시적인 이중 경로 계획 없이 적용된 마이그레이션을 편집하거나 스쿼시하는 것.
+- 페이지 이동, 숨겨진 버튼 또는 Supabase 익명 키를 권한 부여로 신뢰하는 것.
+- SQLite 성공을 PostgreSQL 시퀀스/잠금 동작의 증거로 취급하는 것.
+- 무효화 및 멀티 워커 의미 체계 없이 변경 가능한 ORM 객체를 캐시하는 것.
+- 하나의 쓰기 경로만 보호하고 API, 관리자, 마이그레이션 또는 백그라운드 경로가
+  불변 조건을 우회하도록 두는 것.
+- 인증 없는 상태 변경, CSRF 예외, 안전하지 않은 렌더링 또는 호환되지 않는 구
+  애플리케이션/새 스키마 동작을 복원하는 롤백.
+- 의존성, 아키텍처, UI, 데이터 및 Git 이력 변경을 하나의 PR에 결합하는 것.
+- 구현을 그대로 따라 하는 검증문만으로 테스트 수를 늘리는 것.
 
-## Plan mutation protocol
+## 계획 변경 프로토콜
 
-When evidence changes the plan, add a dated entry to `DECISIONS.md` and
-`WORKLOG.md`. State which step is split, inserted, reordered, skipped, or
-abandoned; why; which risk owners and dependencies change; and how completed work
-remains valid. Never silently expand an in-progress phase. Re-run the adversarial
-blueprint review when a mutation changes the critical dependency path.
+증거로 인해 계획이 변경되면 `DECISIONS.md`와 `WORKLOG.md`에 날짜가 있는 항목을
+추가한다. 어떤 단계가 분할, 삽입, 재정렬, 건너뛰기 또는 폐기되는지, 그 이유,
+변경되는 위험 담당자와 의존성, 완료된 작업이 계속 유효한 방식을 명시한다. 진행
+중인 단계를 암묵적으로 확장하지 않는다. 변경으로 핵심 의존성 경로가 달라지면
+적대적 청사진 검토를 다시 실행한다.

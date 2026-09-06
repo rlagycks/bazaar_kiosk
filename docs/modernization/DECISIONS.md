@@ -1,67 +1,68 @@
-# Modernization decisions
+# 현대화 결정 기록
 
-Last updated: 2026-09-06
+최종 업데이트: 2026-09-06
 
-Use this file for choices that affect business behavior, architecture, security,
-data, release scope, or Git governance. Preserve superseded entries and link the
-replacement decision.
+비즈니스 동작, 아키텍처, 보안, 데이터, 릴리스 범위 또는 Git 거버넌스에 영향을
+주는 선택 사항은 이 파일에 기록합니다. 대체된 항목도 보존하고 이를 대신한
+결정을 연결하세요.
 
-## Pending decision index
+## 결정 대기 목록
 
-| ID | Decision | Status | Needed before |
+| ID | 결정 | 상태 | 다음 작업 전에 필요 |
 | --- | --- | --- | --- |
-| D-001 | Canonical branch: keep `develop`, move to `main`, or start a separate v2 history | Pending | Remote Git cleanup and first modernization PR |
-| D-002 | Exposure and identity model: event LAN, internet, named users/devices, or shared roles | Pending | Security boundary |
-| D-003 | Permission matrix for order, counter, kitchen, admin, stats, and API operations | Pending | Security boundary |
-| D-004 | Daily order-number reset, uniqueness, first number, timezone, and display contract | Pending | Order integrity |
-| D-005 | Cash/ticket/mixed-payment, change, cancellation, refund, and underpayment rules | Pending | Order integrity |
-| D-006 | Supported PostgreSQL/Supabase/runtime versions and production topology | Pending | Test foundation and release design |
-| D-007 | Peak load, device/browser targets, and latency/recovery objectives | Pending | Performance and frontend phases |
-| D-008 | Retention and compatibility requirements for existing orders, migrations, and URLs | Pending | Data/API changes |
-| D-009 | Keep server-rendered vanilla JS or evaluate a separate frontend migration | Pending | Frontend phase |
-| D-010 | Realtime tables/events, RLS policy, polling fallback, and degraded-mode contract | Pending | Content/realtime security and realtime reliability phases |
-| D-011 | Permit, prohibit, or service-route Django admin edits to order items and statuses | Pending | Financial integrity phase |
-| D-012 | Reconcile legacy `received_amount` with nullable split-payment fields | Pending | Financial integrity and reporting phases |
-| D-013 | Default dashboard period and selected-period/timezone behavior | Pending | Reporting contract phase |
+| D-001 | 기준 브랜치: `develop` 유지, `main`으로 이동, 별도 v2 이력 시작 중 선택 | 대기 중 | 원격 Git 정리 및 첫 현대화 PR |
+| D-002 | 노출 및 식별 모델: 행사 LAN, 인터넷, 기명 사용자/기기 또는 공유 역할 중 선택 | 대기 중 | 보안 경계 확정 |
+| D-003 | 주문, 카운터, 주방, 관리자, 통계 및 API 작업의 권한 매트릭스 | 대기 중 | 보안 경계 확정 |
+| D-004 | 일일 주문 번호 초기화, 고유성, 시작 번호, 시간대 및 표시 계약 | 대기 중 | 주문 무결성 확보 |
+| D-005 | 현금/티켓/복합 결제, 거스름돈, 취소, 환불 및 부족 결제 규칙 | 대기 중 | 주문 무결성 확보 |
+| D-006 | 지원되는 PostgreSQL/Supabase/런타임 버전 및 프로덕션 토폴로지 | 대기 중 | 테스트 기반 및 릴리스 설계 |
+| D-007 | 최대 부하, 대상 기기/브라우저 및 지연 시간/복구 목표 | 대기 중 | 성능 및 프런트엔드 단계 |
+| D-008 | 기존 주문, 마이그레이션 및 URL의 보존·호환성 요구사항 | 대기 중 | 데이터/API 변경 |
+| D-009 | 서버 렌더링 바닐라 JS 유지 또는 별도 프런트엔드 마이그레이션 검토 | 대기 중 | 프런트엔드 단계 |
+| D-010 | Realtime 테이블/이벤트, RLS 정책, 폴링 대체 경로 및 기능 저하 모드 계약 | 대기 중 | 콘텐츠/Realtime 보안 및 Realtime 신뢰성 단계 |
+| D-011 | 주문 상품 및 상태에 대한 Django 관리자 수정을 허용, 금지 또는 서비스 계층 경유 중 선택 | 대기 중 | 재무 무결성 단계 |
+| D-012 | 레거시 `received_amount`와 null 허용 분할 결제 필드 정합성 확보 | 대기 중 | 재무 무결성 및 보고 단계 |
+| D-013 | 대시보드 기본 기간 및 선택 기간/시간대 동작 | 대기 중 | 보고 계약 단계 |
 
-## Decision record template
+## 결정 기록 템플릿
 
-### D-XXX — Title
+### D-XXX — 제목
 
-- Status: Proposed | Accepted | Rejected | Superseded
-- Date:
-- Owners:
-- Decision required by:
-- Context and evidence:
-- Options considered:
-- Decision:
-- Consequences and tradeoffs:
-- Migration/rollback implications:
-- Verification:
-- Supersedes / superseded by:
+- 상태: 제안됨 | 승인됨 | 거절됨 | 대체됨
+- 날짜:
+- 담당자:
+- 결정 필요 시점:
+- 맥락과 근거:
+- 검토한 선택지:
+- 결정:
+- 결과와 트레이드오프:
+- 마이그레이션/롤백 영향:
+- 검증:
+- 대체 대상 / 대체 결정:
 
-## Preparation decisions
+## 준비 단계 결정
 
-### D-P01 — Use incremental evidence-first modernization as the draft plan
+### D-P01 — 증거 우선 방식의 점진적 현대화를 초안 계획으로 사용
 
-- Status: Proposed
-- Date: 2026-09-06
-- Context and evidence: The application is small enough to improve in place, while
-  its financial, authorization, and concurrency behavior lacks automated tests.
-  Existing `main` and `develop` tips share identical source trees despite graph
-  divergence.
-- Proposed decision: Build characterization tests and production-context evidence
-  before deciding on any rewrite. Keep phases small and forward-only.
-- Consequence: The blueprint assumes incremental work, but step 0 may replace this
-  proposal if product requirements prove that a v2 rebuild is safer.
+- 상태: 제안됨
+- 날짜: 2026-09-06
+- 맥락과 근거: 애플리케이션은 현재 구조에서 점진적으로 개선하기에 충분히
+  작지만, 재무, 권한 부여, 동시성 동작에 대한 자동화 테스트가 없습니다.
+  기존 `main`과 `develop`의 끝점은 그래프가 분기되어 있지만 동일한 소스
+  트리를 공유합니다.
+- 제안된 결정: 다시 쓰기 여부를 결정하기 전에 특성화 테스트와 프로덕션
+  맥락에 대한 근거를 확보합니다. 각 단계는 작게 나누고 변경은 전진 방향으로만
+  누적합니다.
+- 결과: 청사진은 점진적 작업을 전제로 하지만, 제품 요구사항상 v2 재구축이
+  더 안전하다고 입증되면 0단계에서 이 제안을 대체할 수 있습니다.
 
-### D-P02 — Do not alter remote Git history during preparation
+### D-P02 — 준비 중에는 원격 Git 이력을 변경하지 않음
 
-- Status: Accepted
-- Date: 2026-09-06
-- Context and evidence: The user requested preparation for a later Astra session,
-  and no content-level secret finding currently requires a rewrite.
-- Decision: Clone and inspect locally; create a local preparation branch only.
-  Leave remote refs, default branch, protection, tags, and history unchanged.
-- Verification: `git status`, branch/ref inventory, and remote inspection before
-  any later approved Git operation.
+- 상태: 승인됨
+- 날짜: 2026-09-06
+- 맥락과 근거: 사용자는 이후 Astra 세션을 위한 준비를 요청했으며, 현재는
+  이력을 다시 써야 할 내용 수준의 비밀정보 발견 사항이 없습니다.
+- 결정: 로컬에서 클론하고 검사하며 로컬 준비 브랜치만 생성합니다. 원격 참조,
+  기본 브랜치, 보호 설정, 태그, 이력은 변경하지 않습니다.
+- 검증: 이후 승인된 Git 작업을 수행하기 전에 `git status`, 브랜치/참조
+  목록, 원격 상태를 검사합니다.

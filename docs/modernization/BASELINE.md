@@ -1,122 +1,127 @@
-# Legacy baseline
+# 레거시 기준선
 
-Last verified: 2026-09-06
+최종 검증일: 2026-09-06
 
-Snapshot: `origin/develop` at `93a841a` (tree `de8b3f3`)
+스냅샷: `origin/develop`의 `93a841a` (트리 `de8b3f3`)
 
-This is an initial evidence-backed snapshot, not a complete audit. Findings marked
-as hypotheses must be reproduced in a dedicated analysis session before a broad
-fix is designed.
+이 문서는 완전한 감사가 아니라 증거에 근거한 초기 스냅샷입니다. 가설로
+표시된 발견 사항은 광범위한 수정 방안을 설계하기 전에 별도의 분석 세션에서
+재현해야 합니다.
 
-## Repository profile
+## 저장소 개요
 
-| Area | Verified state |
+| 영역 | 검증된 상태 |
 | --- | --- |
-| Stack | Django server-rendered app, vanilla JavaScript/CSS, PostgreSQL production path, SQLite fallback, optional Supabase Realtime |
-| Size | 55 tracked files, about 4,753 lines including migrations and templates |
-| Main app | `orders` with models, services, page views, JSON endpoints, admin, inline frontend code |
-| Runtime declaration | `Django>=5.0,<5.3`, `psycopg[binary]>=3.1`, WhiteNoise, Gunicorn; no lock file |
-| CI | Python 3.12, dependency install, `manage.py check`, and migration-drift check |
-| Tests | No test modules; Django reports `Found 0 test(s)` |
-| Documentation | No README or agent/runbook documents before this preparation branch |
+| 기술 스택 | Django 서버 렌더링 앱, 바닐라 JavaScript/CSS, 프로덕션 경로의 PostgreSQL, 대체 경로의 SQLite, 선택적으로 사용하는 Supabase Realtime |
+| 규모 | 마이그레이션 및 템플릿을 포함해 추적 중인 파일 55개, 약 4,753줄 |
+| 주요 앱 | 모델, 서비스, 페이지 뷰, JSON 엔드포인트, 관리자 기능, 인라인 프런트엔드 코드가 포함된 `orders` |
+| 런타임 명세 | `Django>=5.0,<5.3`, `psycopg[binary]>=3.1`, WhiteNoise, Gunicorn; 잠금 파일 없음 |
+| CI | Python 3.12, 의존성 설치, `manage.py check`, 마이그레이션 드리프트 검사 |
+| 테스트 | 테스트 모듈 없음; Django에서 `Found 0 test(s)`로 보고 |
+| 문서 | 이 준비 브랜치 이전에는 README나 에이전트/런북 문서가 없었음 |
 
-The largest maintainability concentrations are `orders/views/api.py` (594 lines),
-`orders/templates/orders/order.html` (535 lines), and
-`orders/templates/orders/kitchen_supervisor.html` (486 lines). Important behavior
-is split between Django views and large inline scripts.
+유지보수 복잡도가 가장 집중된 파일은 `orders/views/api.py`(594줄),
+`orders/templates/orders/order.html`(535줄),
+`orders/templates/orders/kitchen_supervisor.html`(486줄)입니다. 중요한 동작이
+Django 뷰와 대규모 인라인 스크립트에 나뉘어 있습니다.
 
-## Reproduced local baseline
+## 재현된 로컬 기준선
 
-The following was run in a fresh Python 3.12 virtual environment:
+다음 검사는 새 Python 3.12 가상 환경에서 실행했습니다.
 
-| Check | Result |
+| 검사 | 결과 |
 | --- | --- |
-| Dependency installation | Passed; resolved Python 3.12.11, Django 5.2.17, psycopg 3.3.5 |
-| `python manage.py check` | Passed with zero issues |
-| `makemigrations --check --dry-run` | Passed; no model drift |
-| Fresh SQLite migration chain | All Django and `orders` migrations through `0020` passed |
-| `python manage.py test` | Command passed but ran zero tests |
-| `python manage.py check --deploy` | Three warnings: HSTS unset, SSL redirect unset, deliberately weak diagnostic secret |
-| PostgreSQL migration/concurrency check | Not run; still required |
-| Browser/operator-flow check | Not run; still required |
+| 의존성 설치 | 통과; Python 3.12.11, Django 5.2.17, psycopg 3.3.5로 확인 |
+| `python manage.py check` | 통과; 문제 0건 |
+| `makemigrations --check --dry-run` | 통과; 모델 드리프트 없음 |
+| 새 SQLite 마이그레이션 체인 | Django 및 `orders`의 `0020`까지 모든 마이그레이션 통과 |
+| `python manage.py test` | 명령은 통과했지만 테스트 0개 실행 |
+| `python manage.py check --deploy` | 경고 3건: HSTS 미설정, SSL 리디렉션 미설정, 진단용으로 의도적으로 약하게 설정한 비밀 키 |
+| PostgreSQL 마이그레이션/동시성 검사 | 미실행; 여전히 필요 |
+| 브라우저/운영자 흐름 검사 | 미실행; 여전히 필요 |
 
-The system Python is 3.9.6 and had Django 4.2.20, so using an unqualified
-`python3` does not reproduce CI or the declared requirements.
+시스템 Python은 3.9.6이고 Django 4.2.20이 설치되어 있었으므로, 경로를
+한정하지 않은 `python3`로는 CI나 명시된 요구사항을 재현할 수 없습니다.
 
-## Git condition
+## Git 상태
 
-- The remote default is `develop`; the local clone initially checked out
-  `develop`.
-- The repository contains 68 commits, including 16 merge commits, and 10 named
-  remote branches plus the symbolic `origin/HEAD` reference.
-- `origin/main` and `origin/develop` point to different histories. The symmetric
-  difference is 7 commits on the `main` side and 19 on the `develop` side.
-- Despite that divergence, both tips have the exact same tree object
-  (`de8b3f3712ea25209e2d9e94d044002b3e9e7bff`). The current source content is
-  therefore identical while the graph is not.
-- No secret-like filename or database/CSV artifact was found among historical
-  tracked paths by the initial filename scan. This is not a content-level secret
-  audit.
-- GitHub CLI authentication for the configured account was invalid. Public clone
-  access succeeded.
+- 원격 기본 브랜치는 `develop`이며, 로컬 클론도 처음에 `develop`을
+  체크아웃했습니다.
+- 저장소에는 커밋 68개와 병합 커밋 16개가 있으며, 이름이 지정된 원격
+  브랜치 10개와 심볼릭 `origin/HEAD` 참조가 있습니다.
+- `origin/main`과 `origin/develop`은 서로 다른 이력을 가리킵니다. 대칭
+  차이는 `main` 측 7개 커밋, `develop` 측 19개 커밋입니다.
+- 이러한 분기에도 불구하고 두 브랜치의 끝점은 정확히 동일한 트리 객체
+  (`de8b3f3712ea25209e2d9e94d044002b3e9e7bff`)를 가집니다. 따라서 현재
+  소스 내용은 동일하지만 그래프는 동일하지 않습니다.
+- 초기 파일명 검사에서는 과거에 추적된 경로 중 비밀정보로 의심되는 파일명이나
+  데이터베이스/CSV 산출물을 찾지 못했습니다. 이는 내용 수준의 비밀정보
+  감사가 아닙니다.
+- 설정된 계정의 GitHub CLI 인증은 유효하지 않았습니다. 공개 클론 접근은
+  성공했습니다.
 
-See [GIT_RECOVERY.md](GIT_RECOVERY.md) before changing any remote refs.
+원격 참조를 변경하기 전에 [GIT_RECOVERY.md](GIT_RECOVERY.md)를 확인하세요.
 
-## Initial risk inventory
+## 초기 위험 목록
 
-### Critical candidates
+### 치명적 위험 후보
 
-| ID | Finding | Status | Evidence | Why it matters | Next proof |
+| ID | 발견 사항 | 상태 | 근거 | 중요한 이유 | 다음 검증 |
 | --- | --- | --- | --- | --- | --- |
-| BK-R001 | Mutating JSON endpoints bypass CSRF and have no role decorator | Code-supported | `orders/views/api.py:7`, `:146`, `:346`, `:379`; only page views use `require_roles` | A page login does not protect direct order creation or status/progress mutation | Test anonymous, wrong-role, and CSRF requests for every endpoint |
-| BK-R002 | Role PINs have committed defaults and direct string comparison | Code-supported | `bazaar_kiosk/settings.py:115-130`, `orders/views/auth.py:24-49` | Default credentials, no throttling, and coarse shared roles are unsafe for an exposed service | Confirm deployment exposure and approved auth model |
-| BK-R003 | PostgreSQL order numbering does not visibly implement the documented daily reset | Code-supported | `orders/services/numbering.py:12-43` uses a persistent sequence while the SQLite counter keys by date | Numbers and semantics can diverge by backend; conflict retry inside an outer transaction also needs proof | PostgreSQL tests for midnight rollover, retries, and concurrent creation |
+| BK-R001 | 데이터를 변경하는 JSON 엔드포인트가 CSRF를 우회하며 역할 데코레이터가 없음 | 코드로 확인됨 | `orders/views/api.py:7`, `:146`, `:346`, `:379`; 페이지 뷰에만 `require_roles` 사용 | 페이지 로그인만으로는 직접적인 주문 생성이나 상태/진행률 변경을 보호할 수 없음 | 모든 엔드포인트에 대해 익명, 잘못된 역할, CSRF 요청을 테스트 |
+| BK-R002 | 역할 PIN 기본값이 저장소에 커밋되어 있고 문자열을 직접 비교함 | 코드로 확인됨 | `bazaar_kiosk/settings.py:115-130`, `orders/views/auth.py:24-49` | 기본 자격 증명, 스로틀링 부재, 세분화되지 않은 공유 역할은 외부에 노출된 서비스에서 안전하지 않음 | 배포 노출 범위와 승인된 인증 모델을 확인 |
+| BK-R003 | PostgreSQL 주문 번호가 문서화된 일일 초기화를 구현하는 것으로 보이지 않음 | 코드로 확인됨 | SQLite 카운터는 날짜별 키를 사용하는 반면 `orders/services/numbering.py:12-43`은 영속 시퀀스를 사용 | 백엔드에 따라 번호와 의미가 달라질 수 있으며, 외부 트랜잭션 안의 충돌 재시도 역시 검증이 필요함 | 자정 전환, 재시도, 동시 생성에 대한 PostgreSQL 테스트 |
 
-### High candidates
+### 높은 위험 후보
 
-| ID | Finding | Status | Evidence | Why it matters | Next proof |
+| ID | 발견 사항 | 상태 | 근거 | 중요한 이유 | 다음 검증 |
 | --- | --- | --- | --- | --- | --- |
-| BK-R004 | There are no automated tests | Reproduced | CI and local `manage.py test` | Refactoring payment, status, and numbering has no safety net | Build a behavior-characterization suite before refactoring |
-| BK-R005 | Fresh PostgreSQL sequence migration may be unsafe when no prior order exists | Code-supported | `orders/migrations/0020_create_floor_sequences.py:9-16` calls `setval` with a possible zero and marks it called | A new PostgreSQL environment may fail before a later corrective migration can run | Apply the full chain to an empty supported PostgreSQL version before choosing a repair path |
-| BK-R006 | Dashboard period is hard-coded to 2025-10-18 | Code-supported | `orders/views/api.py:98-105` | Query parameters are ignored and the dashboard becomes stale | Endpoint regression tests for approved default and selected periods |
-| BK-R007 | Historical payment totals may omit orders created before split fields existed | Code-supported | Migration `0017` adds nullable split columns without a backfill; `orders/views/api.py:508-517` aggregates only those columns | Revenue can remain correct while cash/ticket reconciliation is understated | Compare legacy `received_amount` rows with approved backfill/query semantics and aggregate totals |
-| BK-R008 | Django admin can edit item quantity/unit price while the stored order total is read-only | Code-supported | `orders/admin.py:45-50`, `:70-76`; no inline save/delete total recalculation is present | Admin edits can leave item sums and financial totals inconsistent | Test edit/add/delete paths and decide whether to prohibit or service-route operational edits |
-| BK-R009 | Kitchen role boards fetch the newest 80 mixed orders before filtering by role in the browser | Code-supported | `kitchen_supervisor.html:94`, `:139-147`; `orders/views/api.py:160-170` | A large newer backlog for one mode can hide an older pending order from another role | Reproduce with more than 80 mixed pending orders across load, poll, and reconnect |
-| BK-R010 | Cached ORM table objects have no invalidation path | Code-supported | `orders/views/api.py:108-110` uses process-local `lru_cache` | Deactivated or renamed tables can remain usable until process restart and differ between workers | Reproduce an admin update followed by order creation |
-| BK-R011 | Stored values are interpolated into dynamic HTML and inline handlers in some pages | Code-supported | `order.html:260-269`, `:318-332`; `b1_counter.html:120-154` | A menu or reporting string may cross into executable markup or JavaScript context | Add malicious-string rendering tests and audit every rendering context; note that the kitchen template has a manual escape helper |
+| BK-R004 | 자동화된 테스트가 없음 | 재현됨 | CI 및 로컬 `manage.py test` | 결제, 상태, 번호 부여를 리팩터링할 안전망이 없음 | 리팩터링 전에 동작 특성화 테스트 모음을 구축 |
+| BK-R005 | 기존 주문이 없는 새 PostgreSQL 시퀀스 마이그레이션은 안전하지 않을 수 있음 | 코드로 확인됨 | `orders/migrations/0020_create_floor_sequences.py:9-16`은 0일 수 있는 값으로 `setval`을 호출하고 시퀀스를 이미 호출된 상태로 표시함 | 새 PostgreSQL 환경은 이후의 수정 마이그레이션이 실행되기 전에 실패할 수 있음 | 수정 경로를 선택하기 전에 지원되는 PostgreSQL 버전의 빈 환경에 전체 체인을 적용 |
+| BK-R006 | 대시보드 기간이 2025-10-18로 하드 코딩되어 있음 | 코드로 확인됨 | `orders/views/api.py:98-105` | 쿼리 매개변수가 무시되고 대시보드가 오래된 상태가 됨 | 승인된 기본 기간과 선택 기간에 대한 엔드포인트 회귀 테스트 |
+| BK-R007 | 분할 필드가 생기기 전에 생성된 주문이 과거 결제 합계에서 누락될 수 있음 | 코드로 확인됨 | 마이그레이션 `0017`은 백필 없이 null 허용 분할 열을 추가하며, `orders/views/api.py:508-517`은 해당 열만 집계함 | 매출은 정확해도 현금/티켓 정산액은 실제보다 적게 계산될 수 있음 | 레거시 `received_amount` 행을 승인된 백필/쿼리 의미 및 집계 합계와 비교 |
+| BK-R008 | Django 관리자에서 상품 수량/단가를 수정할 수 있지만 저장된 주문 합계는 읽기 전용임 | 코드로 확인됨 | `orders/admin.py:45-50`, `:70-76`; 인라인 저장/삭제 시 합계를 다시 계산하는 로직이 없음 | 관리자 수정으로 상품 금액 합계와 재무 합계가 불일치할 수 있음 | 수정/추가/삭제 경로를 테스트하고 운영 수정을 금지할지 또는 서비스 계층을 거치게 할지 결정 |
+| BK-R009 | 주방 역할 보드는 브라우저에서 역할별로 필터링하기 전에 최신 혼합 주문 80개를 가져옴 | 코드로 확인됨 | `kitchen_supervisor.html:94`, `:139-147`; `orders/views/api.py:160-170` | 한 모드에 최신 주문이 대량으로 쌓이면 다른 역할의 더 오래된 대기 주문이 보이지 않을 수 있음 | 초기 로드, 폴링, 재연결 각각에서 혼합된 대기 주문 80개를 초과하도록 만들어 재현 |
+| BK-R010 | 캐시된 ORM 테이블 객체에 무효화 경로가 없음 | 코드로 확인됨 | `orders/views/api.py:108-110`은 프로세스 로컬 `lru_cache`를 사용 | 비활성화되거나 이름이 변경된 테이블이 프로세스 재시작 전까지 계속 사용될 수 있고 워커마다 상태가 달라질 수 있음 | 관리자 변경 후 주문 생성을 수행해 재현 |
+| BK-R011 | 일부 페이지에서 저장된 값이 동적 HTML과 인라인 핸들러에 보간됨 | 코드로 확인됨 | `order.html:260-269`, `:318-332`; `b1_counter.html:120-154` | 메뉴 또는 보고용 문자열이 실행 가능한 마크업이나 JavaScript 컨텍스트로 들어갈 수 있음 | 악의적 문자열 렌더링 테스트를 추가하고 모든 렌더링 컨텍스트를 감사; 주방 템플릿에는 수동 이스케이프 헬퍼가 있음을 참고 |
 
-### Medium candidates
+### 중간 위험 후보
 
-- API parsing catches broad exceptions and returns plain-text errors with an
-  inconsistent JSON contract.
-- Order/payment rules are duplicated between JavaScript and Python, with no
-  explicit underpayment or idempotency contract.
-- `orders/views/api.py` combines serialization, validation, writes, state
-  transitions, statistics, and query construction.
-- Several artifacts look obsolete or incomplete: `serve.html`,
-  `role_select.html`, `forms_admin.py`, `recalc_totals`, legacy admin field-name
-  probes, and the retained SQLite counter path. Confirm usage before removal.
-- Dependencies use open ranges and CI does not run tests, security checks,
-  PostgreSQL migrations, JavaScript checks, or browser flows.
-- Operational logging, health/readiness checks, backups, restore drills,
-  observability, and load targets are not represented in the repository.
+- API 파싱은 광범위한 예외를 잡고 일관되지 않은 JSON 계약으로 일반 텍스트
+  오류를 반환합니다.
+- 주문/결제 규칙이 JavaScript와 Python에 중복되어 있으며, 부족 결제나
+  멱등성에 대한 명시적 계약이 없습니다.
+- `orders/views/api.py`는 직렬화, 검증, 쓰기, 상태 전환, 통계, 쿼리 구성을
+  한데 포함합니다.
+- `serve.html`, `role_select.html`, `forms_admin.py`, `recalc_totals`,
+  레거시 관리자 필드 이름 탐색 코드, 유지된 SQLite 카운터 경로 등 여러
+  산출물이 더 이상 사용되지 않거나 미완성인 것으로 보입니다. 제거 전에
+  사용 여부를 확인해야 합니다.
+- 의존성은 열린 버전 범위를 사용하며 CI는 테스트, 보안 검사, PostgreSQL
+  마이그레이션, JavaScript 검사, 브라우저 흐름을 실행하지 않습니다.
+- 운영 로깅, 상태/준비 확인, 백업, 복원 훈련, 관측 가능성, 부하 목표가
+  저장소에 나타나 있지 않습니다.
 
-## Unknowns that block design choices
+## 설계 결정을 가로막는 미확인 사항
 
-Record answers in `DECISIONS.md`:
+답변은 `DECISIONS.md`에 기록하세요.
 
-1. Is this system public on the internet, private on an event network, or both?
-2. Which roles may read, create, update progress, cancel, and view revenue?
-3. What exactly resets daily, in which timezone, and may order numbers repeat?
-4. What are valid cash/ticket/combined-payment and refund/cancellation rules?
-5. What are peak devices, orders per minute, menu size, and acceptable latency?
-6. Which PostgreSQL/Supabase versions, hosting platform, and deployment process are
-   production truth?
-7. Is Supabase Realtime protected by Row Level Security, and which tables/events
-   are intentionally exposed to anonymous clients?
-8. Must historical production data and current URLs remain compatible?
-9. Should the frontend remain server-rendered vanilla JavaScript or may it be
-   replaced after the API contract is stabilized?
+1. 이 시스템은 공개 인터넷, 비공개 행사 네트워크, 또는 둘 모두에서
+   사용됩니까?
+2. 주문 조회, 생성, 진행률 업데이트, 취소, 매출 조회를 각각 어떤 역할에
+   허용합니까?
+3. 정확히 무엇을 어느 시간대 기준으로 매일 초기화하며, 주문 번호의 반복을
+   허용합니까?
+4. 현금/티켓/복합 결제와 취소, 환불, 부족 결제의 유효한 규칙은 무엇입니까?
+5. 최대 기기 수, 분당 주문 수, 메뉴 규모, 허용 가능한 지연 시간은
+   얼마입니까?
+6. 어떤 PostgreSQL/Supabase 버전, 호스팅 플랫폼, 배포 프로세스를 프로덕션의
+   기준으로 삼습니까?
+7. Supabase Realtime은 Row Level Security로 보호되며, 어떤 테이블/이벤트를
+   익명 클라이언트에 의도적으로 노출합니까?
+8. 기존 프로덕션 데이터와 현재 URL의 호환성을 유지해야 합니까?
+9. 프런트엔드는 서버 렌더링 바닐라 JavaScript를 유지해야 합니까, 아니면
+   API 계약을 안정화한 뒤 교체해도 됩니까?
 
-Do not turn an unknown into a silent implementation assumption when it changes
-money, permissions, persisted data, or operator workflow.
+금액, 권한, 영속 데이터, 운영자 작업 흐름이 달라지는 경우 미확인 사항을
+암묵적인 구현 가정으로 바꾸지 마세요.

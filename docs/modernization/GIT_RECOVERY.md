@@ -1,66 +1,61 @@
-# Safe Git recovery strategy
+# 안전한 Git 복구 전략
 
-Last verified: 2026-09-06
+마지막 검증: 2026-09-06
 
-## What is actually tangled
+## 실제로 복잡하게 얽힌 부분
 
-The source tree at `origin/main` and `origin/develop` is identical, but the branch
-tips are not ancestors of each other. Their histories contain repeated feature,
-merge, and conflict-resolution lines. This is graph complexity rather than a
-large-object problem: the packed repository is small and the inspected tips share
-one tree.
+`origin/main`과 `origin/develop`의 소스 트리는 같지만 각 브랜치 팁은 서로의 조상이
+아닙니다. 이 브랜치들의 이력에는 기능 개발, merge 및 충돌 해결 계통이 반복해서 포함되어
+있습니다. 이는 대용량 객체 문제가 아니라 그래프 복잡성 문제입니다. 압축된 저장소는
+작고, 확인한 팁들은 하나의 트리를 공유합니다.
 
-This means an urgent history rewrite is unnecessary. A clean working convention
-can begin without changing old commit IDs or breaking links to existing PRs.
+따라서 이력을 긴급하게 재작성할 필요가 없습니다. 기존 커밋 ID를 변경하거나 기존 PR
+링크를 깨뜨리지 않고도 깔끔한 작업 규칙을 도입할 수 있습니다.
 
-## Recommended path: preserve, designate, archive
+## 권장 경로: 보존, 지정, 보관
 
-Use this option unless a content-level secret scan proves that published history
-must be rewritten.
+콘텐츠 수준 비밀정보 검사에서 공개된 이력을 재작성해야 한다고 입증되지 않는 한 이
+선택지를 사용합니다.
 
-1. Finish the analysis and verify that `main` and `develop` still have equivalent
-   release content.
-2. Choose one canonical branch in `DECISIONS.md`. `main` is the conventional
-   recommendation, but the current GitHub default is `develop`, so this is a user
-   and repository-settings decision.
-3. Create immutable annotated snapshot tags for both pre-modernization tips.
-4. Protect the canonical branch, require CI, disable direct pushes, and choose
-   squash merging for modernization PRs.
-5. Build each blueprint phase on a short-lived branch or worktree from the
-   canonical tip.
-6. After all owners confirm that stale branches contain no unique work, archive
-   their tip SHAs/tags and delete the remote branches in one separately approved
-   maintenance operation.
-7. Keep the old commit graph available for archaeology; do not merge the obsolete
-   branch lines back into the modernized branch.
+1. 분석을 완료하고 `main`과 `develop`에 여전히 동일한 릴리스 내용이 있는지 검증합니다.
+2. `DECISIONS.md`에서 정식 브랜치 하나를 선택합니다. 관례상 `main`을 권장하지만
+   현재 GitHub 기본 브랜치는 `develop`이므로 사용자가 저장소 설정과 함께 결정해야
+   합니다.
+3. 현대화 이전의 두 팁에 변경 불가능한 annotated 스냅샷 tag를 생성합니다.
+4. 정식 브랜치를 보호하고, CI를 필수로 지정하고, 직접 push를 비활성화하고, 현대화
+   PR에 squash merge를 선택합니다.
+5. 정식 브랜치 팁에서 만든 수명이 짧은 브랜치나 워크트리에서 각 블루프린트 단계를
+   구축합니다.
+6. 오래된 브랜치에 고유한 작업이 없음을 모든 담당자가 확인한 뒤, 해당 팁 SHA/tag를
+   보관하고 별도로 승인된 유지보수 작업 한 번으로 원격 브랜치를 삭제합니다.
+7. 과거를 조사할 수 있도록 기존 커밋 그래프를 유지합니다. 폐기된 브랜치 계통을
+   현대화된 브랜치로 다시 merge하지 마세요.
 
-No remote ref, tag, default branch, or protection setting has been changed by the
-preparation work.
+준비 작업으로 변경된 원격 ref, tag, 기본 브랜치 또는 보호 설정은 없습니다.
 
-## Alternative: clean v2 history
+## 대안: 깔끔한 v2 이력
 
-Create a new repository or an orphan `v2` branch from the verified tree only when
-the user values a clean history more than old blame, commit links, and PR ancestry.
-Keep the original repository read-only as an archive. Document the old repository
-URL and tip SHAs in the new history.
+사용자가 과거 blame, 커밋 링크 및 PR 계보보다 깔끔한 이력을 더 중요하게 여길 때만
+검증된 트리에서 새 저장소나 orphan `v2` 브랜치를 생성합니다. 원본 저장소는 읽기 전용
+보관소로 유지합니다. 새 이력에 기존 저장소 URL과 팁 SHA를 문서화합니다.
 
-This option is reasonable for a true product reboot, but it is not required for
-technical modernization and must not be mixed casually with an incremental
-refactor.
+이 선택지는 제품을 완전히 재구축할 때 합리적이지만 기술 현대화에 필수는 아니며,
+점진적인 리팩터링과 가볍게 혼용해서는 안 됩니다.
 
-## History rewrite: exceptional only
+## 이력 재작성: 예외적인 경우에만 수행
 
-Use `git filter-repo` or force-push only to remove confirmed sensitive material or
-for another explicit, reviewed requirement. Before any rewrite:
+확인된 민감 정보를 제거하거나 별도로 명시되고 검토된 요구 사항을 처리할 때만
+`git filter-repo` 또는 force-push를 사용합니다. 이력을 재작성하기 전에 다음을
+수행합니다.
 
-- capture a mirror backup and exact ref inventory;
-- run a content-level secret scan across all refs;
-- produce old-to-new commit/ref mapping;
-- define collaborator re-clone instructions;
-- pause automation and deployments;
-- obtain explicit approval for the exact repository and refs.
+- 미러 백업과 정확한 ref 목록을 확보합니다.
+- 모든 ref를 대상으로 콘텐츠 수준 비밀정보 검사를 실행합니다.
+- 이전 commit/ref에서 새 commit/ref로의 매핑을 작성합니다.
+- 협업자가 다시 클론하는 절차를 정의합니다.
+- 자동화와 배포를 중단합니다.
+- 정확한 저장소와 ref에 대한 명시적 승인을 받습니다.
 
-## Evidence commands for the analysis session
+## 분석 세션용 근거 수집 명령
 
 ```bash
 git status --short --branch
@@ -74,5 +69,5 @@ git show -s --format='%H %T %P %s' origin/main
 git show -s --format='%H %T %P %s' origin/develop
 ```
 
-Also inspect unique commits and run an approved secret scanner before deleting or
-rewriting anything. A filename-only scan is not sufficient.
+항목을 삭제하거나 재작성하기 전에 고유 커밋도 확인하고 승인된 비밀정보 스캐너를
+실행합니다. 파일 이름만 검사하는 것으로는 충분하지 않습니다.
