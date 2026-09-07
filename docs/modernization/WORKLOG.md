@@ -3,6 +3,45 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-07 — 1A: 격리 Compose PG와 migration 경로 재현
+
+- 사용자2A 머지를 GitHub에서 확인: PR36 MERGED, develop `ff013b4b4934087dfa3f3e3ad368af9387554381`.
+  깨끗한 상태에서 이 기준으로 `test/37-phase-1a-postgres` 브랜치를 만들었다.
+  이슈 [#37](https://github.com/rlagycks/bazaar_kiosk/issues/37). 기존 PR 게시 절차를 이어가며 merge는 하지 않는다.
+- 범위/D-027:1A 구현·검증·인계. compose.test.yaml, settings_test_pg.py,
+  pg_init.sql·pg_support.py·test_pg_guard.py·test_migration_paths.py와 관련 문서를 추가했다.
+  업무 앱·기존 migration·의존성·CI·운영 데이터·인프라 변경은 없다.
+- 역할: 메인 담당은 Compose·대상/cleanup guard·실행·문서·Git, 분리된 테스트 담당은
+  historical migration fixture를 작성했다. 독립 리뷰의 close 예외 시 복원/cleanup 중단 지적을
+  반영해 중첩 finally와 실패 회귀를 추가했다.
+- 환경: Python3.12.11/Django5.2.17/psycopg3.3.5, Docker29.4.1/Compose5.1.3,
+  PostgreSQL15.18/aarch64. 검증 image digest는 compose.test.yaml에 고정했다.
+  전용 프로젝트 `bk1a-37-review`, loopback55437, 프로젝트 소유 pg_test_data 볼륨을 사용했다.
+  기존 다른 프로젝트의5432/6379/3307 컨테이너는 사용하거나 중단하지 않았다.
+- 실제 신원: control DB bk_test_control, 사용자 bk_test_runner, DB owner 일치,
+  NOSUPERUSER/CREATEDB/NOCREATEROLE/NOREPLICATION/NOBYPASSRLS와 전용 marker를 확인한다.
+  URL·libpq 환경 guard 뒤 실제 서버 사실을 확인한 후에만 UUID fixture DB를 만든다.
+- 실행: [PG 안내](POSTGRES_TESTING.md)의 Compose config·up --wait·PG check와
+  `test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg` 실행.
+  PG7개 실행·통과·skip0: 빈0020/번호NULL의22003,0018 포장NULL/F1/BOOTH의0019 제약23514,
+ 0019 포장행의 역이행23514, 양수40의0020 성공·이미적용 no-op. 각 실패 뒤 행·이력·제약 보존 확인.
+- 초기 fixture 검증에서 다른 alias를 사용한 원본0014 default 조회와 historical 필드 선택 오류가
+  드러나 테스트 장치를 수정했다. 이후 같은 PG7개가 모두 통과했다. 원본 migration은 수정하지 않았다.
+  샌드박스에서 localhost 연결 거부로 실행되지 않은 결과도 PG 실패 재현으로 세지 않았다.
+- 로컬: 기존9개 기준 검사를 먼저 통과했고 최종 `test orders.tests --settings=bazaar_kiosk.settings_test`
+  수집19개 중12개 실행·통과/PG7개 명시 skip. guard는 잘못된 URL·PG* 우회·서버 identity/권한·
+  close 실패·소유권 변경 거부를 검증한다. check 문제0, makemigrations --check --dry-run 변경 없음.
+- 정리 검증: PG suite 후 UUID DB0개, control public table0개를 확인했다.
+  연결 종료 실패에도 default 연결/설정 복원을 보장하고 자신이 만든 DB만 소유권 재검사 후 정리한다.
+  강제 DROP/다른 세션 종료를 하지 않으며 중단 시 전용 Compose 자원 정리 절차를 문서화했다.
+- 최종 검증: 원본20개 migration의 기준 커밋 대비 바이트·인벤토리 SHA256 일치,
+  Python AST·Markdown20개/링크512개/문서8개 렌더·위험44개/35단계 DAG·diff 공백 검사 통과.
+  외부 URL 응답은 재검증하지 않았다. 리뷰 수정 부분 재검토에서도 추가 지적 없음.
+  전용 프로젝트 label을 확인한 뒤 이번 컨테이너·볼륨·네트워크를 제거했고 기존 개발 컨테이너3개는 유지됐다.
+- 인계: [migration 인벤토리](MIGRATION_INVENTORY.md)의 원본20개 SHA256·경로·운영 확인 목록.
+  테스트 통과는 결함 수정이 아니므로 BK-R005/017 및 기존44개 위험은 Open이다.
+  다음은1B의 구체적 복구안 검토이며, 과거 산출물 수정·과거 테이블 배정 정책을 암묵적으로 결정하지 않는다.
+
 ## 2026-09-07 — 2A 첫 구현: 격리된 로컬 테스트
 
 - 승인: 사용자가 첫 구현의 이슈·전용 브랜치·PR 게시를 요청했다(D-026).
