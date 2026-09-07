@@ -1,7 +1,8 @@
 # === Secrets / Env ===
 .env
-.env.* 
-!.env.example     # 예시 파일은 커밋
+.env.*
+# 예시 파일은 커밋
+!.env.example
 
 # === Python 기본 ===
 __pycache__/
