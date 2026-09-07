@@ -6,6 +6,10 @@
 이전의 선행 조건·설계·운영 위험이다. 신규 구성의 장애를 재현했다고 판정하지 않는다.
 D-018/020의 사용자 방향도 위험 수용이나 해결이 아니다.
 
+2A 후속: 정상 특성화8개와 환경 격리1개가 추가되었다. 가격/atomic 변이를 검출했지만
+PG 검증·CI 실행 강제가 남아 BK-R004는 Open이다. 초기 테스트0개는 분석 당시 증거이며
+현재 구현 결과는 [테스트 안내](TESTING.md)와 [작업 로그](WORKLOG.md)를 따른다.
+
 각 행은 하나의 안정적인 위험 ID다. 심각도 순위(1이 가장 높음), 심각도, 증거 상태,
 선행 결정/위험, 담당 역할, **주 담당 블루프린트 단계**를 독립 열로 두었다.
 표 전체를 스프레드시트로 가져와 각 열로 정렬할 수 있다. 현재는 심각도→단계→ID 순서다.
@@ -20,7 +24,7 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 1 | [BK-R001 — API 역할 인가 부재와 변경 API CSRF 면제](ANALYSIS_REPORT.md#bk-r001) | Critical | Reproduced | Open | D-003; 단계 2 | 보안 담당 | 3 | 모든 역할/익명/만료 세션, CSRF 없음·오류·유효, GET/POST/PATCH/HEAD 경계 |
 | 2 | [BK-R005 — 빈 PostgreSQL에서 0020 마이그레이션 중단](ANALYSIS_REPORT.md#bk-r005) | High | Reproduced | Open | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | PG 빈 DB 전체 체인, null/빈 번호, 기존 양수번호 DB, 이미0020 적용 경로·롤백 |
 | 2 | [BK-R017 — 과거 스키마 축소와 신규 제약의 데이터 호환성 미검증](ANALYSIS_REPORT.md#bk-r017) | High | Reproduced | Open | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | 0018 시점 F1/BOOTH/포장null fixture→0019, 정제복사본 dry-run·백업복원·구앱 호환 |
-| 2 | [BK-R004 — 동작 테스트 0개와 실행을 강제하지 않는 CI](ANALYSIS_REPORT.md#bk-r004) | High | Reproduced | Open | D-006,D-008; 단계 1 | 테스트 담당 | 2 | 의도적인 핵심 회귀를 테스트가 감지하는지 검증; 개수 자체를 목표로 삼지 않음 |
+| 2 | [BK-R004 — 동작 테스트 0개와 실행을 강제하지 않는 CI](ANALYSIS_REPORT.md#bk-r004) | High | Reproduced | Open | D-006,D-008; 단계 1 | 테스트 담당 | 2B | 2A 로컬 특성화·가격/atomic 변이 검출 완료; PG CI 및 회귀 감지 강제 필요 |
 | 2 | [BK-R002 — 공개된 기본 역할 PIN·개발 설정으로 시작 가능](ANALYSIS_REPORT.md#bk-r002) | High | Code-supported | Open | D-002,D-006; 단계 3 | 보안·운영 담당 | 4A | 설정 누락 시작 실패, 잘못된 PIN 반복, 공개 프록시/HTTPS 설정 |
 | 2 | [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | Reproduced | Open | D-002,D-006; 단계 3 | 보안·운영 담당 | 4A | 합성 자격증명으로500 HTML/JSON·로그에 값이 없는지, env누락 실패 |
 | 2 | [BK-R043 — Compose 환경·secret·DB TLS 계약과 현재 settings의 불일치](ANALYSIS_REPORT.md#bk-r043) | High | Code-supported | Open | D-006,D-020,D-021; BK-R002/022; 단계 2,3 | 설정·보안·인프라 담당 | 4A | URL 누락/빈 값·_FILE만·실제 secret 읽기·잘못된 DB·기본 SSL/명시 TLS/CA·재시작 후 동일 DB와 앱 권한 확인 |

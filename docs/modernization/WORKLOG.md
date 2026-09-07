@@ -3,6 +3,47 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-07 — 2A 첫 구현: 격리된 로컬 테스트
+
+- 승인: 사용자가 첫 구현의 이슈·전용 브랜치·PR 게시를 요청했다(D-026).
+  이슈는 [#35](https://github.com/rlagycks/bazaar_kiosk/issues/35), 브랜치는
+  `test/35-phase-2a-baseline`, PR 대상은 조회한 현 GitHub 기본 브랜치 `develop`이다.
+  merge·운영 이전·장기 기준 브랜치 정책 변경은 범위에 없다.
+- 시작 HEAD: `2d5bb78c035555d6e4a58821600aec27a7927b86`.
+  이전 준비2커밋과 최신 미커밋 문서를 보존했고, 분석/청사진 문서 체크포인트
+  `03ac108` 이후 테스트 구현을 별도 커밋으로 구분한다.
+- 구현: `bazaar_kiosk/settings_test.py`, `orders/tests/__init__.py`,
+  `orders/tests/test_baseline.py`, `orders/tests/test_settings_isolation.py`.
+  실행 안내는 [TESTING.md](TESTING.md), 현재 상태는 BASELINE·BLUEPRINT·RISK_REGISTER,
+  사용자 승인 경계는 DECISIONS에 반영했다.
+- 통합 책임: 메인 담당은 격리 설정·환경 검증·변이·문서·Git을 맡고,
+  분리된 테스트 담당은 정상 흐름 fixture와 특성화를 작성했다. 별도 읽기 전용 코드 리뷰에서
+  격리·트랜잭션 테스트·범위·계약 오류 지적 없음으로 검토를 마쳤다.
+- 기준 검사: Python3.12.11/Django5.2.17, 격리 설정으로 check 통과, 초기 수집0개를 확인했다.
+  구현 후 정상 특성화8개와 환경 격리1개가 수집·통과했다. 테스트는 role5개·홀/포장·
+  현금/티켓/혼합 정상 결제·서버 가격·기존 단가·주방 진행·주문 원자성을 검증한다.
+  격리 검사는 잘못된 DB URL과 합성 배포 자격증명을 주입한 새 프로세스에서 실제 메모리 SQL까지 실행했다.
+- 실행 명령: TESTING의 `check`, `makemigrations --check --dry-run`,
+  `test orders.tests.test_baseline`, `test orders.tests` 모두
+  `--settings=bazaar_kiosk.settings_test` 사용. check 문제0·drift 변경 없음·전체9개 통과.
+- 변이 검증: 무시되는 `.venv/phase-2a/mutations/`의 별도 앱 복사본2개에서
+  `unit_price=1`은 가격 테스트의 `1 != 4300`, 생성 바깥 atomic 제거는 원자성 테스트의
+  잔여 부모 주문 `1 != 0`으로 각각1개 assertion failure(exit1)를 확인했다.
+  이는 예상한 검증 성공이며 정상 suite의 실패가 아니다. 원본 앱50개 파일 SHA256은 동일하다.
+  재현 도구·출력은 `.venv/phase-2a/check_mutations.py`와 같은 경로 로그에 로컬 보관했다.
+- 최종 검증: 추적/추가 대상 파일만 새 디렉터리에 복사한 깨끗한 체크아웃에서도
+  check·drift·전체9개 테스트가 통과하고 db.sqlite3는 생성되지 않았다.
+  Markdown18개·링크481개 대상/앵커·변경 문서6개 렌더·위험44개·35단계 DAG 검사와
+  `git diff --check`를 통과했다. 외부 URL의 네트워크 응답은 별도 재검증하지 않았다.
+- 발견/인계: 잘못된 PIN의 오류 context는 있으나 템플릿에 안내가 표시되지 않는다.
+  정상 특성화에서는 로그인 실패의 세션 미생성만 확인하며 메시지 표시 개선은11에 인계한다.
+- 한계: HTML 렌더는 실제 휴대폰/PC 브라우저·JS 인수가 아니다. SQLite 검사는 PG migration·
+  sequence·잠금·동시성을 입증하지 않는다. CI 실행 강제와 PG는 후속2B이므로 BK-R004를
+  포함한 기존44개 위험은 Open 유지한다. 알려진 취약 동작을 정상 계약으로 고정하지 않았다.
+- 앱 업무 코드·기존 migration·의존성·CI·실제 인프라·운영 데이터 변경은 없다.
+  롤백은 테스트/설정만 되돌리면 된다. 다음 구현 후보는1A의 격리 Compose PG와 실패 fixture이며
+  과거 migration 복구는1B의 별도 결정 관문을 따른다.
+
 ## 2026-09-07 — 프롬프트02 청사진 재검토 완료
 
 - 사용자 지시: 디자인은 추후 수정하고 현대화 순서·목적·기대 결과를 정리한 뒤 다음 단계 진행.
