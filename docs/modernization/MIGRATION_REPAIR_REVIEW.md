@@ -23,6 +23,15 @@
 새 sequence 생성은 실패 transaction에서 사라지며, 기존 sequence가 발견되면 값 변경 전에 실패한다.
 기존 행의 숫자0을 새 번호로 덮어쓰거나 NULL 번호를 일괄 배정하지 않는다.
 
+신규 PG 설치 성공 뒤에도 **날짜가 바뀌어도 번호가 이어지는 기존 BK-R003 동작은 남는다.**
+다른 번호 소비가 없는 예에서는 첫날1→2, 다음 날3이다. SQLite는 날짜별 counter를 사용해
+다음 날1부터 시작한다. 이 차이를 목표 업무 정책이나 운영 위험 수용으로 승인하는 것이 아니며,
+일일 초기화 여부와 번호 계약은 D-004/단계5에서 별도 결정·검증한다.
+
+역이행은 원본처럼 sequence를 삭제한다. 이후 정방향 적용은 남은 주문의 MAX에서 다시 초기화하므로,
+주문 삭제나 미사용 번호 소비 이력이 있으면 이전 번호 위치를 잃고 번호가 재사용될 수 있다.
+따라서 역이행→재적용을 안전한 번호 복원 절차로 사용하지 않는다.
+
 ## 확인한 PostgreSQL 증거
 
 Python3.12.11/Django5.2.17/psycopg3.3.5, PostgreSQL15.18/aarch64.
@@ -44,7 +53,9 @@ Python3.12.11/Django5.2.17/psycopg3.3.5, PostgreSQL15.18/aarch64.
 
 12개에는 원본0019 실패를 유지하는4개 사례와 NOT VALID 배제용 탐색1개가 포함된다.
 따라서12개 통과를 전체 migration 경로가 모두 성공한다는 뜻으로 해석하지 않는다.
-기존 재현 이름을 override한 빈/NULL 사례는 후보에서는 성공을 검사한다.
+빈/NULL 성공 사례는 `test_empty_database_installs_and_starts_at_one`과
+`test_null_order_number_is_preserved_and_sequence_starts_at_one`이다.
+원본 실패 suite를 보존하면서 후보에서 해당 두 상속 메서드의 수집만 제외하고 성공 검사로 대체한다.
 NOT VALID는0018 합성 DB에서 직접 SQL을 실행한 탐색이며 실제0019 후보 migration의
 정·역방향 호환 검증이 아니다. 이력 없는 기존 sequence는 자동 DROP·재설정·fake 적용하지 않고
 적용 기록과 실제 객체를 대조해 별도 복구안을 마련해야 한다.
@@ -98,6 +109,10 @@ unset BK_TEST_DATABASE_URL BK_TEST_PG_PORT BK_TEST_PROJECT BK_CANDIDATE BK_PY BK
 다른 개발/운영 컨테이너는 사용하지 않는다. [1A 대상 guard와 정리 규칙](POSTGRES_TESTING.md)을 따른다.
 검증 코드는 [후보 suite](proposals/test_0020_candidate.py), 복사 도구는
 [prepare_0020_candidate.py](proposals/prepare_0020_candidate.py)에 보관한다.
+
+임시 소스 복사본은 검증 결과 확인을 위해 자동 삭제하지 않는다. 결과를 보관한 뒤 준비 도구가
+출력한 이번 실행의 정확한 `.venv/phase-1b/0020-candidate-*` 경로만 확인해 삭제한다.
+다른 실행의 복사본·증거·가상환경을 포함하는 상위 디렉터리나 wildcard로 일괄 삭제하지 않는다.
 
 ## 승인과 다음 적용
 

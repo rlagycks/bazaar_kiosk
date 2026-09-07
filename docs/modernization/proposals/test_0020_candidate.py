@@ -17,8 +17,12 @@ from orders.views import api
 
 
 class SequenceCandidateTests(MigrationPathTests):
-    def test_empty_database_to_0020_fails_and_rolls_back_sequence_ddl(self):
-        # Override the old failure expectation: all apps now install on a fresh DB.
+    # Replace these inherited failure cases with the named success cases below.
+    # unittest collects only callable test attributes; the original suite is intact.
+    test_empty_database_to_0020_fails_and_rolls_back_sequence_ddl = None
+    test_0019_null_order_number_fails_0020_without_losing_rows = None
+
+    def test_empty_database_installs_and_starts_at_one(self):
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
         self.assert_head(M20)
@@ -30,7 +34,7 @@ class SequenceCandidateTests(MigrationPathTests):
             cursor.execute("SELECT nextval('orders_floor_b1_seq')")
             self.assertEqual(cursor.fetchone()[0], 1)
 
-    def test_0019_null_order_number_fails_0020_without_losing_rows(self):
+    def test_null_order_number_is_preserved_and_sequence_starts_at_one(self):
         apps = self.migrate(M19)
         self.fixture(apps)
         before = self.snapshot(apps)[0]
