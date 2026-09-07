@@ -1,0 +1,14 @@
+--- a/orders/migrations/0020_create_floor_sequences.py
++++ b/orders/migrations/0020_create_floor_sequences.py
+@@ -8,3 +8,3 @@
+     with schema_editor.connection.cursor() as cursor:
+-        cursor.execute("CREATE SEQUENCE IF NOT EXISTS orders_floor_b1_seq")
++        cursor.execute("CREATE SEQUENCE orders_floor_b1_seq")
+         cursor.execute(
+@@ -13,4 +13,4 @@
+                 'orders_floor_b1_seq',
+-                COALESCE((SELECT MAX(order_no) FROM orders_order WHERE floor = 'B1'), 0),
+-                true
++                GREATEST(COALESCE((SELECT MAX(order_no) FROM orders_order WHERE floor = 'B1'), 0), 1),
++                COALESCE((SELECT MAX(order_no) FROM orders_order WHERE floor = 'B1'), 0) > 0
+             )

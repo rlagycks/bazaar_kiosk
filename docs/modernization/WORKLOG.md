@@ -3,6 +3,35 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-08 — 1B 복구 후보 검증, 정확한 적용 승인 대기
+
+- PR38 MERGED와 develop `3604ccad7add5c760c3b1cecfaa7032706ddc01c`를 확인했다.
+  깨끗한 상태에서 `review/phase-1b-migration-repair` 브랜치를 만들었고
+  [이슈 #39](https://github.com/rlagycks/bazaar_kiosk/issues/39)에 검토 범위를 기록했다.
+- AGENTS/D-017/1B는 정확한 과거 migration 변경 승인을 요구한다. 원본에 패치를 적용하지 않고
+  [검토안](MIGRATION_REPAIR_REVIEW.md)·전체0020 patch·임시 복사 도구·검증 suite를 작성했다.
+  이번 산출물은 Draft PR 검토용이며1B 완료나 수정 승인 기록이 아니다.
+- 메인 담당은0020 후보·PG 실행·산출물, 독립 검토자는0019 정책/구앱 호환성과0020 후보를 검토했다.
+  리뷰의0경계·생성 후 실패 검증 보완을 추가했고 기존sequence충돌 시 중단과 writer 동결 조건을 명시했다.
+- 후보: 빈/NULL/0이면sequence(1,false), 양수40이면(40,true), 원본이미적용이면no-op,
+  이력 없는 기존sequence는42P07로 중단하고 재설정하지 않는다.
+  원본 파일은 바꾸지 않았으며1A 테스트의 기대 실패도 그대로 보존했다.
+- 검증 환경: 이전1A와 같은 Python3.12.11/Django5.2.17/PG15.18/aarch64,
+  전용 Compose 프로젝트 `bk1b-review-20260908`, loopback55437 및 새 프로젝트 볼륨.
+  `.venv/phase-1b/candidate/` 복사본에서 후보 suite12개 PG 통과·skip0,
+  실제 빈 PG 테스트 DB 생성과 기존 정상 특성화8개 통과. 후보 SQLite drift 변경 없음.
+  번호0 경계와 새 sequence 생성·초기화 뒤 예외 주입 시 행/이력 보존·sequence 제거도 확인했다.
+- 0019 탐색:0018 합성 포장NULL 행에 NOT VALID 제약을 직접 적용하면 행은 유지되지만
+  기존 상태 API가23514로 실패하고 VALIDATE도 실패한다. 실제0019 후보로 구현하거나
+  정·역호환을 보장한 결과가 아니다. 수정 가능한 과거 주문이 필요한지 정책 결정이 남는다.
+- 재현성: 저장소의 준비 도구가 생성한 patch 적용 결과와 실제 검증한 후보 파일의 바이트 일치 확인.
+  명령은 검토안에 보관했다. 원본 기준 검사19개 중12개 통과·PG7개 skip도 유지됐다.
+- 최종 검증: 원본20개 migration 바이트 보존, 후보 Python AST, Markdown21개/링크524개/
+  문서4개 렌더·위험44개/35단계 DAG·diff 공백 검사 통과. 외부 URL 응답은 재검증하지 않았다.
+  UUID/일반 테스트 DB0개·control 업무 table0개를 확인하고 이번 전용 Compose 자원을 제거했다.
+- 다음 관문: D-P07의 정확한0020 패치 적용 승인.0019에 대한 임의 테이블 배정·삭제는 금지하며
+  D-008/017/024는 미정이다. BK-R005/017을 포함한 위험은 해결 처리하지 않는다.
+
 ## 2026-09-07 — 1A: 격리 Compose PG와 migration 경로 재현
 
 - 사용자2A 머지를 GitHub에서 확인: PR36 MERGED, develop `ff013b4b4934087dfa3f3e3ad368af9387554381`.
