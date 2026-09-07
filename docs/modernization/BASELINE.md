@@ -1,127 +1,154 @@
 # 레거시 기준선
 
-최종 검증일: 2026-09-06
+최종 검증일: 2026-09-07 · 기존 분석 + SSE/인프라 후속 증거 갱신
 
-스냅샷: `origin/develop`의 `93a841a` (트리 `de8b3f3`)
+초기 앱 스냅샷: `origin/develop`의 `93a841a`, 트리 `de8b3f3712ea25209e2d9e94d044002b3e9e7bff`.
+이번 분석 시작 HEAD: `2d5bb78`, 브랜치 `chore/astra-modernization-setup`.
+앱·마이그레이션·의존성·CI는 위 앱 스냅샷과 같고 준비 문서 커밋2개만 더해졌다.
+[전체 분석](ANALYSIS_REPORT.md), [위험 등록부](RISK_REGISTER.md), [작업 로그](WORKLOG.md)에
+재현 절차·의존성·미검증 범위를 보관한다. 초기 위험 ID는 유지했다.
 
-이 문서는 완전한 감사가 아니라 증거에 근거한 초기 스냅샷입니다. 가설로
-표시된 발견 사항은 광범위한 수정 방안을 설계하기 전에 별도의 분석 세션에서
-재현해야 합니다.
+## 저장소와 환경
 
-## 저장소 개요
-
-| 영역 | 검증된 상태 |
+| 영역 | 현재 증거 |
 | --- | --- |
-| 기술 스택 | Django 서버 렌더링 앱, 바닐라 JavaScript/CSS, 프로덕션 경로의 PostgreSQL, 대체 경로의 SQLite, 선택적으로 사용하는 Supabase Realtime |
-| 규모 | 마이그레이션 및 템플릿을 포함해 추적 중인 파일 55개, 약 4,753줄 |
-| 주요 앱 | 모델, 서비스, 페이지 뷰, JSON 엔드포인트, 관리자 기능, 인라인 프런트엔드 코드가 포함된 `orders` |
-| 런타임 명세 | `Django>=5.0,<5.3`, `psycopg[binary]>=3.1`, WhiteNoise, Gunicorn; 잠금 파일 없음 |
-| CI | Python 3.12, 의존성 설치, `manage.py check`, 마이그레이션 드리프트 검사 |
-| 테스트 | 테스트 모듈 없음; Django에서 `Found 0 test(s)`로 보고 |
-| 문서 | 이 준비 브랜치 이전에는 README나 에이전트/런북 문서가 없었음 |
+| 스택 | Django 서버 렌더링, 바닐라 JS/CSS, PostgreSQL 또는 SQLite, 선택적 Supabase Realtime |
+| 규모 | 초기 앱55파일/약4,753줄. 준비 문서 포함 이번 시작69파일/6,481줄; Python42개·템플릿7개 |
+| 책임 집중 | api.py594줄, order.html535줄, kitchen_supervisor.html486줄 |
+| 설치 환경 | 기존 .venv Python3.12.11, Django5.2.17, psycopg3.3.5, WhiteNoise6.10.0, Gunicorn26.2.0 |
+| 재현성 | 열린 의존성 범위, lock 없음. 이번 작업에서는 설치·업그레이드 없음 |
+| CI | Python3.12, 설치/check/drift만 실행. 실제 migrate/test/PG/JS/browser 없음 |
+| 테스트 | 현재 테스트0개, `Found 0 test(s)`/`NO TESTS RAN`; 분석용 검사는 문서 부록에 별도 보관 |
+| DB 설정 | DATABASE_URL이 있으면 PostgreSQL, 없으면 SQLite. `.env` 자동 로딩 없음 |
+| 운영 | 실제 호스팅·배포명령·PG/Supabase 버전·워커·RLS·백업·복원·SLO는 미확인 |
 
-유지보수 복잡도가 가장 집중된 파일은 `orders/views/api.py`(594줄),
-`orders/templates/orders/order.html`(535줄),
-`orders/templates/orders/kitchen_supervisor.html`(486줄)입니다. 중요한 동작이
-Django 뷰와 대규모 인라인 스크립트에 나뉘어 있습니다.
+일반 `python3` 대신 `.venv/bin/python`을 사용했다. 초기 준비에서 관찰된 시스템 Python3.9.6과
+Django4.2.20은 CI 기준이 아니며 이번 검증 환경으로 사용하지 않았다.
 
-## 재현된 로컬 기준선
+## 이번 세션의 검사
 
-다음 검사는 새 Python 3.12 가상 환경에서 실행했습니다.
+검사 스크립트는 [분석 보고서의 재현 부록](ANALYSIS_REPORT.md)에 보관했다. SQLite는 메모리 DB,
+PG는 기존 로컬 이미지로 만든 PostgreSQL15.18/aarch64 일회용 컨테이너다. 운영 DB, 기존
+`db.sqlite3`, 실제 PIN·Supabase 키를 사용하지 않았다. 분석용 컨테이너는 제거했다.
 
 | 검사 | 결과 |
 | --- | --- |
-| 의존성 설치 | 통과; Python 3.12.11, Django 5.2.17, psycopg 3.3.5로 확인 |
-| `python manage.py check` | 통과; 문제 0건 |
-| `makemigrations --check --dry-run` | 통과; 모델 드리프트 없음 |
-| 새 SQLite 마이그레이션 체인 | Django 및 `orders`의 `0020`까지 모든 마이그레이션 통과 |
-| `python manage.py test` | 명령은 통과했지만 테스트 0개 실행 |
-| `python manage.py check --deploy` | 경고 3건: HSTS 미설정, SSL 리디렉션 미설정, 진단용으로 의도적으로 약하게 설정한 비밀 키 |
-| PostgreSQL 마이그레이션/동시성 검사 | 미실행; 여전히 필요 |
-| 브라우저/운영자 흐름 검사 | 미실행; 여전히 필요 |
+| Django check / drift / pip check | 통과 / 변경 없음 / 충돌 없음 |
+| 기존 test | 명령 정상 종료, 실행된 테스트0개 |
+| 빈 SQLite 전체 migrate | orders0020까지 통과 |
+| 배포 check | DEBUG=0·긴 진단 키 조건에서 W004(HSTS), W008(SSL redirect) 경고2개 |
+| 빈 PostgreSQL 전체 migrate | **실패 재현**:0020 setval(0) 범위 위반, 적용 head0019 |
+| 합성0019의 번호40 한 행→0020 | 해당 경로 통과; 전체 운영 업그레이드 증거 아님 |
+| PG 번호 날짜 변경 | 9/6→9/7에41→42, 일일 초기화 없음 |
+| PG 기존번호 충돌 | TransactionManagementError; 실패 후 부모 주문 증가0 |
+| PG8스레드/16생성 | 모두201, 고유번호16개; 동일 요청도16주문이므로 멱등성 없음 |
+| PG0018→0019 / 역방향 | 합성 포장행의 table NULL/있음 제약 충돌, 둘 다 IntegrityError·행 보존 |
+| API/도메인 | 익명 생성·상태·진행, 오역할 진행, 부족결제, 취소복귀, stale테이블 재현 |
+| dashboard | Django5.2.17 SQLite·PG 모두 aggregate 별칭 FieldError500 |
+| DEBUG 자격증명 | 합성 ROLE_PINS marker가 오류 응답에 포함됨; 실제 값 미사용 |
+| 정적 검사 | Python AST42·템플릿 compile7·렌더 inline JS5+app.js 구문 통과 |
+| 미사용 role_select 렌더 | 없는 login_pin 때문에 NoReverseMatch; 활성 로그인과 구분 |
+| 운영/브라우저/부하/복원 | 미실행. 코드·모의·로컬 DB 결과로 통과 처리하지 않음 |
 
-시스템 Python은 3.9.6이고 Django 4.2.20이 설치되어 있었으므로, 경로를
-한정하지 않은 `python3`로는 CI나 명시된 요구사항을 재현할 수 없습니다.
+## 초기 가정의 수정과 오탐 방지
 
-## Git 상태
+- **BK-R003:** 초기 치명적 후보를 **High/Reproduced**로 정밀화했다. PG 일일 초기화 부재와
+  충돌 복구 실패는 재현했지만 정상16건 번호고유·실패시 부모0행도 확인했다. 일일 초기화는
+  코드 주석의 의도이며 D-004 사용자 승인 계약으로 바꾸어 기록하지 않았다.
+- **BK-R005:** '안전하지 않을 수 있음'에서 **High/Reproduced**로 변경했다. 빈PG0020 실패를
+  확인했으며 이후0021만 추가하는 방식으로 이 선행 실패를 우회할 수 없다.
+- **BK-R006/007:** 날짜 helper와 독립 레거시 집계의 오류를 재현했다. 다만 정상 dashboard
+  응답을 분석했다는 표현은 부정확하다. 새 **BK-R016** 별칭 충돌로 전체 endpoint가 먼저500이다.
+- **BK-R008:** 허용된 관리자 편집과 같은 모델 저장 경로에서 저장5000/항목15000 불일치를
+  확인했다. 실제 관리자 form 전체 실행은 미실행이다.
+- **BK-R009/010:** 80개 cutoff와 비활성 테이블 캐시의201 생성을 재현했다. 실제 브라우저·
+  다중 워커 부하까지 입증한 것은 아니다.
+- **BK-R002:** 기본값은 공개되어 있으나 운영 사용 여부는 미확인으로 분리했다. **High**로
+  분류하고, 환경에서 바꾼 PIN도 DEBUG 오류에 노출되는 **BK-R028**을 별도 등록했다.
+- **BK-R011:** unsafe 문자열 sink는 코드 근거이며 브라우저 실행 미재현이다. 주방에는
+  escapeHtml이 있다. 카운터 sink의 정상 응답 경로는 dashboard500 때문에 막혀 있다.
+- 초기 배포 경고3개 중 약한 SECRET 경고는 진단용 키 조건에서 발생했던 것이다. 긴 진단
+  키로 재검사한 경고는2개이며 운영 TLS 설정 확인까지 끝났다는 뜻은 아니다.
+- FloorOrderCounter는 SQLite에서 **사용 중**이다. recalc_totals는 export만으로 실제 호출을
+  입증하지 않는다. styles.css는 활성 자산이다. 미참조 파일을 일괄 삭제 대상으로 확정하지 않는다.
+- 목록은1/80/81건에서 각각3쿼리였다. **목록 N+1이나 성능 향상을 주장하지 않는다.**
+  예전 Git 커밋 제목의 '성능 최적화'도 측정 증거로 사용하지 않는다.
+- RLS 비활성·Supabase 실제 유출·개발 SECRET에 의한 DB 세션 위조는 확인하지 않았다.
 
-- 원격 기본 브랜치는 `develop`이며, 로컬 클론도 처음에 `develop`을
-  체크아웃했습니다.
-- 저장소에는 커밋 68개와 병합 커밋 16개가 있으며, 이름이 지정된 원격
-  브랜치 10개와 심볼릭 `origin/HEAD` 참조가 있습니다.
-- `origin/main`과 `origin/develop`은 서로 다른 이력을 가리킵니다. 대칭
-  차이는 `main` 측 7개 커밋, `develop` 측 19개 커밋입니다.
-- 이러한 분기에도 불구하고 두 브랜치의 끝점은 정확히 동일한 트리 객체
-  (`de8b3f3712ea25209e2d9e94d044002b3e9e7bff`)를 가집니다. 따라서 현재
-  소스 내용은 동일하지만 그래프는 동일하지 않습니다.
-- 초기 파일명 검사에서는 과거에 추적된 경로 중 비밀정보로 의심되는 파일명이나
-  데이터베이스/CSV 산출물을 찾지 못했습니다. 이는 내용 수준의 비밀정보
-  감사가 아닙니다.
-- 설정된 계정의 GitHub CLI 인증은 유효하지 않았습니다. 공개 클론 접근은
-  성공했습니다.
+## Git 기준선 수정
 
-원격 참조를 변경하기 전에 [GIT_RECOVERY.md](GIT_RECOVERY.md)를 확인하세요.
+- 현재70커밋/16merge: 초기68커밋에 로컬 준비2커밋이 추가됐다.
+- 로컬 origin branch10개 + 심볼릭HEAD. main7/develop19 대칭차이와 동일 트리는 재확인했다.
+- mergefix도 같은 트리지만 모든 오래된 브랜치의 내용이 같지는 않다. Megesfile/mergebe는
+  날짜 조회 정책이 다르고, 오래된 chore branch에는 타 origin에 없는9개 커밋이 있다.
+- 파일명 수준 초기 검사를 확장해410객체/187blob을 확인했다.173개 UTF-8 blob에 패턴 검사,
+  14개 과거 pyc에는 실행 없이 ASCII 패턴 검사를 했다. 공개 기본값은 존재한다. DB URL2개는
+  기호형 예시로 확인했으며 실제 유출로 세지 않았다. 전용 비밀정보 감사 완료 인증은 아니다.
+- remote fetch/API·GitHub CLI 인증 재검사는 하지 않았다. 과거 'CLI 토큰 무효' 기록을
+  현재 인증 상태로 재확정하지 않는다. 모든 수치는 로컬 origin snapshot 기준이다.
+- 이번 분석에서 commit/ref/tag/원격 설정 변경은 없다. [Git 권고](GIT_RECOVERY.md)를 유지한다.
 
-## 초기 위험 목록
+## 사용자 지정 자체 SSE 전환의 추가 기준선
 
-### 치명적 위험 후보
+- 현재 외부 Supabase 구독은 주방 템플릿 한 곳이다. CDN SDK, URL/anon key 주입,
+  postgres_changes 구독과5초 폴링이 연결되어 있다. ORDER/카운터는 context를 받지만
+  실제 구독은 없으며 기존 fetch를 사용한다. [정확한 파일 지도](ANALYSIS_REPORT.md#sse-migration).
+- 사용자 방향 D-018은 브라우저의 외부 Realtime 연결 제거와 자체 SSE다. 후속 D-020은
+  Compose PostgreSQL의 DB 자체 운영을 별도로 지정했다. EventSource/SSE endpoint·영속
+  revision·outbox·LISTEN 구현은 아직 없다.
+- E-SSE-STATIC: 기존 Gunicorn26.2.0의 기본 worker는 sync, 내장 ASGIWorker는 실제 import
+  성공. requirements의 열린 범위만으로 같은 기능이 보장되지는 않는다.
+- 설치 WhiteNoise6.10.0 middleware는 async_capable=False이고 나머지 Django middleware7개는
+  True다. asgi.py 존재나 worker import 성공만으로 운영 ASGI 배포·성능을 입증하지 않는다.
+- 합성 StreamingHttpResponse의 async iterator 직접 순회는 is_async=True·text/event-stream·
+  2청크·빈 줄 종료 확인. 외부 접속·서버 기동·코드 변경 없이 수행했다.
+- 영속 revision+워커별 확인+권한 snapshot은 제안이다. 서비스/trigger 선택·공유 잠금 교착,
+  snapshot 일관성·Last-Event-ID/화면 적용 버전·세션 회수·프록시·부하는 미검증이다.
+  SSE 분석 시점 위험은 BK-R035~040을 추가한40개였고 D-019에 상세 관문을 남겼다.
+  아래 인프라 분석을 합친 현재 등록부는44개다.
+- 기존34개 발견과 PG/SQLite 결과는 유지한다. 이번 추가 분석에서는 앱 검사를 불필요하게
+  반복하지 않았으며 실제 SSE HTTP·브라우저·다중 워커·DB revision·부하·배포 검사는 하지 않았다.
 
-| ID | 발견 사항 | 상태 | 근거 | 중요한 이유 | 다음 검증 |
-| --- | --- | --- | --- | --- | --- |
-| BK-R001 | 데이터를 변경하는 JSON 엔드포인트가 CSRF를 우회하며 역할 데코레이터가 없음 | 코드로 확인됨 | `orders/views/api.py:7`, `:146`, `:346`, `:379`; 페이지 뷰에만 `require_roles` 사용 | 페이지 로그인만으로는 직접적인 주문 생성이나 상태/진행률 변경을 보호할 수 없음 | 모든 엔드포인트에 대해 익명, 잘못된 역할, CSRF 요청을 테스트 |
-| BK-R002 | 역할 PIN 기본값이 저장소에 커밋되어 있고 문자열을 직접 비교함 | 코드로 확인됨 | `bazaar_kiosk/settings.py:115-130`, `orders/views/auth.py:24-49` | 기본 자격 증명, 스로틀링 부재, 세분화되지 않은 공유 역할은 외부에 노출된 서비스에서 안전하지 않음 | 배포 노출 범위와 승인된 인증 모델을 확인 |
-| BK-R003 | PostgreSQL 주문 번호가 문서화된 일일 초기화를 구현하는 것으로 보이지 않음 | 코드로 확인됨 | SQLite 카운터는 날짜별 키를 사용하는 반면 `orders/services/numbering.py:12-43`은 영속 시퀀스를 사용 | 백엔드에 따라 번호와 의미가 달라질 수 있으며, 외부 트랜잭션 안의 충돌 재시도 역시 검증이 필요함 | 자정 전환, 재시도, 동시 생성에 대한 PostgreSQL 테스트 |
+## Compose PostgreSQL·EC2 후보의 추가 기준선
 
-### 높은 위험 후보
+- 사용자 방향 D-020은 DB를 Docker Compose의 PostgreSQL로 이전해 직접 운영하는 것이다.
+  EC2는 사용자 검토 후보(D-021 proposed)이며 리전·사양·단일 호스트·HA 수용은 확정되지 않았다.
+- 현행 추적/비무시 파일에는 Dockerfile·Compose·.dockerignore·배포/백업 실행 파일이 없다.
+  현재 운영 플랫폼/DB 버전/관리 객체가 무엇인지는 소스만으로 확정하지 않는다.
+- E-INFRA-STATIC 합성 settings import5조건: DATABASE_URL 없음/`DATABASE_URL_FILE`만 지정은
+  SQLite, 일반 PG URL은 sslmode=require, 명시 disable은 그대로 반영, URL의 sslrootcert는
+  OPTIONS에 미포함. CONN_MAX_AGE는 현재 DATABASES에서 명시하지 않는다.
+  DB 연결·TLS handshake·실제 secret 읽기 없이 parser와 engine 선택만 확인했다.
+- PostgreSQL 연결 실패 시 SQLite로 자동 전환하는 코드는 없다. 설치 Django 기본 연결 수명은0이나
+  현재 앱은 CONN_MAX_AGE 환경 변수를 읽지 않으며 장기 허브 연결 정리도 별도 검증 대상이다.
+- Compose 환경 전달/secret 읽기와 실제 PG TLS 계약·필수 DB 시작 거부가 필요하다. 현재
+  parser probe에서 비TLS를 허용한 것은 운영 권고나 암호화 해제 적용이 아니다.
+- 제안: EC2 단일 호스트 후보의 proxy/ASGI/내부 PG·EBS mount·호스트 밖 백업을 비교하고
+  전체 writer 동결/단일 쓰기 전환·원본/대상 객체/행/금액/sequence·새 주문 이후 복구를 검증한다.
+- 기존 PG15.18 검사와0020 빈 DB 실패·0018↔0019 실패는 유지한다. 새 컨테이너가 healthy여도
+  bootstrap/원본 restore가 성공한 것은 아니다. 신규/기존 migration 경로와 DB 이전을 구분한다.
+- 신규 BK-R041~044를 포함해 총44개(Critical1/High30/Medium13). 설정 불일치는 코드/합성
+  증거, 나머지는 원본/운영 의존 또는 구성 전 가설이다. 실제 새 인프라 사고를 재현하지 않았다.
+- Docker/Compose·이미지 build/pull·AWS API/자원 생성·원본 접속·dump/restore·배포는 미실행.
+  정확한 파일 지도·제안/조건·공식 근거·probe는 [인프라 분석](ANALYSIS_REPORT.md#infrastructure-migration)에 있다.
+- 복원 시 삭제된 세션/옛 SSE generation이 되살아날 가능성은 새 인수 가설로 추가했다.
+  복원 세션 무효화/인증 세대·공통 새 generation과 원본/대상 객체·권한 검사는 아직 미실행이다.
 
-| ID | 발견 사항 | 상태 | 근거 | 중요한 이유 | 다음 검증 |
-| --- | --- | --- | --- | --- | --- |
-| BK-R004 | 자동화된 테스트가 없음 | 재현됨 | CI 및 로컬 `manage.py test` | 결제, 상태, 번호 부여를 리팩터링할 안전망이 없음 | 리팩터링 전에 동작 특성화 테스트 모음을 구축 |
-| BK-R005 | 기존 주문이 없는 새 PostgreSQL 시퀀스 마이그레이션은 안전하지 않을 수 있음 | 코드로 확인됨 | `orders/migrations/0020_create_floor_sequences.py:9-16`은 0일 수 있는 값으로 `setval`을 호출하고 시퀀스를 이미 호출된 상태로 표시함 | 새 PostgreSQL 환경은 이후의 수정 마이그레이션이 실행되기 전에 실패할 수 있음 | 수정 경로를 선택하기 전에 지원되는 PostgreSQL 버전의 빈 환경에 전체 체인을 적용 |
-| BK-R006 | 대시보드 기간이 2025-10-18로 하드 코딩되어 있음 | 코드로 확인됨 | `orders/views/api.py:98-105` | 쿼리 매개변수가 무시되고 대시보드가 오래된 상태가 됨 | 승인된 기본 기간과 선택 기간에 대한 엔드포인트 회귀 테스트 |
-| BK-R007 | 분할 필드가 생기기 전에 생성된 주문이 과거 결제 합계에서 누락될 수 있음 | 코드로 확인됨 | 마이그레이션 `0017`은 백필 없이 null 허용 분할 열을 추가하며, `orders/views/api.py:508-517`은 해당 열만 집계함 | 매출은 정확해도 현금/티켓 정산액은 실제보다 적게 계산될 수 있음 | 레거시 `received_amount` 행을 승인된 백필/쿼리 의미 및 집계 합계와 비교 |
-| BK-R008 | Django 관리자에서 상품 수량/단가를 수정할 수 있지만 저장된 주문 합계는 읽기 전용임 | 코드로 확인됨 | `orders/admin.py:45-50`, `:70-76`; 인라인 저장/삭제 시 합계를 다시 계산하는 로직이 없음 | 관리자 수정으로 상품 금액 합계와 재무 합계가 불일치할 수 있음 | 수정/추가/삭제 경로를 테스트하고 운영 수정을 금지할지 또는 서비스 계층을 거치게 할지 결정 |
-| BK-R009 | 주방 역할 보드는 브라우저에서 역할별로 필터링하기 전에 최신 혼합 주문 80개를 가져옴 | 코드로 확인됨 | `kitchen_supervisor.html:94`, `:139-147`; `orders/views/api.py:160-170` | 한 모드에 최신 주문이 대량으로 쌓이면 다른 역할의 더 오래된 대기 주문이 보이지 않을 수 있음 | 초기 로드, 폴링, 재연결 각각에서 혼합된 대기 주문 80개를 초과하도록 만들어 재현 |
-| BK-R010 | 캐시된 ORM 테이블 객체에 무효화 경로가 없음 | 코드로 확인됨 | `orders/views/api.py:108-110`은 프로세스 로컬 `lru_cache`를 사용 | 비활성화되거나 이름이 변경된 테이블이 프로세스 재시작 전까지 계속 사용될 수 있고 워커마다 상태가 달라질 수 있음 | 관리자 변경 후 주문 생성을 수행해 재현 |
-| BK-R011 | 일부 페이지에서 저장된 값이 동적 HTML과 인라인 핸들러에 보간됨 | 코드로 확인됨 | `order.html:260-269`, `:318-332`; `b1_counter.html:120-154` | 메뉴 또는 보고용 문자열이 실행 가능한 마크업이나 JavaScript 컨텍스트로 들어갈 수 있음 | 악의적 문자열 렌더링 테스트를 추가하고 모든 렌더링 컨텍스트를 감사; 주방 템플릿에는 수동 이스케이프 헬퍼가 있음을 참고 |
+## 기능·명칭 정리 기준선
 
-### 중간 위험 후보
+- D-023 accepted: 주문·서빙 / 주방 / 관리자 중심으로 기능·명칭을 정리한다.
+- 현재 ORDER는 주문·서빙, KITCHEN 계열은 주방, B1_COUNTER 화면은 판매 통계다.
+  Django admin의 운영 관리와 판매 통계는 관리자 영역으로 매핑하되 접근/수정 권한은 구분한다.
+- 활성 지상/부스 화면·역할은 없고 모델 선택과 신규 주문은 B1 중심이다. visible_booth는
+  관리자에서 편집 가능하지만 현행 메뉴 조회·생성에는 사용하지 않는다. visible_counter/kitchen은 사용 중이다.
+- 위 사실은 과거 지상/부스 주문이 없다는 증거가 아니다. D-024의 기능/데이터 제거 범위는 미정이다.
+  기존 URL·역할 코드·source/floor·번호·migration은 이번 문서 갱신에서 바꾸지 않았다.
+- [기능 매핑과 인수 기준](ANALYSIS_REPORT.md#functional-naming)을 추가했으며 기존44개 위험은 유지한다.
 
-- API 파싱은 광범위한 예외를 잡고 일관되지 않은 JSON 계약으로 일반 텍스트
-  오류를 반환합니다.
-- 주문/결제 규칙이 JavaScript와 Python에 중복되어 있으며, 부족 결제나
-  멱등성에 대한 명시적 계약이 없습니다.
-- `orders/views/api.py`는 직렬화, 검증, 쓰기, 상태 전환, 통계, 쿼리 구성을
-  한데 포함합니다.
-- `serve.html`, `role_select.html`, `forms_admin.py`, `recalc_totals`,
-  레거시 관리자 필드 이름 탐색 코드, 유지된 SQLite 카운터 경로 등 여러
-  산출물이 더 이상 사용되지 않거나 미완성인 것으로 보입니다. 제거 전에
-  사용 여부를 확인해야 합니다.
-- 의존성은 열린 버전 범위를 사용하며 CI는 테스트, 보안 검사, PostgreSQL
-  마이그레이션, JavaScript 검사, 브라우저 흐름을 실행하지 않습니다.
-- 운영 로깅, 상태/준비 확인, 백업, 복원 훈련, 관측 가능성, 부하 목표가
-  저장소에 나타나 있지 않습니다.
+## 다음 관문
 
-## 설계 결정을 가로막는 미확인 사항
-
-답변은 `DECISIONS.md`에 기록하세요.
-
-1. 이 시스템은 공개 인터넷, 비공개 행사 네트워크, 또는 둘 모두에서
-   사용됩니까?
-2. 주문 조회, 생성, 진행률 업데이트, 취소, 매출 조회를 각각 어떤 역할에
-   허용합니까?
-3. 정확히 무엇을 어느 시간대 기준으로 매일 초기화하며, 주문 번호의 반복을
-   허용합니까?
-4. 현금/티켓/복합 결제와 취소, 환불, 부족 결제의 유효한 규칙은 무엇입니까?
-5. 최대 기기 수, 분당 주문 수, 메뉴 규모, 허용 가능한 지연 시간은
-   얼마입니까?
-6. 어떤 PostgreSQL/Supabase 버전, 호스팅 플랫폼, 배포 프로세스를 프로덕션의
-   기준으로 삼습니까?
-7. Supabase Realtime은 Row Level Security로 보호되며, 어떤 테이블/이벤트를
-   익명 클라이언트에 의도적으로 노출합니까?
-8. 기존 프로덕션 데이터와 현재 URL의 호환성을 유지해야 합니까?
-9. 프런트엔드는 서버 렌더링 바닐라 JavaScript를 유지해야 합니까, 아니면
-   API 계약을 안정화한 뒤 교체해도 됩니까?
-
-금액, 권한, 영속 데이터, 운영자 작업 흐름이 달라지는 경우 미확인 사항을
-암묵적인 구현 가정으로 바꾸지 마세요.
+[DECISIONS.md](DECISIONS.md)의 노출·역할, 번호·결제, 운영 DB·기존 데이터, 포장·상태·복구
+정책과 SSE/이전 상세 D-019/022·EC2 후보 D-021은 pending/proposed다.
+사용자 지정 자체 SSE·Compose PostgreSQL·세 기능 영역 방향 D-018/020/023은 accepted다.
+지상/부스 정리 세부 범위 D-024는 pending이다. [프롬프트02](prompts/02_REVIEW_BLUEPRINT.md)에서
+새 위험과 의존성·단계 경계를 검토한 뒤 승인된 구현 단계를 선택한다. 이번 분석에는 구현 승인이 없다.
