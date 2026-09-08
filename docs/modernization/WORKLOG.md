@@ -3,6 +3,36 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-08 — PR40 게시와 독립 리뷰3건 반영
+
+- 사용자 승인: 적용 커밋의 PR 반영과 서브에이전트 리뷰 실행. merge·운영 적용은 여전히 범위 밖이다.
+- 게시: `3f2bd75`를 `review/phase-1b-migration-repair`에 push했고 PR40 head가 같은 값으로 갱신됐다.
+  제목을 "1B:0020 floor sequence 복구 적용과 PostgreSQL 회귀 전환"으로 바꾸고 본문 상단 상태를
+  승인 대기 → 적용 완료로 고쳤다. Draft는 유지했다. CI `django-ci` pass이나 check/drift만 수행한다.
+- 리뷰3건(읽기 전용, 병렬): migration·PG 정합성 / 테스트 코드 품질 / 문서·프로세스 감사.
+  적용된 SQL 자체에는 CRITICAL·HIGH 지적이 없었다. 세 리뷰 모두 인벤토리 해시와
+  "나머지19개 바이트 무변경" 주장을 독립적으로 재계산해 일치를 확인했다.
+- 반영한 테스트 지적: 성공 3사례가 setval을 통째로 지운 구현도 통과한다는 지적에 따라
+  `assert_sequence_state`로 `(last_value, is_called)`를 직접 고정했다. 실패 주입 후 재시도의
+  번호 미검증,0020 삭제로 잃었던 모델별 빈 테이블 검사, patch 블록 중복도 함께 정리했다.
+  다수 행 MAX와 역이행→재적용 경로를 신규 사례로 추가하고, frozen 사본이 수정 전 문장을
+  유지하는지 검사하는 사례를 넣어 사본이 조용히 "수정"되는 것을 막았다. PG는7개→15개다.
+- 반영하지 않은 지적과 이유: migration의 `WHERE floor = 'B1'`를 지워도 suite가 통과한다는 지적은
+ 0019가 모든 행에 `floor='B1'`을 강제하므로 위반 행이 있으면0020 이전에 중단된다. 음성 사례를
+  만들 수 없어 다수 행 MAX 검증과 주석으로 대체했다.
+- 반영한 문서 지적: BLUEPRINT 머리말과 인계 절이 D-P07을 proposed로 남겨 둔 자기모순(가장 중요),
+  프롬프트03·MODEL_DELEGATION_REVIEW·BASELINE의 승인 대기·구 수치 서술, RISK_REGISTER의
+  미정의 상태값과 "나머지43개" 산술, SESSION_SETUP의 "PR40 반영 승인됨"과 "push 범위 밖" 충돌,
+ 2B 착수 조건이 BLUEPRINT DAG와 어긋나던 문구, 후보 도구·suite가 적용 이전 커밋 전용이라는 사실,
+  frozen 사본의 "바이트 동일" 주장(실제로는 docstring을 붙였으므로 본문만 동일)을 바로잡았다.
+- 검증: SQLite27개 수집·12개 통과·PG15개 skip, drift 없음, check 문제0.
+  전용 Compose `bk1b-rev-1788855884-82051`에서 PG migration15개·앱12개 통과, skip0.
+  PG 프로필 통합 실행은27개 수집 중 migration15개를 guard가 거부한다(설계된 동작).
+  Markdown22개·링크567개·앵커·`git diff --check` 통과. 전용 자원은 label 확인 후 제거했다.
+- 남은 관문은 앞 항목과 같다. BK-R005는 운영 확인 대기이고 BK-R017·0019 정책·BK-R003은 Open이다.
+  리뷰가 제기한 운영 준비 항목(`search_path` 고정, sequence `OWNED BY` 결정,42P07 복구 절차,
+  복제·failover 시 번호 건너뜀)은 D-004/운영 런북 입력으로 넘긴다. 이번 범위에서 구현하지 않았다.
+
 ## 2026-09-08 — 1B:0020 복구 적용과 성공 회귀 전환
 
 - 브랜치 / 워크트리: `review/phase-1b-migration-repair` / `/Users/gimhyochan/system/bazaar_kiosk`.
@@ -29,11 +59,11 @@
 | `patch -p1 --dry-run` 후 적용, `git diff -- orders/migrations/` | 승인된2 hunk만 적용 |
 | `check --settings=…settings_test` | 문제0 |
 | `makemigrations --check --dry-run --settings=…settings_test` | 변경 없음 |
-| `test orders.tests --settings=…settings_test` |24개 수집·12개 통과·PG12개 skip |
+| `test orders.tests --settings=…settings_test` |24개 수집·12개 통과·PG12개 skip(리뷰 반영 전 수치) |
 | `check --settings=…settings_test_pg` | 문제0 |
 | `test orders.tests.test_migration_paths --settings=…settings_test_pg` | **12개 실행·통과·skip0** |
-| `test orders.tests.test_baseline test_pg_guard test_settings_isolation --settings=…settings_test_pg` | **앱12개 통과** |
-| `test orders.tests --settings=…settings_test_pg` | 빈 테스트 DB 생성은 성공, fixture guard가11개 거부 |
+| `test orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=…settings_test_pg` | **앱12개 통과** |
+| `test orders.tests --settings=…settings_test_pg` | 빈 테스트 DB 생성은 성공, fixture guard가 당시 migration11개를 거부 |
 | `docker volume inspect`, `compose down --volumes` | 이번 프로젝트 label 확인 후 정리, 다른 컨테이너3개 유지 |
 
 - **새 사실:** 0020 적용 이후 Django runner의 빈 PG 테스트 DB 생성이 처음으로 성공했다.
@@ -46,10 +76,12 @@
 - 남은 위험·관문: BK-R005는 운영 DB의 실제 적용 기록·sequence 값·소유권을 확인하기 전까지 종료하지 않는다.
   BK-R017과0019 정책(D-008/017/024)은 Open이다. BK-R003의 PG 다음 날 번호 연속은 이번 승인으로
   수용되지 않았고 D-004/단계5에서 결정한다. 운영 적용에는 writer 동결·사전 대조·백업 리허설이 필요하다.
-- 하지 않은 것: 운영 접속·데이터 변경, 앱 업무 코드·0019·의존성·CI 변경, 원격 push/merge,
-  PR40 상태 변경. 실기기/브라우저·부하·CVE 스캔도 이번 범위가 아니다.
-- 다음 권장: PR40에 이 적용 커밋을 반영해 리뷰받고, 이후2B(의존성 재현성·PG CI 연결)를 착수하거나
- 0019 정책 결정을 진행한다.
+- 하지 않은 것: 운영 접속·데이터 변경, 앱 업무 코드·0019·의존성·CI 변경, merge.
+  실기기/브라우저·부하·CVE 스캔도 이번 범위가 아니다.
+  이 항목을 작성한 시점에는 push도 하지 않았다. 이후 사용자 승인으로 push한 기록은 다음 항목에 있다.
+- 적용 커밋: `3f2bd75`.
+- 다음 권장: PR40에 이 적용 커밋을 반영해 리뷰받고, 이후0019 정책 결정 또는
+ 2B(의존성 재현성·PG CI 연결) 착수를 사용자와 정한다.
 
 ## 2026-09-08 — 모델 공통 인계 문서와 승인 상태 정리
 

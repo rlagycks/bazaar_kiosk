@@ -1,7 +1,7 @@
 # Bazaar Kiosk 위험 등록부
 
 최종 검증: 2026-09-08 · 기준 HEAD: `2d5bb78`(분석) · 사용자 위험 수용 없음
-BK-R005만 저장소 수정 완료이며 운영 확인이 남았다. 나머지43개는 미해결이다.
+44개 모두 종료되지 않았다. BK-R005만 저장소에서 수정됐고 운영 확인이 남아 있다.
 
 총44개(Critical1/High30/Medium13). BK-R035~040은 SSE, BK-R041~044는 Compose DB·인프라
 이전의 선행 조건·설계·운영 위험이다. 신규 구성의 장애를 재현했다고 판정하지 않는다.
@@ -27,13 +27,15 @@ PG 검증·CI 실행 강제가 남아 BK-R004는 Open이다. 초기 테스트0�
 담당은 제안 역할이며 개별 인력 배정이 아니다. 단계 변경 제안은 프롬프트02에서 검토한다.
 
 Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다. Production-dependent는 외부
-환경/운영 데이터가 필요하고 Hypothesis는 측정 전 가설이다. 심각도와 증거 확신은 별개다.
+환경/운영 데이터가 필요하고 Hypothesis는 측정 전 가설이다. Repo-fixed는 저장소 코드에서
+원인을 제거하고 회귀로 고정했다는 뜻이며, 운영 상태 확인 전까지 해결 상태는 Open으로 둔다.
+심각도와 증거 확신은 별개다.
 각 행의 링크에 파일/줄·재현·영향·시나리오·최소 개선·회귀시험·확신/미확인을 모두 보관했다.
 
 | 순위 | ID / 발견 | 심각도 | 증거 상태 | 해결 상태 | 선행 결정·의존성 | 담당 역할 | 주 단계 | 종료에 필요한 증거 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | [BK-R001 — API 역할 인가 부재와 변경 API CSRF 면제](ANALYSIS_REPORT.md#bk-r001) | Critical | Reproduced | Open | D-003; 단계 2 | 보안 담당 | 3 | 모든 역할/익명/만료 세션, CSRF 없음·오류·유효, GET/POST/PATCH/HEAD 경계 |
-| 2 | [BK-R005 — 빈 PostgreSQL에서 0020 마이그레이션 중단](ANALYSIS_REPORT.md#bk-r005) | High | Fixed in repo | 운영 확인 대기 | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | PG 빈 DB 전체 체인, null/빈 번호, 기존 양수번호 DB, 이미0020 적용 경로·롤백 |
+| 2 | [BK-R005 — 빈 PostgreSQL에서 0020 마이그레이션 중단](ANALYSIS_REPORT.md#bk-r005) | High | Repo-fixed | Open (운영 확인 대기) | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | PG 빈 DB 전체 체인, null/빈 번호, 기존 양수번호 DB, 이미0020 적용 경로·롤백 |
 | 2 | [BK-R017 — 과거 스키마 축소와 신규 제약의 데이터 호환성 미검증](ANALYSIS_REPORT.md#bk-r017) | High | Reproduced | Open | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | 0018 시점 F1/BOOTH/포장null fixture→0019, 정제복사본 dry-run·백업복원·구앱 호환 |
 | 2 | [BK-R004 — 동작 테스트 0개와 실행을 강제하지 않는 CI](ANALYSIS_REPORT.md#bk-r004) | High | Reproduced | Open | D-006,D-008; 단계 1 | 테스트 담당 | 2B | 2A 로컬 특성화·가격/atomic 변이 검출 완료; PG CI 및 회귀 감지 강제 필요 |
 | 2 | [BK-R002 — 공개된 기본 역할 PIN·개발 설정으로 시작 가능](ANALYSIS_REPORT.md#bk-r002) | High | Code-supported | Open | D-002,D-006; 단계 3 | 보안·운영 담당 | 4A | 설정 누락 시작 실패, 잘못된 PIN 반복, 공개 프록시/HTTPS 설정 |

@@ -54,11 +54,14 @@ Python3.12.11/Django5.2.17/psycopg3.3.5, PostgreSQL15.18/aarch64.
 | 새 sequence 생성·초기화 후 실패 주입 | 새 sequence/0020 이력 없음, 행 보존, 이후 재시도 성공 |
 | 원본0019의 과거 포장NULL/F1/BOOTH 및 포장 역이행 | 기존23514 실패와 행·이력·제약 보존 유지 |
 | NOT VALID 제약 탐색(승인 전, 저장소 미포함) | 과거행은 남지만 상태 API의 UPDATE가23514, VALIDATE도 실패 |
+| 여러 행(7,40,NULL)의 MAX | 성공, 행 보존, nextval41 — WHERE 절이 아니라 MAX 선택을 검증 |
+|0020→0019 역이행 후 재적용 | sequence 삭제·행 보존, 재적용 시 MAX에서 재초기화(41) |
 | runner의 빈 PG 테스트 DB 생성+앱12개 | **처음으로 성공.** 로그인·주문·결제·가격·원자성·주방·guard·격리 통과 |
 
-적용 후 `orders/tests/test_migration_paths.py`는 PG12개다. 그중4개는0019 제약 실패를
-그대로 유지하는 사례이고1개는 수정 전 SQL이 여전히22003으로 실패함을 고정한다.
-따라서12개 통과를 전체 migration 경로가 모두 성공한다는 뜻으로 해석하지 않는다.
+적용과 독립 리뷰 반영 후 `orders/tests/test_migration_paths.py`는 PG15개다. 그중4개는0019 제약
+실패를 그대로 유지하는 사례,1개는 수정 전 SQL이 여전히22003으로 실패함을 고정하는 사례,
+1개는 frozen 사본이 수정 전 문장을 그대로 담고 있는지 검사하는 사례다.
+따라서 통과 개수를 전체 migration 경로가 모두 성공한다는 뜻으로 해석하지 않는다.
 1A의 기대 실패2개는 `test_empty_database_installs_and_starts_at_one`과
 `test_null_order_number_is_preserved_and_sequence_starts_at_one`으로 대체했고,
 0/이미적용/동명sequence/생성 후 실패 사례를 추가했다.
@@ -130,6 +133,9 @@ unset BK_TEST_DATABASE_URL BK_TEST_PG_PORT BK_TEST_PROJECT BK_CANDIDATE BK_PY BK
 다른 개발/운영 컨테이너는 사용하지 않는다. [1A 대상 guard와 정리 규칙](POSTGRES_TESTING.md)을 따른다.
 검증 코드는 [후보 suite](proposals/test_0020_candidate.py), 복사 도구는
 [prepare_0020_candidate.py](proposals/prepare_0020_candidate.py)에 보관한다.
+두 파일 모두 **적용 이전 커밋에서만 동작하는 기록물**이다. 후보 suite는 적용 과정에서 이름이 바뀐
+상속 메서드2개를 `None`으로 덮어쓰므로 현재 HEAD의 `MigrationPathTests`에는 맞지 않는다.
+현재 검증은 위 "승인 후 재현" 명령을 사용한다.
 
 임시 소스 복사본은 검증 결과 확인을 위해 자동 삭제하지 않는다. 결과를 보관한 뒤 준비 도구가
 출력한 이번 실행의 정확한 `.venv/phase-1b/0020-candidate-*` 경로만 확인해 삭제한다.
