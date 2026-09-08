@@ -8,13 +8,14 @@
 | --- | --- | --- |
 | 2A | 완료, PR36 머지 | [격리 SQLite 테스트](TESTING.md) |
 | 1A | 완료, PR38 머지 | [전용 PostgreSQL fixture](POSTGRES_TESTING.md) |
-| 1B | 후보 검증·검토 중, 미완료 | [Draft PR40](https://github.com/rlagycks/bazaar_kiosk/pull/40), [정확한 복구 후보](MIGRATION_REPAIR_REVIEW.md). D-P07은 proposed |
-| 2B | 미착수 | 1B 종료 후 의존성 재현성과 PG CI 연결 |
+|1B |0020 적용 완료,0019 정책 미정이므로 미완료 | [PR40](https://github.com/rlagycks/bazaar_kiosk/pull/40), [적용 기록](MIGRATION_REPAIR_REVIEW.md). D-P07 accepted |
+|2B | 미착수 | 의존성 재현성과 PG CI 연결. PG 테스트 DB 생성이 가능해져 착수 조건은 갖춰졌다 |
 
 확인된 develop 기준은 `3604ccad7add5c760c3b1cecfaa7032706ddc01c`다.
-이번 문서 정리 시작점은 `review/phase-1b-migration-repair`의
-`262f3d544b36f55160c68b4a41e449be14f38ea0`다. 고정된 최신 HEAD로 간주하지 말고
-새 세션마다 로컬 상태와 PR 상태를 다시 조회한다. develop만으로는 PR40의 후보 산출물이 포함되지 않는다.
+0020 적용 작업의 시작점은 `review/phase-1b-migration-repair`의
+`84360dbde0de909ff8fcbc8d23dbf8ce51c394fd`다. 고정된 최신 HEAD로 간주하지 말고
+새 세션마다 로컬 상태와 PR 상태를 다시 조회한다. develop만으로는 PR40의 산출물이 포함되지 않으며
+develop의0020은 아직 수정 전 파일이다.
 
 ```bash
 git status --short
@@ -32,12 +33,12 @@ main/develop에 직접 구현하거나 문서 확보를 위해 자동 merge하�
 
 | 작업 | 상태·범위 |
 | --- | --- |
-| 문서 정리 및 PR40 반영 | 사용자 승인됨. 현재 요청의 범위 |
-| 원본을 보존한 임시 복사본 후보 검증 | 기존 검토 범위에서 허용. 격리 DB와 소유 자원만 사용 |
-| 원본0020 수정 | **승인 대기**. D-P07은 proposed이며 정확한 패치와 신규·기존·이미 적용 경로에 대한 명시적 승인 필요 |
+|0020 적용 구현·검증·문서화 및 PR40 반영 | 사용자 승인됨(2026-09-08). 직전 요청의 범위 |
+| 격리 PG에서의 재검증 | 허용. 전용 Compose 프로젝트·소유 자원만 사용하고 종료 후 정리 |
+| 원본0020 수정 | **승인·적용 완료**(2026-09-08). D-P07 accepted. 이후 추가 migration 수정은 새 승인이 필요 |
 | 0019 과거 주문 처리 | 정책 미정. 삭제·테이블 재배정·제약 완화를 임의로 적용하지 않음 |
 | 번호 정책·운영 위험 수용 | 미정. BK-R003의 PG 다음 날 번호 연속은0020 패치 승인으로 수용되지 않음 |
-| 실제 모델 위임·운영 이전·배포·merge | 이번 문서 정리 범위 밖. 별도 작업 지시와 해당 승인 확인 |
+| 실제 모델 위임·운영 DB 적용·배포·merge·push | 범위 밖. 별도 작업 지시와 해당 승인을 확인 |
 
 근거는 [AGENTS](../../AGENTS.md), [결정 기록](DECISIONS.md), [작업 로그](WORKLOG.md)다.
 문서·리뷰 권고 자체를 사용자 승인으로 해석하지 않는다. 이미 받은 승인은 같은 범위에서 유지하되
@@ -54,23 +55,28 @@ main/develop에 직접 구현하거나 문서 확보를 위해 자동 merge하�
 .venv/bin/python manage.py test orders.tests --settings=bazaar_kiosk.settings_test --verbosity 2
 ```
 
-원본 SQLite의 기존 결과는19개 수집·12개 실행·PG7개 skip이다. 이번 문서 검증에서 재실행한
-결과가 아니며 SQLite 통과는 PG 설치 성공을 뜻하지 않는다.
+0020 적용 후 SQLite 결과는24개 수집·12개 실행·PG12개 skip이다.
+SQLite에서0020은 vendor 분기로 아무 것도 하지 않으므로 SQLite 통과는 PG 설치 성공을 뜻하지 않는다.
 
-원본 PG는 [POSTGRES_TESTING](POSTGRES_TESTING.md)의 전용 Compose 생성·URL 설정·실제
-identity 검사를 완료한 뒤 다음 모듈을 실행한다. 테스트 종료 또는 실패 후에는 같은 안내의
+PG는 [POSTGRES_TESTING](POSTGRES_TESTING.md)의 전용 Compose 생성·URL 설정·실제
+identity 검사를 완료한 뒤 다음 두 명령을 실행한다. 테스트 종료 또는 실패 후에는 같은 안내의
 소유 자원 정리 절차를 수행한다. 순서는 준비 → 검사 → 정리다.
 
 ```bash
 .venv/bin/python manage.py test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg --verbosity 2
+.venv/bin/python manage.py test orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
 ```
 
-이7개는 원본0019/0020의 예상 실패6개와 양수40 업그레이드·재적용 no-op 성공1개를 검증한다. 원본 PG 전체 suite의 성공을
-기대하거나 fake migration으로 우회하지 않는다.
-[후보 검증 절차](MIGRATION_REPAIR_REVIEW.md)는 준비 도구가 생성한 임시 복사본에서 후보 클래스12개와
-정상 흐름8개를 구분해 실행한다. 원본 수정 승인을 대신하지 않는다. 후보 성공과0019 미해결을 함께 보고한다.
-승인 후 구현에서는 성공 회귀 전환과 신규·기존·이미 적용 경로를 검증하고 전체 PG suite의 실행 가능성을
-다시 판정한다. 현재 CI는 check/drift만 수행하므로 녹색 CI를 PG 인수로 보고하지 않는다.
+앞은 migration 경로12개다. 신규 설치·NULL·0·양수40·재적용 no-op·원본 적용본 no-op·
+동명sequence42P07·생성 후 실패 원자성이 성공하고,0019의 과거 제약 실패4개와
+수정 전0020 SQL의22003 실패1개는 그대로 유지된다. 따라서12개 통과는 전체 migration 경로가
+모두 성공한다는 뜻이 아니다.
+
+뒤는 앱12개이며0020 적용 이후 처음으로 runner의 빈 PG 테스트 DB 생성이 성공해 실행할 수 있다.
+`test orders.tests`를 PG 프로필로 한 번에 돌리면 runner가 `default`를 자기 테스트 DB로 바꿔
+1A의 fixture guard가 의도대로 거부한다. 이는0020 실패가 아니며 fake migration으로 우회하지 않는다.
+0019 정책은 여전히 미정이므로 전체1B 완료로 보고하지 않는다.
+현재 CI는 check/drift만 수행하므로 녹색 CI를 PG 인수로 보고하지 않는다.
 
 ## 모델 설정과 과거 기록
 
@@ -90,5 +96,5 @@ Responses API 사용을 안내했다. 당시 준비 브랜치는 chore/astra-mod
 2. 승인된 하위 작업 하나의 기준 ref, 소유 파일, 승인 근거, 제외 범위, 인수 기준을 정한다.
 3. 변경 규모에 맞게 검증한다. 문서만 변경하면 링크·명령 구문·자리 표시자·렌더·diff를 검사한다.
 4. [구현 프롬프트](prompts/03_IMPLEMENT_PHASE.md)는 실제 작업 지시 시 모든 항목을 채운다.
-   현재 승인 대기인 원본0020 적용을 자동 시작하지 않는다.
+   0020은 적용됐으나0019·번호 정책·운영 적용을 자동 시작하지 않는다.
 5. 결과·실행 검사·미실행 이유·남은 관문을 WORKLOG에 기록하고 인계한다.

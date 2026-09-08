@@ -2,7 +2,10 @@
 
 기준: develop `ff013b4b4934087dfa3f3e3ad368af9387554381` (PR36 머지).
 이 표는 저장소 파일의 SHA256이며 운영 DB의 적용 완료 목록이 아니다.
-검증에서 파일을 수정하거나 fake 적용하지 않는다.
+검증에서 파일을 fake 적용하지 않는다. **0020은 D-P07 승인으로2026-09-08에 수정했고
+나머지19개는 기준 커밋과 바이트 동일하다.** 수정 전0020 해시는
+`b2ccbd94aea0c5bab15af7dc365e413bbebfb037e36edfef11d37b2056531ea6`이며 그 사본은
+[orders/tests/original_0020.py](../../orders/tests/original_0020.py)에 보존한다.
 
 | 파일 | SHA256 |
 | --- | --- |
@@ -25,13 +28,16 @@
 | [0017_order_payment_split.py](../../orders/migrations/0017_order_payment_split.py) | `8edefc7c24c9d566db3ac9d497bec6d4dd78fb826758bc5abee23a3d9edc3516` |
 | [0018_alter_order_floor_alter_order_order_type_and_more.py](../../orders/migrations/0018_alter_order_floor_alter_order_order_type_and_more.py) | `44221521317d84ce5b555af70d39f49c82739b50c2a1f8b32d7a8a46521d9041` |
 | [0019_remove_order_orders_table_rule_and_more.py](../../orders/migrations/0019_remove_order_orders_table_rule_and_more.py) | `126eda2c35ea7288307300cf9259c237b089f615bb49bfa447da21d87695c506` |
-| [0020_create_floor_sequences.py](../../orders/migrations/0020_create_floor_sequences.py) | `b2ccbd94aea0c5bab15af7dc365e413bbebfb037e36edfef11d37b2056531ea6` |
+| [0020_create_floor_sequences.py](../../orders/migrations/0020_create_floor_sequences.py) | `dbde0d9cc2843a33f69c47ba02491d6bf4c457e0297cfb7fa456ca0ba1c79d33` (D-P07 수정본) |
 
 ## 경로별 이력 확인
 
-- 빈 DB는 원본0001~0019가 적용되고0020의22003 실패 뒤0019 head에 남아야 한다.
+- 빈 DB는0001~0020이 모두 적용되고 sequence가(1,false)로 남아야 한다.
+  수정 전 원본0020을 같은 빈 DB에 적용하면 여전히22003으로 실패하고0019 head에 남는다.
 -0018 합성 과거 행의0019 실패 뒤에는0019 적용 행이 없어야 하며 제약 정의도 이전 상태여야 한다.
 -0019 양수 번호40 사례의0020은1회만 기록되고 다시 적용할 계획이 없어야 한다.
+- 원본0020으로 이미 적용된 DB에 수정본을 두어도 계획이 비어 있고 sequence 값이 유지돼야 한다.
+- 적용 이력이 없는데 동명 sequence가 있으면42P07로 중단하고 그 값을 바꾸지 않아야 한다.
 -0019 포장행의 역이행 실패 뒤에는0019 적용 이력이 그대로 남아야 한다.
 - RunPython0014는 default manager를 사용한다. fixture가 default를 임시 DB로 바꾸는 이유이며,
   여러 DB alias에 안전한 앱이라는 주장을 하지 않는다.
@@ -42,7 +48,8 @@
 2.0018/0019/0020 중 실제 head, 포장 table NULL/있음과 F1/BOOTH·번호 NULL/양수 행 수.
 3. 원본/백업 DB 버전·확장·역할·sequence와 복원 가능한 별도 대상.
 4. 과거 행의 보존·조회·테이블 의미와 번호 정책(D-008/017). 사용자 데이터 삭제/임의 재배정 금지.
-5. 과거 산출물 수정이 필요하면 정확한 파일별 diff와 신규/기존/이미적용 호환 검증안.
+5. 운영 DB의 실제 sequence 존재·값·소유권. 0020 수정본은 신규/미적용 경로만 고치며
+   이미 적용된 DB의 sequence 누락·드리프트를 자동 복구하지 않는다.
 
 운영에 접속하거나 원본 데이터를 추출하지 않았다. 해당 증거가 없는 상태에서 과거 migration
 복구 전략을 승인된 것으로 기록하지 않는다. 재현 명령은 [PG 테스트 안내](POSTGRES_TESTING.md)를 따른다.

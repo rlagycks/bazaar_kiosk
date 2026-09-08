@@ -7,11 +7,12 @@
 ## 현재 작업 재개
 
 [SESSION_SETUP.md](SESSION_SETUP.md)의 최신 단계·승인표·격리 명령부터 확인합니다.
-2026-09-08 기준2A·1A는 머지 완료,1B는 [Draft PR40](https://github.com/rlagycks/bazaar_kiosk/pull/40)의
-후보 검토 단계이며2B는 미착수입니다. D-P07의 원본0020 적용 승인은 대기 중입니다.
-현재 PR head와 로컬 변경을 확인하고 승인된 하위 작업 하나만 이어갑니다.
+2026-09-08 기준2A·1A는 머지 완료입니다. 1B는 D-P07 승인으로0020을 적용해
+[PR40](https://github.com/rlagycks/bazaar_kiosk/pull/40)에 담았지만0019 정책이 미정이라 미완료이며,
+2B는 미착수입니다. 현재 PR head와 로컬 변경을 확인하고 승인된 하위 작업 하나만 이어갑니다.
 
 [구현 프롬프트03](prompts/03_IMPLEMENT_PHASE.md)에 정확한 범위·기준·승인 근거를 채워 사용합니다.
+0020 적용의 정확한 diff·검증·남은 관문은 [적용 기록](MIGRATION_REPAIR_REVIEW.md)에 있습니다.
 기존 분석을 자동으로 다시 시작하지 않습니다. 새 분석이 필요하면 [프롬프트01](prompts/01_ANALYZE.md),
 계획 재검토는 [프롬프트02](prompts/02_REVIEW_BLUEPRINT.md), 전체 종료 감사는
 [프롬프트04](prompts/04_FINAL_AUDIT.md)를 사용합니다.

@@ -1,17 +1,22 @@
-"""Characterize the original PostgreSQL migration failures without repairing them.
+"""Pin the repaired 0020 sequence paths and the 0019 failures that remain open.
 
-These unittest cases deliberately request no runner-managed database: its normal
-empty-database bootstrap must still fail at 0020. Each case owns a disposable DB
-through pg_support and creates fixtures exclusively from historical model states.
+These unittest cases deliberately request no runner-managed database: each case
+owns a disposable DB through pg_support and creates fixtures exclusively from
+historical model states. D-P07 repaired 0020 only, so the four 0019 constraint
+cases still assert failure and row preservation until that policy is decided.
 """
 
+import importlib
 from datetime import date
 from unittest import TestCase, skipUnless
+from unittest.mock import patch
 
 from django.conf import settings
-from django.db import DataError, IntegrityError
+from django.db import DataError, IntegrityError, ProgrammingError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.recorder import MigrationRecorder
+
+from orders.tests import original_0020
 
 
 M18 = ("orders", "0018_alter_order_floor_alter_order_order_type_and_more")
@@ -123,32 +128,117 @@ class MigrationPathTests(TestCase):
         self.assertEqual(self.snapshot(apps), before)
         self.assert_head(start)
 
-    def test_empty_database_to_0020_fails_and_rolls_back_sequence_ddl(self):
+    def test_empty_database_installs_and_starts_at_one(self):
         self.assertEqual(self.connection.introspection.table_names(), [])
         self.assert_sequence_absent()
-        with self.assertRaises(DataError) as caught:
-            self.migrate(M20)
+        executor = MigrationExecutor(self.connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        self.assert_head(M20)
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM orders_order")
+            self.assertEqual(cursor.fetchone()[0], 0)
+            cursor.execute("SELECT last_value, is_called FROM orders_floor_b1_seq")
+            self.assertEqual(cursor.fetchone(), (1, False))
+            cursor.execute("SELECT nextval('orders_floor_b1_seq')")
+            self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_original_0020_still_fails_on_an_empty_database(self):
+        # Pins why D-P07 changed the SQL: the pre-repair statement is the cause.
+        self.assertEqual(self.connection.introspection.table_names(), [])
+        repaired = importlib.import_module(
+            "orders.migrations.0020_create_floor_sequences"
+        )
+        with patch.object(
+            repaired.Migration, "operations", original_0020.Migration.operations
+        ):
+            with self.assertRaises(DataError) as caught:
+                self.migrate(M20)
         self.assert_database_error(caught.exception, "22003")
         self.assert_head(M19)
         self.assert_sequence_absent()
-        apps = MigrationExecutor(self.connection).loader.project_state([M19]).apps
-        for model in apps.get_app_config("orders").get_models():
-            with self.subTest(model=model._meta.label):
-                self.assertEqual(model.objects.using(self.connection.alias).count(), 0)
 
-    def test_0019_null_order_number_fails_0020_without_losing_rows(self):
+    def test_null_order_number_is_preserved_and_sequence_starts_at_one(self):
         apps = self.migrate(M19)
         order = self.fixture(apps)
         self.assertIsNone(order.order_no)
         self.assertIsNotNone(order.table_id)
-        before = self.snapshot(apps)
+        before = self.snapshot(apps)[0]
         self.assert_sequence_absent()
-        with self.assertRaises(DataError) as caught:
+        self.migrate(M20)
+        self.assert_head(M20)
+        self.assertEqual(self.snapshot(apps)[0], before)
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT nextval('orders_floor_b1_seq')")
+            self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_zero_order_number_is_preserved_and_next_number_is_one(self):
+        apps = self.migrate(M19)
+        self.fixture(apps, order_no=0)
+        before = self.snapshot(apps)[0]
+        self.migrate(M20)
+        self.assert_head(M20)
+        self.assertEqual(self.snapshot(apps)[0], before)
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT nextval('orders_floor_b1_seq')")
+            self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_database_migrated_by_original_0020_is_not_replayed_or_rewound(self):
+        apps = self.migrate(M19)
+        self.fixture(apps, order_no=40)
+        repaired = importlib.import_module(
+            "orders.migrations.0020_create_floor_sequences"
+        )
+        with patch.object(
+            repaired.Migration, "operations", original_0020.Migration.operations
+        ):
             self.migrate(M20)
-        self.assert_database_error(caught.exception, "22003")
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT setval('orders_floor_b1_seq', 100, true)")
+        before = self.snapshot(apps)
+        self.assertEqual(MigrationExecutor(self.connection).migration_plan([M20]), [])
+        self.migrate(M20)
+        self.assertEqual(self.snapshot(apps), before)
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT nextval('orders_floor_b1_seq')")
+            self.assertEqual(cursor.fetchone()[0], 101)
+
+    def test_unrecorded_existing_sequence_fails_without_rewind(self):
+        apps = self.migrate(M19)
+        self.fixture(apps, order_no=40)
+        with self.connection.cursor() as cursor:
+            cursor.execute("CREATE SEQUENCE orders_floor_b1_seq START WITH 100")
+        before = self.snapshot(apps)
+        with self.assertRaises(ProgrammingError) as caught:
+            self.migrate(M20)
+        self.assert_database_error(caught.exception, "42P07")
         self.assertEqual(self.snapshot(apps), before)
         self.assert_head(M19)
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT last_value, is_called FROM orders_floor_b1_seq")
+            self.assertEqual(cursor.fetchone(), (100, False))
+
+    def test_failure_after_sequence_initialization_leaves_no_partial_migration(self):
+        apps = self.migrate(M19)
+        self.fixture(apps, order_no=40)
+        before = self.snapshot(apps)
+
+        class InjectedFailure(Exception):
+            pass
+
+        def fail_after_setval(execute, query, params, many, context):
+            result = execute(query, params, many, context)
+            if "SELECT setval(" in query:
+                raise InjectedFailure("synthetic failure after sequence initialization")
+            return result
+
+        with self.connection.execute_wrapper(fail_after_setval):
+            with self.assertRaises(InjectedFailure):
+                self.migrate(M20)
         self.assert_sequence_absent()
+        self.assert_head(M19)
+        self.assertEqual(self.snapshot(apps), before)
+        self.migrate(M20)
+        self.assert_head(M20)
 
     def test_positive_40_upgrades_to_0020_and_reapplication_is_noop(self):
         apps = self.migrate(M19)

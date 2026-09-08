@@ -1,14 +1,17 @@
-# 1B — 검증된 복구 후보와 적용 승인 관문
+# 1B — 0020 복구 적용 기록과 남은 관문
 
 2026-09-08 · 기준 develop `3604ccad7add5c760c3b1cecfaa7032706ddc01c` · [이슈 #39](https://github.com/rlagycks/bazaar_kiosk/issues/39).
-**상태: 후보 검증 완료, 원본 적용 승인 대기. 전체1B는 미완료다.**
-원본 앱·migration20개·운영 데이터는 변경하지 않았다. 검증은1A 전용 PostgreSQL 환경과
-별도 소스 복사본에서 진행했다. 이 문서를 머지하는 것만으로 과거 파일 변경 승인이 생기지 않는다.
+**상태: 사용자 승인(D-P07)으로0020을 적용 완료. 0019 정책은 미정이므로 전체1B는 여전히 미완료다.**
+운영 데이터는 변경하지 않았다. 저장소 migration20개 중0020 하나만 아래 diff대로 바뀌었고
+나머지19개는 기준 커밋과 바이트 동일하다. 검증은1A 전용 PostgreSQL 환경에서 진행했다.
+이 기록은 운영 DB 적용·배포 승인이 아니다. 운영 적용은 별도 런북과 승인을 따른다.
 
-## 적용 승인을 요청할 정확한 범위
+## 승인·적용한 정확한 범위
 
-대상은 `orders/migrations/0020_create_floor_sequences.py` 하나다.
-검토할 전체 diff는 [0020 패치](proposals/0020-empty-sequence.patch)다.
+대상은 `orders/migrations/0020_create_floor_sequences.py` 하나이며 적용한 전체 diff는
+[0020 패치](proposals/0020-empty-sequence.patch)다. 적용 후 파일 해시는
+`dbde0d9cc2843a33f69c47ba02491d6bf4c457e0297cfb7fa456ca0ba1c79d33`이고,
+적용 전 사본은 [orders/tests/original_0020.py](../../orders/tests/original_0020.py)에 보존한다.
 
 - 최대 번호가 NULL/0이면 sequence를1·미호출 상태로 초기화해 첫 nextval이1이 되게 한다.
 - 최대 양수 번호가40이면 기존과 같이40·호출 상태로 초기화해 다음 번호41을 사용한다.
@@ -35,29 +38,32 @@
 ## 확인한 PostgreSQL 증거
 
 Python3.12.11/Django5.2.17/psycopg3.3.5, PostgreSQL15.18/aarch64.
-임시 복사본의 후보 suite12개와 기존 정상 특성화8개가 각각 실제 PG에서 통과했다.
+승인 전에는 임시 복사본의 후보 suite12개와 기존 정상 특성화8개가 실제 PG에서 통과했다.
+승인 후 원본 적용본에서 같은 경로를 다시 실행해 아래 표를 재확인했다.
 
 | 경로 | 결과 |
 | --- | --- |
 | 빈 DB 전체 Django migration | 성공, 주문0행, sequence(1,false), 첫 nextval1 |
-|0019 번호NULL 행→후보0020 | 성공, 행 보존, 첫 nextval1 |
-|0019 번호0 행→후보0020 | 성공, 기존0 보존, 첫 nextval1 |
-|0019 양수40→후보0020 | 성공, 행 보존, nextval41 |
-| 후보0020 재적용 | plan 비어 있음, 행·이력·sequence 무변경 |
-| 원본0020 적용 뒤 sequence100인 DB에 후보 로딩 | no-op, 다음값101 |
+| 같은 빈 DB에 수정 전 SQL | 여전히22003 실패,0019 head·sequence 없음(패치가 원인임을 고정) |
+|0019 번호NULL 행→수정0020 | 성공, 행 보존, 첫 nextval1 |
+|0019 번호0 행→수정0020 | 성공, 기존0 보존, 첫 nextval1 |
+|0019 양수40→수정0020 | 성공, 행 보존, nextval41 |
+| 수정0020 재적용 | plan 비어 있음, 행·이력·sequence 무변경 |
+| 원본0020으로 적용된 뒤 sequence100인 DB | plan 비어 있음, no-op, 다음값101 |
 |0020 미적용·동명sequence100 있음 |42P07로 중단, 이력0019·행·sequence(100,false) 보존 |
 | 새 sequence 생성·초기화 후 실패 주입 | 새 sequence/0020 이력 없음, 행 보존, 이후 재시도 성공 |
 | 원본0019의 과거 포장NULL/F1/BOOTH 및 포장 역이행 | 기존23514 실패와 행·이력·제약 보존 유지 |
-| NOT VALID 제약 후보 | 과거행은 남지만 상태 API의 UPDATE가23514, VALIDATE도 실패 |
-| 실제 Django PG test DB 생성+기존8개 특성화 | 로그인·주문·결제·가격·원자성·주방 경로 통과 |
+| NOT VALID 제약 탐색(승인 전, 저장소 미포함) | 과거행은 남지만 상태 API의 UPDATE가23514, VALIDATE도 실패 |
+| runner의 빈 PG 테스트 DB 생성+앱12개 | **처음으로 성공.** 로그인·주문·결제·가격·원자성·주방·guard·격리 통과 |
 
-12개에는 원본0019 실패를 유지하는4개 사례와 NOT VALID 배제용 탐색1개가 포함된다.
+적용 후 `orders/tests/test_migration_paths.py`는 PG12개다. 그중4개는0019 제약 실패를
+그대로 유지하는 사례이고1개는 수정 전 SQL이 여전히22003으로 실패함을 고정한다.
 따라서12개 통과를 전체 migration 경로가 모두 성공한다는 뜻으로 해석하지 않는다.
-빈/NULL 성공 사례는 `test_empty_database_installs_and_starts_at_one`과
-`test_null_order_number_is_preserved_and_sequence_starts_at_one`이다.
-원본 실패 suite를 보존하면서 후보에서 해당 두 상속 메서드의 수집만 제외하고 성공 검사로 대체한다.
-NOT VALID는0018 합성 DB에서 직접 SQL을 실행한 탐색이며 실제0019 후보 migration의
-정·역방향 호환 검증이 아니다. 이력 없는 기존 sequence는 자동 DROP·재설정·fake 적용하지 않고
+1A의 기대 실패2개는 `test_empty_database_installs_and_starts_at_one`과
+`test_null_order_number_is_preserved_and_sequence_starts_at_one`으로 대체했고,
+0/이미적용/동명sequence/생성 후 실패 사례를 추가했다.
+NOT VALID 탐색은0018 합성 DB에서 직접 SQL을 실행한 검토였으며 저장소 suite에는 넣지 않았다.
+이력 없는 기존 sequence는 자동 DROP·재설정·fake 적용하지 않고
 적용 기록과 실제 객체를 대조해 별도 복구안을 마련해야 한다.
 
 ## 0019에서 아직 정할 내용
@@ -79,14 +85,29 @@ NOT VALID는0018 합성 DB에서 직접 SQL을 실행한 탐색이며 실제0019
 VALIDATE가 자동 성공한다고 약속할 수도 없다. PostgreSQL만 제약을 미검증으로 두면
 SQLite와의 계약 차이도 명시해야 한다.
 
-우선0020 패치만 별도 승인·적용하고0019는 안전하게 중단하는 경로를 유지할 수 있다.
-이 경우에도1B 전체 완료와 BK-R017 해결은 아니다. 이후 결정할 핵심은 **과거 주문이
+사용자는0020 패치만 승인·적용하고0019는 안전하게 중단하는 경로를 선택했다.
+따라서1B 전체 완료와 BK-R017 해결은 아직 아니다. 이후 결정할 핵심은 **과거 주문이
 조회·통계 보존만 필요한지, 취소·완료 같은 수정도 계속 필요한지**다.
 
-## 후보 검증 재현
+## 승인 후 재현
 
-원본 파일에 패치를 직접 적용하지 않는다. 준비 도구는 무시되는 `.venv/phase-1b/` 아래에
-새 복사본을 만들고 그 안에서만 patch를 실행한다. Python·시스템 patch·Docker Compose가 필요하다.
+적용 이후에는 저장소 원본에서 바로 실행한다. [PG 안내](POSTGRES_TESTING.md)의 전용 Compose를
+띄운 뒤 아래를 실행하고, 종료·실패 후에는 같은 안내의 정리 절차를 수행한다.
+
+```bash
+.venv/bin/python manage.py test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg --verbosity 2
+.venv/bin/python manage.py test orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
+```
+
+앞은 PG12개, 뒤는 앱12개다. `test orders.tests`를 PG 프로필로 한 번에 실행하면 runner가
+`default`를 자신의 테스트 DB로 바꾸므로1A의 fixture guard가 의도대로 거부한다.
+이는0020 실패가 아니며 migration 경로는 위와 같이 전용 모듈로 실행한다.
+
+## 승인 전 후보 검증 재현(과거 절차)
+
+아래는 승인 전에 원본을 보존한 채 후보를 검증한 절차다. 준비 도구는 무시되는 `.venv/phase-1b/`
+아래에 새 복사본을 만들고 그 안에서만 patch를 실행했다. 지금은 원본에 이미 패치가 적용돼 있어
+같은 도구를 그대로 다시 실행할 수 없으며, 기록 재현이 필요하면 적용 이전 커밋에서 실행한다.
 
 ```bash
 BK_REPO="$PWD"
@@ -114,10 +135,14 @@ unset BK_TEST_DATABASE_URL BK_TEST_PG_PORT BK_TEST_PROJECT BK_CANDIDATE BK_PY BK
 출력한 이번 실행의 정확한 `.venv/phase-1b/0020-candidate-*` 경로만 확인해 삭제한다.
 다른 실행의 복사본·증거·가상환경을 포함하는 상위 디렉터리나 wildcard로 일괄 삭제하지 않는다.
 
-## 승인과 다음 적용
+## 승인 이후 남은 관문
 
 [AGENTS.md](../../AGENTS.md)의 “사용자가 마이그레이션 기록 복구 전략을 명시적으로 승인하지
-않은 한 … 과거 마이그레이션 파일을 수정하지 마세요”와 [1B 관문](BLUEPRINT.md#phase-1b)에 따라,
-정확한 이0020 diff의 적용 승인이 필요하다. 승인 뒤 원본에 해당 패치만 적용하고
-기존 실패 재현 테스트를 성공 회귀로 전환해 PG/SQLite·이미 적용된 경로를 다시 검증한다.
-그 전에는 이 PR을 원본 복구 구현 완료나 운영 배포 승인으로 취급하지 않는다.
+않은 한 … 과거 마이그레이션 파일을 수정하지 마세요”와 [1B 관문](BLUEPRINT.md#phase-1b)에 따라
+정확한0020 diff의 적용 승인을 받은 뒤에만 원본을 바꿨다. 남은 관문은 다음과 같다.
+
+- 0019 정책(D-008/017/024): 과거 주문이 조회·통계 보존만 필요한지, 취소·완료 같은 운영 수정도
+  계속 필요한지. 결정 전에는 위반 데이터에서 migration을 중단하고 행을 보존한다.
+- 번호 정책(D-004/단계5): BK-R003의 PG 다음 날 번호 연속은 이번 승인으로 수용되지 않았다.
+- 운영 적용 런북: writer 동결, 적용 이력·실제 sequence 사전 대조, 백업·롤백 리허설.
+  이 문서와 이 PR은 운영 DB 적용·배포 승인이 아니다.

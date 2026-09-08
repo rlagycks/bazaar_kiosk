@@ -3,6 +3,54 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-08 — 1B:0020 복구 적용과 성공 회귀 전환
+
+- 브랜치 / 워크트리: `review/phase-1b-migration-repair` / `/Users/gimhyochan/system/bazaar_kiosk`.
+  시작 HEAD `84360dbde0de909ff8fcbc8d23dbf8ce51c394fd`, 시작 작업 트리 깨끗함.
+  조회로 확인: PR40 OPEN/Draft, head OID가 로컬 HEAD와 일치, base develop `3604cca`, 열린 이슈는 #39.
+- 승인 범위: 문서로 검토된 정확한0020 diff를 제시하고 사용자가 "0020 패치 적용 승인"을 선택했다(D-P07 accepted).
+  0019 정책, 번호 정책(BK-R003), 운영 DB 적용·배포·merge·push는 명시적으로 제외했다.
+- 적용: `orders/migrations/0020_create_floor_sequences.py`에 저장소의 patch 파일만 적용했다.
+  `IF NOT EXISTS` 제거, setval 값 `GREATEST(...,1)`, is_called `MAX>0`의3줄이다.
+  적용 전 해시 `b2ccbd94…`, 적용 후 `dbde0d9c…`. 나머지19개 migration은 바이트 무변경이다.
+  적용 전 파일 사본을 `orders/tests/original_0020.py`로 보존했고 본문이 원본과 동일함을 확인했다.
+- 테스트: 1A의 기대 실패2개를 성공 회귀2개로 바꾸고 번호0·원본 적용본 no-op·동명 sequence42P07·
+  초기화 후 실패 원자성을 추가했다. 수정 전 SQL이 같은 빈 DB에서 여전히22003으로 실패함을
+  `test_original_0020_still_fails_on_an_empty_database`로 고정해 이 패치가 원인임을 증명했다.
+  PG 사례는7개에서12개가 됐고0019 제약 실패4개는 그대로 유지했다.
+- 환경: Python3.12.11/Django5.2.17, Docker29.4.1, PostgreSQL15.18/aarch64.
+  전용 Compose 프로젝트 `bk1b-apply-1788837903-56326`, loopback55437, 프로젝트 소유 볼륨.
+  기존 다른 프로젝트의5432/6379/3307 컨테이너는 사용하거나 중단하지 않았다.
+
+### 실행 명령과 결과
+
+| 명령 | 결과 |
+| --- | --- |
+| `patch -p1 --dry-run` 후 적용, `git diff -- orders/migrations/` | 승인된2 hunk만 적용 |
+| `check --settings=…settings_test` | 문제0 |
+| `makemigrations --check --dry-run --settings=…settings_test` | 변경 없음 |
+| `test orders.tests --settings=…settings_test` |24개 수집·12개 통과·PG12개 skip |
+| `check --settings=…settings_test_pg` | 문제0 |
+| `test orders.tests.test_migration_paths --settings=…settings_test_pg` | **12개 실행·통과·skip0** |
+| `test orders.tests.test_baseline test_pg_guard test_settings_isolation --settings=…settings_test_pg` | **앱12개 통과** |
+| `test orders.tests --settings=…settings_test_pg` | 빈 테스트 DB 생성은 성공, fixture guard가11개 거부 |
+| `docker volume inspect`, `compose down --volumes` | 이번 프로젝트 label 확인 후 정리, 다른 컨테이너3개 유지 |
+
+- **새 사실:** 0020 적용 이후 Django runner의 빈 PG 테스트 DB 생성이 처음으로 성공했다.
+  그래서 앱 테스트를 실제 PostgreSQL에서 실행할 수 있게 됐다. 다만 `test orders.tests`를
+  PG 프로필로 한 번에 돌리면 runner가 `default`를 자기 테스트 DB로 바꿔1A fixture guard가
+  의도대로 거부한다. 이는0020 실패가 아니며 두 명령을 나눠 실행한다. guard를 완화하지 않았다.
+- 문서: MIGRATION_REPAIR_REVIEW(적용 기록으로 전환), DECISIONS(D-P07 accepted),
+  MIGRATION_INVENTORY(해시·경로), SESSION_SETUP(단계·승인표·명령), POSTGRES_TESTING(기대 결과표),
+  RISK_REGISTER(BK-R005를 저장소 수정·운영 확인 대기), BLUEPRINT·README·TESTING의 상태 문구.
+- 남은 위험·관문: BK-R005는 운영 DB의 실제 적용 기록·sequence 값·소유권을 확인하기 전까지 종료하지 않는다.
+  BK-R017과0019 정책(D-008/017/024)은 Open이다. BK-R003의 PG 다음 날 번호 연속은 이번 승인으로
+  수용되지 않았고 D-004/단계5에서 결정한다. 운영 적용에는 writer 동결·사전 대조·백업 리허설이 필요하다.
+- 하지 않은 것: 운영 접속·데이터 변경, 앱 업무 코드·0019·의존성·CI 변경, 원격 push/merge,
+  PR40 상태 변경. 실기기/브라우저·부하·CVE 스캔도 이번 범위가 아니다.
+- 다음 권장: PR40에 이 적용 커밋을 반영해 리뷰받고, 이후2B(의존성 재현성·PG CI 연결)를 착수하거나
+ 0019 정책 결정을 진행한다.
+
 ## 2026-09-08 — 모델 공통 인계 문서와 승인 상태 정리
 
 - 사용자 범위: 과거 모델 설정·최신 단계·격리 테스트 명령·적용 승인 상태 정리 및 PR40 반영.
