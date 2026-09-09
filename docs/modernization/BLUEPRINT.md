@@ -1,21 +1,21 @@
 # Bazaar Kiosk 현대화 실행 청사진
 
-최종 검토: 2026-09-07 · 프롬프트02 · 상태: **문서 검토 완료, 단계별 조건부 실행 가능**
+계획 검토: 2026-09-07 · 실행 상태 갱신: 2026-09-08
 
-후속 구현 상태: D-026으로2A와 이슈·브랜치·PR 게시가 승인되었다.2A 검증 결과와
-실제 실행 명령은 [테스트 안내](TESTING.md)와 [작업 로그](WORKLOG.md)의2A 기록을 따른다.
-아래 '이번 승인'은 프롬프트02 당시 범위이며, 후속 승인을 대체하지 않는다.
+**2A·1A는 완료·머지,1B는0020만 적용하고0019 정책이 남아 미완료이며2B는 미착수다.**
+[현재 인계](SESSION_SETUP.md)의 기준 ref·승인표·격리 명령을 따른다.
+[PR40](https://github.com/rlagycks/bazaar_kiosk/pull/40)에 D-P07 승인으로 적용한0020이 담겨 있다.
+0019 정책과 번호 정책·운영 적용은 여전히 대기 중이다.
 
-이번 승인은 계획 문서 작성·검증까지다. 앱·마이그레이션·의존성·CI·실제 인프라를
-수정하지 않았다. 다음 구현 후보는 **2A 현행 동작 특성화와 격리된 로컬 테스트**다.
-전체 구현이나 운영 배포가 승인되었다는 뜻은 아니다. 제품 계약은 필요한 단계의 관문으로 남긴다.
+2026-09-07 프롬프트02 당시 승인은 계획 문서 작성·검증까지였고 첫 구현 후보는2A였다.
+이후 D-026/027로2A·1A 구현이 진행되었다. 과거 계획 승인을 전체 구현·배포 승인으로 확대하지 않는다.
 
 ## 목표·현재 사실·범위
 
 현재 Django와 바닐라 JS를 유지하는 점진적 현대화를 권고한다. 분석에서 주문 생성 atomic,
 서버 가격 스냅샷, 정상 PG 번호 고유 할당, 목록 사전 로딩은 보존할 기반으로 확인했다.
 반면 익명 API 변경, PG0019/0020 설치·업그레이드 실패, 중복 요청, 금액/상태/통계 오류는
-프레임워크를 재작성해도 따로 해결·검증해야 한다. 현재 테스트0인 상태의 전면 재작성은
+프레임워크를 재작성해도 따로 해결·검증해야 한다. 초기 분석 당시 테스트0인 상태의 전면 재작성은
 데이터 이전·권한·금전 계약을 동시에 다시 증명하게 만들어 현 증거로 정당화되지 않는다.
 부분 프런트엔드 교체는 API 안정화 후 별도 D-009에서 재평가한다.
 
@@ -28,9 +28,10 @@
   지상·부스 제거 D-024, 금전/번호/권한 정책은 미확정이다.
 - 역할5개를3개로 합치거나 통계 조회자를 Django 관리자 권한으로 승격하지 않는다.
   현재 URL·source/floor·과거 주문·migration 이력을 명칭과 함께 일괄 변경하지 않는다.
-- 이전 분석의 44개 위험(Critical1/High30/Medium13)은 모두 미해결이다.
+- 이전 분석의 44개 위험(Critical1/High30/Medium13) 중 BK-R005만 저장소에서 수정됐고
+  운영 확인이 남았다. 나머지43개는 미해결이다.
   단계 배정은 위험 해결이나 사용자 위험 수용이 아니다.
-- 현재 작업 브랜치는 chore/astra-modernization-setup, 분석 기준 HEAD는2d5bb78이다.
+- 초기 분석 브랜치는 chore/astra-modernization-setup, 당시 HEAD는2d5bb78이었다.
   main/develop 동일 tree의 최신 확인은 WORKLOG의 후속 기록을 따른다.
   BASELINE의 분석 당시 원격 미조회 기록을 오늘의 조회 결과로 덮어 해석하지 않는다.
 
@@ -143,14 +144,14 @@ Open을 유지한다. 코드 단위 완료와 위험 최종 종료를 구분하�
 
 이하 파일과 suite 이름 중 현재 없는 것은 **해당 구현 단계에서 만들 목표**다.
 이번 청사진 검토에서 실행했거나 이미 존재한다고 주장하지 않는다.
-V-LOCAL 설정은2A, V-PG 설정/Compose는1A에서 만들고2B가 CI에 연결한다.
+V-LOCAL 설정은2A, V-PG 설정/Compose는1A에서 구현했다.2B의 PG CI 연결은 미착수다.
 일반 manage.py 명령을 기본 운영 settings로 복사 실행하지 않는다.
 
 | 프로필 | 명령·환경·완료 증거 |
 | --- | --- |
 | V-DOC | 로컬 링크/앵커/줄·fence·Markdown 렌더·44개 위험 단일 매핑·DAG·허용 파일 검사, git diff --check |
 | V-LOCAL | .venv Python3.12, 합성 credential·메모리 SQLite·빈 외부 설정을 강제하는 settings_test. 표의 test suite에 --settings=bazaar_kiosk.settings_test 사용 |
-| V-PG-SETUP | 새 compose.test.yaml의 전용 PG 서비스. localhost/test DB allowlist·자원 소유권 검증 후 fixture만 실행, 운영 URL/기존 DB 금지 |
+| V-PG-SETUP | 1A에서 구현한 compose.test.yaml의 전용 PG 서비스. localhost/test DB allowlist·자원 소유권 검증 후 fixture만 실행, 운영 URL/기존 DB 금지 |
 | V-PG | --settings=bazaar_kiosk.settings_test_pg, 별도 BK_TEST_DATABASE_URL 명시. 원래 DATABASE_URL을 읽지 않음. 독립 DB의 migrate/transaction/process 검증 |
 | V-BROWSER | 합성 계정/DB, 휴대폰 주문·서빙/PC 주방·관리자, 실제 클릭·네트워크·키보드/터치/스크린리더. Figma 캡처는 통과 증거 아님 |
 | V-STREAM | 실제 ASGI+proxy HTTP로 첫 프레임/반복 flush·일반 API 병행·disconnect/reload·세션 회수. 단순 iterator/worker import로 대체 금지 |
@@ -158,16 +159,20 @@ V-LOCAL 설정은2A, V-PG 설정/Compose는1A에서 만들고2B가 CI에 연결�
 | V-DEPLOY | 명시적으로 승인된 비운영 배포 대상·가림 처리 환경. config --quiet, app-role DB/TLS/schema readiness, 외부 포트/프록시/헤더/로그 검사 |
 | V-RESTORE | 승인된 정제 복사본과 새 격리 대상. 오류0/객체·행·금액·sequence·세션/generation·복원시간·새 쓰기 보존 대조 |
 
-구현 후의 정확한 명령 예시는 다음 인터페이스로 고정한다. 새 settings 파일이 없으면 실행하지 않고
-2A/1A에서 먼저 만든다. 각 단계의 'test …'는 아래 관리 명령의 하위 인수다.
+현재 원본에서 사용할 명령은 다음과 같다. PG 명령은 [PG 준비 안내](POSTGRES_TESTING.md)의
+전용 Compose·테스트 URL·identity 검사를 먼저 완료해야 한다. 각 단계의 'test …'는 관리 명령의 하위 인수다.
 
 ```bash
 .venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test
 .venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
 .venv/bin/python manage.py test orders.tests.test_baseline --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py test orders.tests --settings=bazaar_kiosk.settings_test_pg
+.venv/bin/python manage.py test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg
 docker compose -f compose.test.yaml config --quiet
 ```
+
+PG 모듈 test_migration_paths는0020 적용 후 성공 경로와 남은 실패를 함께 고정한다. 정확한 사례 수와
+명령은 [적용 기록](MIGRATION_REPAIR_REVIEW.md)·[현재 인계](SESSION_SETUP.md)를 따른다.
+전체 PG suite의 성공을 현재 인수 조건으로 복사하지 않는다. 앱 테스트는 별도 명령으로 PG에서 실행한다.
 
 데이터베이스/호스트 검증은 환경 이름만 검사하지 않고 실제 연결 identity·권한을 확인한다.
 일회용 자원만 정리하며 운영/공유 볼륨에 down -v를 적용하지 않는다.
@@ -180,7 +185,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 이번 문서 수정 지시가 아래 구현 범위 전체를 승인한 것은 아니다.
 매 단계 인계에는 기준 ref와 실제 diff, 결정 ID, 위험 주 담당/기여 증거, 실행 명령·환경·결과,
 미실행 검사, rollback/forward recovery, 다음 관문을 WORKLOG에 기록한다.
-현재 최신 보고서 일부는 untracked/modified이므로 새 worktree가 자동 포함한다고 가정하지 않는다.
+최신 보고서에 untracked/modified 파일이 있는지 확인한다. 있다면 새 worktree에 자동 포함된다고 가정하지 않는다.
 원격 push/merge·태그·과거 이력 수정·자원 생성·운영 이전은 기존 승인 경계를 유지한다.
 
 ## 하위 단계별 실행 카드
@@ -232,6 +237,9 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 <a id="phase-1b"></a>
 ### 1B — 승인된 신규 설치·기존 DB 호환 복구
 
+- **진행 상태(2026-09-08):** D-P07 승인으로 [0020 패치](MIGRATION_REPAIR_REVIEW.md)를 원본에 적용하고
+  리뷰 반영 후 PG 경로15개·앱12개를 실제 PostgreSQL에서 검증했다. BK-R005의 신규 설치 중단은 해소됐으나
+  0019 과거 데이터 정책과 운영 적용 런북이 남아1B 전체는 미완료이며 BK-R017은 Open이다.
 - **맥락·목적:** 후속0021만 추가하면0020 실패를 통과할 수 없다. 기존0019 제약도 데이터 호환 관문이다.
 - **선행 조건:** 1A. **결정 관문:** D-006/008/017. 정확한 과거 산출물 수정이 필요하면 변경 파일·내용과 두 경로의 명시 승인 필요.
 - **책임·주 위험:** 데이터 담당; BK-R005, BK-R017.
@@ -240,7 +248,8 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 - **인수 기준·기대 결과:** 빈 DB 최신 적용; 이미0020 DB 무작업/전진 안전;0018 레거시 보존; 실패 후 잔여/부분 변경 없음. 구앱/새schema 호환 또는 명시된 전진 복구 입증.
 - **검증 명령·환경:** V-PG: test orders.tests.test_migration_paths; migrate --plan; showmigrations orders; fresh/upgrade 전용 DB에서 실제 migrate.
 - **마이그레이션·롤백:** 기본 정방향 전용. 역migration을 일반 롤백으로 약속하지 않고 복원/전진 수정 경로와 신규 쓰기 보존을 증명한다.
-- **관측·보안·인계:** BK-R005/017 종료 증거와 원본 체크섬·적용 이력·복구 명령 인계.
+- **관측·보안·인계:** BK-R005/017 종료 증거와 파일 체크섬·적용 이력·복구 명령 인계.
+  0020 적용 후 체크섬과 재현 명령은 [적용 기록](MIGRATION_REPAIR_REVIEW.md)·[인벤토리](MIGRATION_INVENTORY.md)에 있다.
 
 <a id="phase-2b"></a>
 ### 2B — 의존성 재현성과 PostgreSQL CI
@@ -739,11 +748,12 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 
 ## 다음 구현 인계
 
-[프롬프트03](prompts/03_IMPLEMENT_PHASE.md)에 **2A 한 단계**와 이 문서의2A 범위/인수 기준을
-선택해 전달한다. 가격/주문 atomic·현행 역할/URL 여정의 특성화 및 격리 설정이 목적이며,
-보안 정책 변경·결제 규칙 변경·과거 migration 수정·운영 DB 접속·Figma 적용은 포함하지 않는다.
-2A를 시작하기 위해 EC2 사양·지상/부스 삭제·전체 SSE 프로토콜을 먼저 확정할 필요는 없다.
-준비 브랜치 최신 작업 내용을 포함한 로컬 체크포인트를 검토하고 main/develop에 직접 구현하지 않는다.
+[현재 세션 안내](SESSION_SETUP.md)와 [프롬프트03](prompts/03_IMPLEMENT_PHASE.md)에
+현재 기준 ref·승인 근거·소유 파일·인수 기준을 전달한다.2A/1A를 다시 시작하지 않는다.
+현재1B는 D-P07 승인 범위인0020 적용까지 끝났고0019 데이터 정책·BK-R003 번호 정책·운영 적용은
+승인되지 않았다. 이를 함께 승인한 것으로 취급하지 않는다.
+2B는1B 종료 관문 이후다. 착수하려면 그 관문을 먼저 처리하거나 사용자의 명시적 순서 변경이 필요하다.
+main/develop에 직접 구현하지 않는다.
 
 이번 계획은 독립적으로 시작할 수 있는 범위와 조건부 후속 단계를 구별한 실행 계획이다.
 운영 GO는12B의 필수 환경·복구 증거 없이 선언하지 않는다. 과거 분석 수치를 오늘 새로 실행한

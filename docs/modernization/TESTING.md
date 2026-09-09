@@ -1,8 +1,8 @@
 # 2A — 격리된 로컬 특성화 테스트
 
 첫 구현 이슈: [#35](https://github.com/rlagycks/bazaar_kiosk/issues/35).
-후속1A의 전용 Compose PG 환경과7개 migration 재현은 [PG 테스트 안내](POSTGRES_TESTING.md)를 따른다.
-현재 SQLite 전체 수집은19개 중12개 실행·7개 PG skip이며 PG 인수는 별도 명령으로 확인한다.
+후속1A의 전용 Compose PG 환경과 migration 경로 재현은 [PG 테스트 안내](POSTGRES_TESTING.md)를 따른다.
+현재 SQLite 전체 수집은27개 중12개 실행·15개 PG skip이며 PG 인수는 별도 명령으로 확인한다.
 이 테스트는 현재 정상 로그인·주문·주방 흐름을 변경 없이 관찰하는 안전망이다.
 업무 계약 변경, 보안 수정, PostgreSQL 검증과 배포 검증은 포함하지 않는다.
 
