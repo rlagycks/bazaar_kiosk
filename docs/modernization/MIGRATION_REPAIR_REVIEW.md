@@ -102,7 +102,7 @@ SQLite와의 계약 차이도 명시해야 한다.
 .venv/bin/python manage.py test orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
 ```
 
-앞은 PG12개, 뒤는 앱12개다. `test orders.tests`를 PG 프로필로 한 번에 실행하면 runner가
+앞은 PG15개, 뒤는 앱12개다. `test orders.tests`를 PG 프로필로 한 번에 실행하면 runner가
 `default`를 자신의 테스트 DB로 바꾸므로1A의 fixture guard가 의도대로 거부한다.
 이는0020 실패가 아니며 migration 경로는 위와 같이 전용 모듈로 실행한다.
 

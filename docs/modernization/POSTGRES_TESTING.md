@@ -66,7 +66,8 @@ migration을 바꾸지 않으며,0020 수정은 D-P07의 별도 사용자 승인
 
 양수 번호 seed는 별도 사례이며 빈 DB 성공을 위장하지 않는다. choices 변경은 과거 값을
 DB에서 자동 삭제하지 않는다는 점을 합성 데이터로 확인한다. 실제 운영에 F1/BOOTH 행이 있는지는 미확인이다.
-전체 application/auth/admin migration의 운영 설치 성공을 주장하지 않는다. 이 suite는 orders의 의존 체인을 검증한다.
+빈 DB 사례는 전체 앱의 leaf migration을 적용하며 나머지는 orders의 특정 이력 경로를 검증한다.
+이 격리 합성 DB 결과로 실제 운영 환경의 설치 성공을 주장하지 않는다.
 
 ## 로컬 회귀와 정리
 
