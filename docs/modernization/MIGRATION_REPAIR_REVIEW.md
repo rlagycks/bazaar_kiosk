@@ -2,7 +2,7 @@
 
 현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
 [공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
-PR40·PR42는 머지됐고8A는2B 이후 최종 인수 대기다. 현재40개(15+25)를 PG에서 검증한다.
+PR40·PR42는 머지됐고8A는2B 이후 최종 인수 대기다. 현재44개(15+29)를 PG에서 검증한다.
 
 2026-09-08 · 기준 develop `3604ccad7add5c760c3b1cecfaa7032706ddc01c` · [이슈 #39](https://github.com/rlagycks/bazaar_kiosk/issues/39).
 **상태: 사용자 승인(D-P07)으로0020을 적용 완료. 0019 정책은 미정이므로 전체1B는 여전히 미완료다.**

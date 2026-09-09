@@ -6,9 +6,9 @@
 
 - 2A·1A와 PR40(0020 복구)은 머지됐다.1B는0019 정책·운영 확인이 남아 미완료다.
 - PR42의8A 집계 수정과 리뷰 보완은 머지됐다.2B 이후 최종 인수는 대기다.
-- D-029로 개발·테스트·CI·운영 DB를 PostgreSQL로 통일한다. 현재 브랜치는 `postgres-only-runtime`,
-  시작 기준은 PR42 HEAD `8531e18`이며 현재는 develop의 PR42 머지 커밋
-  `c8c11b5c6811a97ca77e377c08b0adf552b4cf86`을 병합했다. PR44의 base는 develop이다.
+- D-029 PostgreSQL 전용 전환은 PR44로 머지됐다. develop 기준은 `8b1740c`다.
+- 현재 브랜치는 `phase-4a1-sensitive-errors`. 오류 보고의 설정 PIN·로그인 POST/지역변수 가림을
+  구현·검증한다. [4A1 범위와 증거](SENSITIVE_ERRORS.md). 운영 시작 정책은 미정이어서4A1 전체는 미완료다.
 - 2B의 PostgreSQL CI 기반은 선행 구현했지만1B와 지원/운영 관문이 남아 전체 완료가 아니다.
 
 ```bash
@@ -24,7 +24,8 @@ gh pr list --state open --json number,title,headRefName,baseRefName,isDraft,url
 
 D-029는 SQLite 실행/테스트 지원 제거, PostgreSQL 전용 설정·번호 경로·개발 Compose·필수 CI 전환 지시다.
 이슈·브랜치·PR 작업 방식은 유지한다. 사용자 추가 지시로 PR42 리뷰 보완·머지를 완료했다.
-PR44는 develop을 반영해 통합 검증·push하며 이 작업에서 자동 머지하지 않는다.
+후속 다음 단계 진행 지시로 PR44를 최종 head 확인 후 머지했다. 이번4A1 독립 범위는
+오류 보고의 비노출 처리·회귀·문서·이슈/브랜치/PR 인계다. 운영 시작 규칙은 확정하지 않는다.
 D-P07의0020 적용은 완료됐다.0019 정책·번호 정책·운영 DB 적용·EC2 배포는 여전히 미정 또는 별도 승인이다.
 기존 데이터 파일·과거 migration·counter 테이블을 삭제하지 않는다.
 [결정 기록](DECISIONS.md), [현재 전환 범위](POSTGRES_ONLY.md), [작업 로그](WORKLOG.md)를 함께 읽는다.
@@ -38,7 +39,7 @@ D-P07의0020 적용은 완료됐다.0019 정책·번호 정책·운영 DB 적용
 ```
 
 실제 대상 검증 후 check/drift와 프로젝트 전체 테스트를 migration/app 별도 프로세스로 실행한다.
-현재40개(15+25), 모두 PostgreSQL·skip0이다. DB 충돌은 자동 삭제하지 않고 오류로 종료한다.
+현재44개(15+29), 모두 PostgreSQL·skip0이다. DB 충돌은 자동 삭제하지 않고 오류로 종료한다.
 일반 DATABASE_URL·기존 SQLite 파일·개발용 DB를 테스트 대상으로 사용하지 않는다.
 테스트가 끝나거나 실패하면 안내의 소유 label 검증·정리 절차를 따른다.
 CI도 같은 명령을 사용한다. PG 성공을0019 정책이나 운영 배포 승인으로 확대하지 않는다.

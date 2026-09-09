@@ -9,6 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-not-for-prod")
 DEBUG = os.environ.get("DEBUG", "1") == "1"
+DEFAULT_EXCEPTION_REPORTER_FILTER = "bazaar_kiosk.error_reporting.CredentialExceptionReporterFilter"
 
 # 공백 안전 콤마 파서
 def _split_csv(env_key: str):

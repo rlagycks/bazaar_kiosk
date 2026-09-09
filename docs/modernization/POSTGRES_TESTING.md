@@ -69,7 +69,7 @@ DB에서 자동 삭제하지 않는다는 점을 합성 데이터로 확인한�
 
 ## 전체 검증과 정리
 
-공통 실행기는 전체40개를 발견해 migration15개와 앱/guard25개를 별도 프로세스에서 실행한다.
+공통 실행기는 전체44개를 발견해 migration15개와 앱/guard29개를 별도 프로세스에서 실행한다.
 SQLite 설정이나 skip 경로는 없다. test orders.tests의 단일 PG 실행은 Django가 default DB를
 바꾸므로 migration helper의 엄격한 control DB guard와 충돌한다. guard를 완화하지 않고 분리한다.
 앱 DB도 실행마다 UUID 이름을 사용한다. 실행 전 실제 대상과 기존 DB 충돌을 확인하고 자동 삭제를 금지한다.

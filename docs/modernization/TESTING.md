@@ -15,7 +15,7 @@ SQLite 테스트 설정은 제거됐다. 2A 당시 SQLite 결과는 [WORKLOG](WO
 .venv/bin/python scripts/test_postgres.py
 ```
 
-프로젝트 전체40개를 발견해 migration15개와 앱/guard25개를 분리 실행하며 skip0이다.
+프로젝트 전체44개를 발견해 migration15개와 앱/guard29개를 분리 실행하며 skip0이다.
 [settings_test_pg.py](../../bazaar_kiosk/settings_test_pg.py)는 운영 환경 설정을 격리하고
 합성 역할 PIN·비밀값·메모리 cache/storage와 명시적 전용 PostgreSQL 연결을 사용한다.
 설정 import/check에는 실제 연결이 필요 없지만 데이터 테스트는 실제 PG에서 실행한다.
