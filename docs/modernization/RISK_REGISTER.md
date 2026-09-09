@@ -1,5 +1,11 @@
 # Bazaar Kiosk 위험 등록부
 
+D-031/032 후속(2026-09-09): 외부 인터넷 접속 허용과 역할별 공용 계정 인증이 확정됐다.
+이는 완화가 아니라 **노출 상향**이다. 분석 당시 "외부접속 여부 미확인"을 전제로 서술한
+BK-R002·BK-R028·BK-R044의 노출 조건이 가설에서 계획된 전제로 바뀌었다.
+어느 위험도 종료·완화하지 않으며 HTTPS·도메인은 검토 중이라 평문 운영 승인이 아니다.
+공용 계정은 개인별 행위 식별을 제공하지 않는다. [결정 기록](DECISIONS.md).
+
 D-029 후속: SQLite 실행 지원을 제거하고 PG 전용 설정·전체 회귀·CI를 구성했다.
 BK-R004/021의 CI 기반 증거는 보강됐지만 원본/운영 지원 관문은 남아 위험 종료로 처리하지 않는다.
 아래 SQLite 비교는 과거 증거이며 PG 일일 번호 정책은 별도 결정이다. [전환 기록](POSTGRES_ONLY.md).
@@ -46,10 +52,10 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 2 | [BK-R005 — 빈 PostgreSQL에서 0020 마이그레이션 중단](ANALYSIS_REPORT.md#bk-r005) | High | Repo-fixed | Open (운영 확인 대기) | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | PG 빈 DB 전체 체인, null/빈 번호, 기존 양수번호 DB, 이미0020 적용 경로·롤백 |
 | 2 | [BK-R017 — 과거 스키마 축소와 신규 제약의 데이터 호환성 미검증](ANALYSIS_REPORT.md#bk-r017) | High | Reproduced | Open | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | 0018 시점 F1/BOOTH/포장null fixture→0019, 정제복사본 dry-run·백업복원·구앱 호환 |
 | 2 | [BK-R004 — 동작 테스트 0개와 실행을 강제하지 않는 CI](ANALYSIS_REPORT.md#bk-r004) | High | Reproduced | Open | D-006,D-008; 단계 1 | 테스트 담당 | 2B | 2A 로컬 특성화·가격/atomic 변이 검출 완료; PG CI 및 회귀 감지 강제 필요 |
-| 2 | [BK-R002 — 공개된 기본 역할 PIN·개발 설정으로 시작 가능](ANALYSIS_REPORT.md#bk-r002) | High | Code-supported | Open | D-002,D-006; 단계 3 | 보안·운영 담당 | 4A | 설정 누락 시작 실패, 잘못된 PIN 반복, 공개 프록시/HTTPS 설정 |
+| 2 | [BK-R002 — 공개된 기본 역할 PIN·개발 설정으로 시작 가능](ANALYSIS_REPORT.md#bk-r002) | High | Code-supported | Open (D-031 외부 접속으로 노출 상향) | D-002 잔여분,D-006,D-032; 단계 3 | 보안·운영 담당 | 4A | 설정 누락 시작 실패, 잘못된 PIN 반복, 공개 프록시/HTTPS 설정. D-032 공용 계정 전환 후 기본 자격증명 재점검 |
 | 2 | [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | Reproduced | Open | D-002,D-006; 단계 3 | 보안·운영 담당 | 4A | 합성 자격증명으로500 HTML/JSON·로그에 값이 없는지, env누락 실패 |
 | 2 | [BK-R043 — Compose 환경·secret·DB TLS 계약과 현재 settings의 불일치](ANALYSIS_REPORT.md#bk-r043) | High | Code-supported | Open | D-006,D-020,D-021; BK-R002/022; 단계 2,3 | 설정·보안·인프라 담당 | 4A | URL 누락/빈 값·_FILE만·실제 secret 읽기·잘못된 DB·기본 SSL/명시 TLS/CA·재시작 후 동일 DB와 앱 권한 확인 |
-| 2 | [BK-R044 — 자체 DB의 공인 포트·권한·비밀 전달 경계 구성 누락 가능성](ANALYSIS_REPORT.md#bk-r044) | High | Hypothesis | Open | D-002,D-003,D-006,D-020,D-021; BK-R001/002/028; 단계 3 | 보안·인프라 담당 | 4A | 외부 DB/ASGI 차단·신뢰 헤더 위조·앱 DDL/superuser 거부·이미지/config/log secret 검사·IAM/SSM/DB 권한 회수·기존 DB 비밀번호 교체 |
+| 2 | [BK-R044 — 자체 DB의 공인 포트·권한·비밀 전달 경계 구성 누락 가능성](ANALYSIS_REPORT.md#bk-r044) | High | Hypothesis | Open (D-031로 전제 확정, 검증 필수) | D-002,D-003,D-006,D-020,D-021; BK-R001/002/028; 단계 3 | 보안·인프라 담당 | 4A | 외부 DB/ASGI 차단·신뢰 헤더 위조·앱 DDL/superuser 거부·이미지/config/log secret 검사·IAM/SSM/DB 권한 회수·기존 DB 비밀번호 교체 |
 | 2 | [BK-R011 — 저장 문자열이 실행 가능한 HTML·인라인 핸들러에 보간](ANALYSIS_REPORT.md#bk-r011) | High | Code-supported | Open | 단계 2,3 | 프런트·보안 담당 | 4B | 메뉴/테이블/메모의 HTML·따옴표·백슬래시·유니코드 payload 브라우저 검증 |
 | 2 | [BK-R018 — Supabase 익명 구독의 RLS·이벤트 노출 경계 미확인](ANALYSIS_REPORT.md#bk-r018) | High | Production-dependent | Open | D-010; 단계 3 | 보안·운영 담당 | 4B | 전환 전 외부 권한 검증, D-018 전환 후 외부 요청/키0·외부 노출 정리·자체 SSE 인가 |
 | 2 | [BK-R003 — PostgreSQL 날짜별 번호 계약 차이 및 충돌 재시도 실패](ANALYSIS_REPORT.md#bk-r003) | High | Reproduced | Open | D-004,D-006; 단계 1,2 | 데이터 담당 | 5 | PG 자정/충돌/재시도/실패·동시 생성; 기존 번호·날짜 데이터와 호환 |
