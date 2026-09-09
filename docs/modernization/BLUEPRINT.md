@@ -185,7 +185,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 이번 문서 수정 지시가 아래 구현 범위 전체를 승인한 것은 아니다.
 매 단계 인계에는 기준 ref와 실제 diff, 결정 ID, 위험 주 담당/기여 증거, 실행 명령·환경·결과,
 미실행 검사, rollback/forward recovery, 다음 관문을 WORKLOG에 기록한다.
-현재 최신 보고서 일부는 untracked/modified이므로 새 worktree가 자동 포함한다고 가정하지 않는다.
+최신 보고서에 untracked/modified 파일이 있는지 확인한다. 있다면 새 worktree에 자동 포함된다고 가정하지 않는다.
 원격 push/merge·태그·과거 이력 수정·자원 생성·운영 이전은 기존 승인 경계를 유지한다.
 
 ## 하위 단계별 실행 카드

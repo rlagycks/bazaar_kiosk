@@ -10,6 +10,7 @@
 - 승인된0020 diff와 나머지 migration 보존, 신규·기존·이미 적용·충돌·원자성 회귀를 검토했다.
   독립 코드 리뷰에서 새로운 결함은 없었다. BLUEPRINT/적용 기록의 예전 PG12개를15개로
   바로잡고 PG 안내에서 전체 leaf 설치 사례의 설명을 실제 검사와 일치시켰다.
+  문서 독립 감사의 D-P07 잔여 대기 문구·최신 merge 승인·루트 README 격리 명령도 보정했다.
 - 검증: SQLite check 문제0·drift 없음·27개 수집/12개 통과/PG15개 skip.
   전용 Compose `bk40-final-20260909`에서 PG migration15개·앱12개 모두 통과, skip0.
   로그는 무시 경로 `.venv/pr40-final-review/`에 보관한다. 운영 DB에 접속하지 않았다.

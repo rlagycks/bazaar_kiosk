@@ -51,14 +51,15 @@ PostgreSQL은 운영 환경용으로 예정된 백엔드이며, 시퀀스, 잠�
 ## 기준 검사
 
 ```bash
-env -u DATABASE_URL .venv/bin/python manage.py check
-env -u DATABASE_URL .venv/bin/python manage.py makemigrations --check --dry-run
-env -u DATABASE_URL .venv/bin/python manage.py test
+.venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test
+.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
+.venv/bin/python manage.py test orders.tests --settings=bazaar_kiosk.settings_test --verbosity 2
 ```
 
-준비 단계의 기준 상태에서는 Django 검사와 SQLite 마이그레이션이 통과하지만 프로젝트에 자동화
-테스트가 없습니다. 따라서 위 명령을 통과하는 것만으로는 주문, 결제, 인가, PostgreSQL 번호
-부여 또는 실시간 동작이 올바르다는 근거가 되지 않습니다.
+이 프로필은 메모리 SQLite와 합성 자격증명을 사용합니다. 기존 db.sqlite3나 운영 DB를 사용하지 않습니다.
+2026-09-09 PR40 검증은27개 수집·12개 통과·PG15개 skip입니다. 초기 준비 당시 테스트0개 기록과 구분합니다.
+PostgreSQL은 [전용 환경과 분리 명령](docs/modernization/POSTGRES_TESTING.md)으로 migration15개와
+앱12개를 검증합니다. SQLite 통과만으로 번호·잠금·동시성이나 운영 적용을 검증했다고 보지 않습니다.
 
 ## 현대화 워크플로
 
@@ -66,7 +67,7 @@ env -u DATABASE_URL .venv/bin/python manage.py test
 있습니다.
 
 - 저장소별 기준 상태 및 위험 목록
-- 권장 GPT-6 Astra 세션 설정
+- 모델 공통 세션 안내와 과거 설정 기록
 - 안전한 Git 복구 전략
 - 여러 세션에 걸친 구축 블루프린트
 - 분석, 계획 검토, 구현 및 최종 감사를 위해 바로 붙여 넣을 수 있는 프롬프트
