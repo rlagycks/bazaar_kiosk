@@ -10,7 +10,9 @@
   squash merge했다. 실제 develop merge 커밋은 `f9b562c349a2a6318bcfa0b68fa45af800d3926e`다.
   원격 브랜치 삭제·운영 적용은 하지 않았다.
 - 이슈 [41](https://github.com/rlagycks/bazaar_kiosk/issues/41), 새 브랜치
-  `fix/phase-8a-dashboard-execution`은 위 merge 커밋에서 시작했다.
+  `phase-8a-dashboard-execution`은 위 merge 커밋에서 시작했다.
+  최초 fix/phase-8a-dashboard-execution 이름은 원격 fix 브랜치와 경로 충돌해 push가 거부됐다.
+  기존 원격을 변경하지 않고 현재 이름으로 로컬 브랜치를 변경했다.
   0019 정책은 사용자에게 질문한 상태다. 답변을 대신 정하지 않고 계획의 독립8A만 진행했다.
 - 앱 변경: stats_dashboard의 집계 별칭 qty를 qty_sum으로 분리하고 정렬/응답 매핑을 맞춘3줄.
   JSON qty 필드·기존 기간·결제·이름 그룹·인가·schema·migration은 유지한다.

@@ -13,7 +13,7 @@
 |2B | 미착수 | 의존성 재현성과 PG CI 연결. PG 테스트 DB 생성은 가능해졌으나 [BLUEPRINT](BLUEPRINT.md#phase-2b)의 선행은1B 종료다 |
 
 PR40은2026-09-09 머지됐다. 확인된 develop 기준은 `f9b562c349a2a6318bcfa0b68fa45af800d3926e`다.
-현재 작업은 이 커밋에서 만든 `fix/phase-8a-dashboard-execution`이다.
+현재 작업은 이 커밋에서 만든 `phase-8a-dashboard-execution`이다.
 0020 적용본은 develop에 포함됐다. 새 세션마다 로컬/원격 HEAD와 열린 PR을 다시 확인한다.
 
 ```bash
