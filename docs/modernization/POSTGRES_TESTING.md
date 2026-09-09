@@ -71,15 +71,11 @@ DB에서 자동 삭제하지 않는다는 점을 합성 데이터로 확인한�
 
 ## 로컬 회귀와 정리
 
-```bash
-.venv/bin/python manage.py test orders.tests --settings=bazaar_kiosk.settings_test --verbosity 2
-.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
-```
+사용자 PostgreSQL 전용 지시에 따라 위 PG 명령을 사용한다. 리뷰 보완 후 migration15개·앱19개
+(8A 통계7개 포함)가 skip0으로 실행돼야 한다. SQLite 지원 제거는 후속 PR44 범위다.
 
-SQLite 프로필에서는 PG15개가 명시적으로 skip된다. 기존9개와 대상/정리 guard3개·8A 집계4개를 실행하며,
-PG 인수에는 앞의 명시적 PG 명령에서 migration15개·앱16개가 skip0으로 실행된 결과가 별도로 있어야 한다.
 0020 적용 이후 runner의 빈 PG 테스트 DB 생성이 성공하므로 앱 테스트를 PG에서 실행할 수 있다.
-다만 `test orders.tests`를 PG 프로필로 한 번에 실행하면31개를 수집하되 runner가 `default`를
+다만 `test orders.tests`를 PG 프로필로 한 번에 실행하면34개를 수집하되 runner가 `default`를
 자기 테스트 DB로 바꾸므로 migration 경로15개를 fixture guard가 의도대로 거부한다.
 그래서 두 명령을 나눠 실행한다.
 이는0020 실패가 아니며, 어떤 실패도 fake migration이나 runner 우회로 숨기지 않는다.

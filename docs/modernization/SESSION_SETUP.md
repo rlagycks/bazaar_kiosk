@@ -50,20 +50,16 @@ main/develop에 직접 구현하거나 문서 확보를 위해 자동 merge하�
 저장소 루트에서 실행한다. 기존 검증 환경은 Python3.12.11/Django5.2.17이며 새 환경에서는
 설치 버전과 접근 권한을 확인한다. 기본 settings나 기존 db.sqlite3로 대체하지 않는다.
 
-```bash
-.venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py test orders.tests --settings=bazaar_kiosk.settings_test --verbosity 2
-```
-
-8A 회귀4개 추가 후 SQLite 결과는31개 수집·16개 실행·PG15개 skip이다.
-SQLite에서0020은 vendor 분기로 아무 것도 하지 않으므로 SQLite 통과는 PG 설치 성공을 뜻하지 않는다.
+사용자 PostgreSQL 전용 지시에 따라 이번 리뷰부터 PG로 검증한다. SQLite 런타임 제거는
+후속 [PR44](https://github.com/rlagycks/bazaar_kiosk/pull/44)에 구현돼 있으며 아직 이 브랜치에 포함되지 않았다.
 
 PG는 [POSTGRES_TESTING](POSTGRES_TESTING.md)의 전용 Compose 생성·URL 설정·실제
-identity 검사를 완료한 뒤 다음 두 명령을 실행한다. 테스트 종료 또는 실패 후에는 같은 안내의
+identity 검사를 완료한 뒤 check/drift와 두 테스트 명령을 실행한다. 테스트 종료 또는 실패 후에는 같은 안내의
 소유 자원 정리 절차를 수행한다. 순서는 준비 → 검사 → 정리다.
 
 ```bash
+.venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test_pg
+.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test_pg
 .venv/bin/python manage.py test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg --verbosity 2
 .venv/bin/python manage.py test orders.tests.test_dashboard_execution orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
 ```
@@ -74,8 +70,8 @@ identity 검사를 완료한 뒤 다음 두 명령을 실행한다. 테스트 �
 따라서 이 suite의 통과는 전체 migration 경로가 모두 성공한다는 뜻이 아니다.
 정확한 사례 수는 실행 출력을 그대로 인용한다.
 
-앞은15개, 뒤는8A를 포함한 앱16개다. 앱 테스트는0020 적용 이후 처음으로 runner의 빈 PG 테스트 DB 생성이
-성공해 실행할 수 있게 됐다. `test orders.tests`를 PG 프로필로 한 번에 돌리면31개를 수집하지만
+리뷰 보완 후 앞은15개, 뒤는8A 통계7개를 포함한 앱19개다. 앱 테스트는0020 적용 이후 처음으로 runner의 빈 PG 테스트 DB 생성이
+성공해 실행할 수 있게 됐다. `test orders.tests`를 PG 프로필로 한 번에 돌리면34개를 수집하지만
 runner가 `default`를 자기 테스트 DB로 바꾸므로1A의 fixture guard가 migration 경로15개를 의도대로
 거부한다. 이는0020 실패가 아니며 guard 완화나 fake migration으로 우회하지 않는다.
 0019 정책은 여전히 미정이므로 전체1B 완료로 보고하지 않는다.

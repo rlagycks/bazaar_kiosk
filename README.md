@@ -50,16 +50,11 @@ PostgreSQL은 운영 환경용으로 예정된 백엔드이며, 시퀀스, 잠�
 
 ## 기준 검사
 
-```bash
-.venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py test orders.tests --settings=bazaar_kiosk.settings_test --verbosity 2
-```
-
-이 프로필은 메모리 SQLite와 합성 자격증명을 사용합니다. 기존 db.sqlite3나 운영 DB를 사용하지 않습니다.
-2026-09-09 8A 추가 후 검증은31개 수집·16개 통과·PG15개 skip입니다. 초기 준비 당시 테스트0개 기록과 구분합니다.
-PostgreSQL은 [전용 환경과 분리 명령](docs/modernization/POSTGRES_TESTING.md)으로 migration15개와
-8A를 포함한 앱16개를 검증합니다. SQLite 통과만으로 번호·잠금·동시성이나 운영 적용을 검증했다고 보지 않습니다.
+사용자 결정에 따라 PostgreSQL로 검증한다. [현재 격리 명령](docs/modernization/SESSION_SETUP.md#격리-테스트-명령)과
+[전용 Compose 준비·정리](docs/modernization/POSTGRES_TESTING.md)를 따른다.
+리뷰 보완 후 migration15개·앱19개(통계7개 포함), skip0이다.
+위 SQLite 로컬 실행 설명은 전환 이전 기록이며 현재 권장 경로가 아니다.
+SQLite 런타임 제거와 Docker 개발 DB는 후속 [PR44](https://github.com/rlagycks/bazaar_kiosk/pull/44)에 포함돼 있다.
 
 ## 현대화 워크플로
 
