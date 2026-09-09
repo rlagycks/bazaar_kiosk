@@ -4,6 +4,7 @@ from functools import wraps
 from django.conf import settings
 from django.shortcuts import render, redirect
 from django.urls import reverse
+from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 
 ROLE_DEFINITIONS = [
     ("ORDER",           "주문(서빙)",   "테이블 주문 · 서빙 전용 화면", "orders:order"),
@@ -16,6 +17,8 @@ ROLE_DEFINITIONS = [
 ROLE_TO_URLNAME = {code: urlname for code, _, _, urlname in ROLE_DEFINITIONS}
 ROLE_LABELS = {code: label for code, label, *_ in ROLE_DEFINITIONS}
 
+@sensitive_variables("pin", "expected")
+@sensitive_post_parameters("pin")
 def login_view(request):
     role_codes = [code for code, *_ in ROLE_DEFINITIONS]
     role_choices = [(code, ROLE_LABELS.get(code, code)) for code in role_codes]

@@ -3,6 +3,18 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-09 — PR48 머지와4A1 브랜치의 develop 통합
+
+- 사용자 지시: PR48을 먼저 머지하고 PR46도 머지한다.
+- PR48을 squash merge했다. develop 기준은 `c44338e`다.
+- PR46은 develop 갱신 후 mergeable UNKNOWN이었고 `git merge-tree` dry-run이
+  DECISIONS·RISK_REGISTER·WORKLOG3개 충돌을 보였다. 세 파일 모두 양쪽을 보존해 해소했다.
+  DECISIONS는 D-030 뒤에 D-031·D-032를 이어 붙였고, WORKLOG는 파일이 요구하는 최신순으로
+  다섯 항목을 재배열했다. RISK_REGISTER는 BK-R002의 D-031/032 한정과 BK-R028의 Repo-fixed를
+  함께 남기고, 머리말이 이미 BK-R028을 노출 상향 대상으로 명시하므로 그 행에도 같은 한정을 적었다.
+- 어느 위험도 종료·완화하지 않았다. BK-R028은 여전히 Open(4A1/운영 인수 대기)이다.
+- 통합 후 PG 전체 회귀를 다시 실행해 기록한다. 운영 배포·계정/자격증명 변경은 없다.
+
 ## 2026-09-09 — 결정 문서를 4A1 브랜치에서 분리
 
 - 독립 문서 감사가 D-031/D-032 변경이 `phase-4a1-sensitive-errors`에 미커밋으로 쌓여 있는 것을
@@ -14,6 +26,39 @@
 - 위험 상태는 낮추지 않았다. 외부 접속 확정은 완화가 아니라 노출 상향이며 BK-R002/028/044는 Open이다.
 - 계정 생성·인증 코드/스키마·자격증명·DNS/인증서/방화벽·배포는 여전히 미실행이다.
 - 문서 링크·앵커·명령 구문·diff를 검증한다. 애플리케이션·DB·외부 서비스 변경 없음.
+
+## 2026-09-09 — PR46 독립 리뷰3건 반영
+
+- 사용자 지시: PR46을 PR40·42와 같은 방식으로 리뷰하고 지적을 반영한다. merge는 범위 밖이다.
+- 리뷰3건(읽기 전용, 병렬): 구현 보안 정합성 / 테스트 검출력 / 문서·프로세스 감사.
+  적용된 가림 구현 자체에는 CRITICAL·HIGH 지적이 없었다. 정규식 이어붙이기 안전성,
+  DEBUG 기본값이 켜진 이 저장소에서 is_active 강제가 필요한 이유, 데코레이터 순서 무관성을
+  Django5.2.17 소스와 실제500 발생으로 각각 확인했다.
+- 반영한 테스트 지적: 빈 오류 보고에서도 통과하던 사례2개가 있었고, 그중 하나가
+  `get_post_parameters` 오버라이드를 잡는 유일한 단언이었다. DEBUG일 때 보고서 표식을
+  `request_failure`에서 확인하도록 올려 모든 본문 단언이 대조군을 갖게 했다.
+  치환 문자열이 실제로 나타나는지, 과잉 가림 없이 `role`이 살아남는지도 고정했다.
+  커버리지가 없던 `@sensitive_post_parameters`는 Django 기본 필터·DEBUG=False 조건의
+  독립 사례로 고정하고, 상속 flags(대소문자 무시)를 `password` 필드로 고정했다. 회귀는4개→6개다.
+- 반영한 구현 지적: POST 필드 대조를 정확 일치에서 상속 패턴 검색으로 바꿔 `role_pin`·
+  `pin_confirm`·`password`도 덮게 했다. PIN 분기는 앞뒤를 비문자로 한정해 `NUMBER_GROUPING`·
+  `pinned_note`의 과잉 가림을 없앴다. 가림 중 예외가500 처리 자체를 무너뜨리던 경로는
+  전부 가린 값을 반환해 실패를 닫도록 했다.
+- 반영한 문서 지적: 5개 파일의 배너가 수치만 갱신되고 머지 PR 목록은 PR42에 멈춰 있던 것,
+  MODEL_DELEGATION_REVIEW가 PR44를 진행 중으로 서술하고4A1을 누락한 것,
+  BLUEPRINT의4A1 승인 파일 목록이 실제 편집한 `orders/views/auth.py`(4A2 소유)를 담지 않아
+  파일 소유권 교차가 기록되지 않은 것, RISK_REGISTER의 Repo-fixed가 그 행의 종료 증거보다
+  강했던 것, 어느 문서도 PR46·head를 적지 않던 것, TESTING이4A1 회귀만 출처를 빠뜨린 것을 고쳤다.
+  SENSITIVE_ERRORS에는 querystring이 reporter filter로 원리적으로 커버 불가라는 점과,
+  가림이 `pin`·`expected` 이름에 묶여 있어 D-032 구현 시 함께 갱신해야 한다는 주의를 추가했다.
+- 분리: 감사가 범위·인계 위험으로 지적한 미커밋 D-031/D-032 문서를 develop 기준
+  `docs/external-access-shared-accounts` 브랜치로 옮겼다. 원문은 그대로 두고 외부 접속 전제의
+  위험 재점검과 BLUEPRINT D-002 관문 문구를 그 브랜치에서 함께 처리했다.
+- 검증: 격리 PG에서 보안 회귀6개 통과. 이전에 살아남던 mutant8개(상속 flags 제거,
+  두 데코레이터 각각 제거,`get_post_parameters`/`get_cleansed_multivaluedict` 제거,
+  전체 가림, 빈 치환 문자열, copy 제거)가 모두 실패로 전환됐다.
+  빈 보고서 강제 실험에서 6개 전부 실패해 공허하지 않음을 확인했다. 총46개(15+31)다.
+- 하지 않은 것: merge·운영 배포·계정/자격증명 변경·0019 정책. BK-R028과4A1 전체는 Open이다.
 
 ## 2026-09-09 — 주방 공용 계정의 기존 구분 유지
 
@@ -40,6 +85,38 @@
 - HTTPS·도메인의 검토 상태를 구현 완료나 구체적인 DNS/인증서/EC2 작업 승인으로 확대하지 않았다.
 - 문서 링크·앵커·렌더·명령 구문·위험/단계 연결·diff와 문서 외 무변경을 검사한다.
   이번 갱신은 로컬 문서4개만 변경하며 애플리케이션·DB·외부 서비스·원격 Git 작업은 수행하지 않는다.
+
+## 2026-09-09 — PR44 머지와4A1 오류 보고 비노출
+
+- 사용자 지시: 다음 단계 진행. PR44 head `fb87fb38b3a1e6536b7f73898bbfb406c3b1e0d0`의
+  미반영 리뷰 없음·MERGEABLE/CLEAN, push/PR CI 성공을 확인했다. base 변경 때 취소된 중복 CI와
+  완료된 최신 실행을 구분했다. 기존 로컬·CI40개 통과 이후 코드 변경이 없어 불필요하게 반복하지 않았다.
+- PR44를 squash merge했다. 실제 develop 커밋은 `8b1740cc396078c119a39bbb41c2f81937c18987`.
+  이슈45·브랜치 `phase-4a1-sensitive-errors`를 이 기준에서 생성했다. main·운영 적용은 변경하지 않았다.
+- D-030: BLUEPRINT4A1의 독립 부분인 Django 오류 보고 PIN 가림만 선택했다.
+  settings의 기본 reporter filter 지정, 별도 filter의 PIN 설정 패턴·DEBUG 중 민감값 가림,
+  POST pin과 MultiValueDict 복사본 가림, login_view의 민감 POST/지역변수 주석을 적용했다.
+  역할·성공/실패·리다이렉트·세션 정책·운영 필수값·DEBUG 기본값은 바꾸지 않았다.
+- django-security 스킬을 참고하고 설치 Django5.2.17와 공식 오류 보고 API로 실제 확장 지점을 확인했다.
+  예제의 별도 인증체계·운영 설정을 무조건 적용하지 않았다. helper는 hidden_settings의 기존 패턴/flags를 유지한다.
+- 테스트: 새4개는 합성 값만 쓰고 DB 접속이 없다. 원본 동작 복원에서6조건 실패, 수정 후4개 통과.
+  최초 테스트 URLconf namespace 누락은 의도한 로그인 실패보다 먼저 예외를 내므로 fixture를 고친 뒤 재현했다.
+  독립 검토에서 데코레이터 이전 middleware 오류 경계를 확인해 해당 POST 노출을 실패 재현하고 필터에서 가렸다.
+  PIN 패턴·DEBUG 가림·지역변수 주석·조기 POST 가림·MultiValueDict 가림 제거5종 모두 검출한다.
+  독립 리뷰의 MultiValueDict 지역변수 검증 공백을 반영해 해당 프레임 fixture를 강화했고 집중4개가 통과했다.
+  외부 메일을 보내지 않고 locmem backend의 보고서1건과 text/HTML 내용만 확인했다.
+- 전체 검증: 새 Compose `bk-4a1-errors-20260909`, 고정 의존성 환경의
+  `.venv/postgres-only/clean-env/bin/python scripts/test_postgres.py`로 migration15개·앱29개,
+  총44개 통과·skip0, check 문제0·drift 없음. 기존 로그인·주문·주방·통계를 실제 PG에서 검사했다.
+  후속 오류 경계 추가 전43개 결과와 최종44개 결과를 구분한다.
+- 문서 검사: Markdown25개·링크615개·변경17문서 렌더·명령 구문·위험44개/35단계 DAG·diff 통과.
+  이번 Compose의 프로젝트/목적 label을 확인하고 컨테이너·네트워크·볼륨을 정리했다.
+- 기록: 무시 경로 `.venv/phase-4a1/`에 red/green·변이·PG·문서 검증을 보관한다.
+  [구현 기록](SENSITIVE_ERRORS.md)에 공식 출처·보장 범위·미구현 경계·실행 방법을 기록했다.
+- 남은 관문: 임의 exception/log 문자열·URL/querystring·다른 이름으로 복사한 지역변수 등은
+  전역 정화하지 않는다. 운영 설정 누락 거부·공개 기본 PIN·식별/권한·D-002/003/006은 미정이다.
+  BK-R028은 지정 경로의 Repo-fixed/Open이며4A1 전체·1B/2B·8A 최종 인수는 유지한다.
+  다음은 이 좁은 구현의 PR 검토이며 운영 시작 규칙/권한 매트릭스가 정해지면 해당 범위를 이어간다.
 
 ## 2026-09-09 — PR42 머지 완료와 PR44 develop 통합
 
