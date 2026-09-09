@@ -8,6 +8,7 @@ import logging
 import uuid
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import mail
 from django.test import Client, SimpleTestCase, override_settings
 from django.urls import include, path
@@ -78,7 +79,14 @@ class SecurityErrorReportTests(SimpleTestCase):
         self.assertEqual(response.status_code, 500)
         self.assertEqual(len(captured.records), 1)
         self.assert_no_credentials(logging.Formatter().format(captured.records[0]))
+        if settings.DEBUG:
+            # Without this, every "credential is absent" assertion below would
+            # also pass against an empty body that is no report at all.
+            self.assertIn("synthetic error-report failure", response.content.decode())
         return response, captured.records[0]
+
+    def cleansed(self):
+        return get_default_exception_reporter_filter().cleansed_substitute
 
     @override_settings(DEBUG=True)
     def test_debug_settings_are_redacted_in_html_and_non_html_errors(self):
@@ -110,7 +118,13 @@ class SecurityErrorReportTests(SimpleTestCase):
                 self.assertIn("pin", variables)
                 self.assertIn("expected", variables)
                 self.assertEqual(record.request.POST["pin"], self.submitted_pin)
-                self.assertEqual(dict(data["filtered_POST_items"])["role"], "ORDER")
+                filtered = dict(data["filtered_POST_items"])
+                self.assertEqual(filtered["role"], "ORDER")
+                # Absence of the secret plus presence of the marker: without the
+                # second half, blanking every field would also pass.
+                self.assertEqual(filtered["pin"], self.cleansed())
+                self.assertEqual(variables["pin"], repr(self.cleansed()))
+                self.assertEqual(variables["expected"], repr(self.cleansed()))
 
     @override_settings(
         DEBUG=True, MIDDLEWARE=[__name__ + ".EarlyFailureMiddleware"],
@@ -125,7 +139,63 @@ class SecurityErrorReportTests(SimpleTestCase):
             frame for frame in data["frames"]
             if "post_data" in dict(frame.get("vars", []))
         )
-        self.assert_no_credentials(dict(frame["vars"])["post_data"])
+        post_data = dict(frame["vars"])["post_data"]
+        self.assert_no_credentials(post_data)
+        # The traceback local must be cleansed field by field, not blanked whole.
+        self.assertIn("'role'", post_data)
+        self.assertIn("ORDER", post_data)
+        self.assertIn(self.cleansed(), post_data)
+        self.assertEqual(
+            dict(
+                ExceptionReporter(record.request, *record.exc_info)
+                .get_traceback_data()["filtered_POST_items"]
+            )["pin"],
+            self.cleansed(),
+        )
+
+    @override_settings(
+        DEBUG=False,
+        DEFAULT_EXCEPTION_REPORTER_FILTER=(
+            "django.views.debug.SafeExceptionReporterFilter"
+        ),
+    )
+    def test_login_annotation_alone_redacts_the_post_pin(self):
+        # Pin @sensitive_post_parameters independently. The project filter
+        # redacts the field whether or not the view is annotated, so without
+        # Django's stock filter here the decorator could be deleted unnoticed.
+        get_default_exception_reporter_filter.cache_clear()
+        _, record = self.request_failure(login=True)
+        self.assertEqual(tuple(record.request.sensitive_post_parameters), ("pin",))
+        data = ExceptionReporter(record.request, *record.exc_info).get_traceback_data()
+        filtered = dict(data["filtered_POST_items"])
+        self.assertEqual(filtered["role"], "ORDER")
+        self.assertEqual(filtered["pin"], self.cleansed())
+        self.assertEqual(record.request.POST["pin"], self.submitted_pin)
+
+    @override_settings(DEBUG=True, MIDDLEWARE=[__name__ + ".EarlyFailureMiddleware"])
+    def test_credential_field_names_beyond_pin_are_redacted_case_insensitively(self):
+        # The fallback net runs before any annotation, so it must not depend on
+        # one exact lowercase field name. "password" also pins that the
+        # inherited pattern flags survive: without re.IGNORECASE the uppercase
+        # PASS branch would not match it.
+        secrets = {name: uuid.uuid4().hex for name in ("PIN", "role_pin", "password")}
+        with self.assertLogs("django.request", level="ERROR") as captured:
+            response = self.client.post("/login/", {"role": "ORDER", **secrets})
+        self.assertEqual(response.status_code, 500)
+        body = response.content.decode()
+        self.assertIn("synthetic error-report failure", body)
+        for name, value in secrets.items():
+            with self.subTest(field=name):
+                self.assertFalse(value in body, f"Error report exposed {name}")
+        record = captured.records[0]
+        filtered = dict(
+            ExceptionReporter(record.request, *record.exc_info)
+            .get_traceback_data()["filtered_POST_items"]
+        )
+        self.assertEqual(filtered["role"], "ORDER")
+        for name in secrets:
+            with self.subTest(field=name):
+                self.assertEqual(filtered[name], self.cleansed())
 
     @override_settings(
         DEBUG=False, ADMINS=[("Synthetic test", "synthetic-admin@example.invalid")],

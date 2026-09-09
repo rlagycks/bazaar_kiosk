@@ -7,8 +7,11 @@
 - 2A·1A와 PR40(0020 복구)은 머지됐다.1B는0019 정책·운영 확인이 남아 미완료다.
 - PR42의8A 집계 수정과 리뷰 보완은 머지됐다.2B 이후 최종 인수는 대기다.
 - D-029 PostgreSQL 전용 전환은 PR44로 머지됐다. develop 기준은 `8b1740c`다.
-- 현재 브랜치는 `phase-4a1-sensitive-errors`. 오류 보고의 설정 PIN·로그인 POST/지역변수 가림을
-  구현·검증한다. [4A1 범위와 증거](SENSITIVE_ERRORS.md). 운영 시작 정책은 미정이어서4A1 전체는 미완료다.
+- 현재 브랜치는 `phase-4a1-sensitive-errors`([PR46](https://github.com/rlagycks/bazaar_kiosk/pull/46)).
+  오류 보고의 설정 PIN·로그인 POST/지역변수 가림을 구현·검증한다. [4A1 범위와 증거](SENSITIVE_ERRORS.md).
+  운영 시작 정책은 미정이어서4A1 전체는 미완료다.
+- D-031/D-032 결정 문서는 `docs/external-access-shared-accounts` 브랜치로 분리했다.
+  4A1 브랜치에 미커밋으로 쌓여 있던 것을 독립 감사 지적에 따라 옮겼다.
 - 2B의 PostgreSQL CI 기반은 선행 구현했지만1B와 지원/운영 관문이 남아 전체 완료가 아니다.
 
 ```bash
@@ -39,7 +42,7 @@ D-P07의0020 적용은 완료됐다.0019 정책·번호 정책·운영 DB 적용
 ```
 
 실제 대상 검증 후 check/drift와 프로젝트 전체 테스트를 migration/app 별도 프로세스로 실행한다.
-현재44개(15+29), 모두 PostgreSQL·skip0이다. DB 충돌은 자동 삭제하지 않고 오류로 종료한다.
+현재46개(15+31), 모두 PostgreSQL·skip0이다. DB 충돌은 자동 삭제하지 않고 오류로 종료한다.
 일반 DATABASE_URL·기존 SQLite 파일·개발용 DB를 테스트 대상으로 사용하지 않는다.
 테스트가 끝나거나 실패하면 안내의 소유 label 검증·정리 절차를 따른다.
 CI도 같은 명령을 사용한다. PG 성공을0019 정책이나 운영 배포 승인으로 확대하지 않는다.

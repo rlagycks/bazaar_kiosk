@@ -2,7 +2,7 @@
 
 현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
 [공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
-PR40·PR42는 머지됐고8A는2B 이후 최종 인수 대기다. 현재44개(15+29)를 PG에서 검증한다.
+PR40·PR42·PR44는 머지됐고8A는2B 이후 최종 인수 대기다. 현재46개(15+31)를 PG에서 검증한다.
 
 후속4A1(2026-09-09): 설정 ROLE_PINS·로그인 POST/지역변수의 Django 오류 보고 노출을 가렸다.
 아래 DEBUG PIN 노출은 수정 전 관찰이다. [범위와 남은 경계](SENSITIVE_ERRORS.md)를 따르며

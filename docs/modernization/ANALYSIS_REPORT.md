@@ -2,7 +2,7 @@
 
 현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
 [공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
-PR40·PR42는 머지됐고8A는2B 이후 최종 인수 대기다. 현재44개(15+29)를 PG에서 검증한다.
+PR40·PR42·PR44는 머지됐고8A는2B 이후 최종 인수 대기다. 현재46개(15+31)를 PG에서 검증한다.
 
 최종 검증: 2026-09-07 · 통합 책임: 주 에이전트 · 범위: 프롬프트 01 + 자체 SSE·Compose PostgreSQL·EC2 후보 분석
 
@@ -1268,7 +1268,8 @@ DB URL2개는 USER/PASS/HOST 기호형 예시로 확인되어 실제 DB 자격�
 <a id="bk-r028"></a>
 ### BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출
 
-- 심각도/상태: **High / Reproduced**. 확신: 높음.
+- 심각도/상태: **High / Repo-fixed(오류 보고 경로만)**. 아래는 수정 이전 관찰이다.
+  현재 상태와 남은 경계는 [등록부](RISK_REGISTER.md)와 [4A1 범위와 증거](SENSITIVE_ERRORS.md)를 따른다. 확신: 높음.
 - 근거: [bazaar_kiosk/settings.py:10](../../bazaar_kiosk/settings.py#L10),127-130; [orders/views/api.py:178-186](../../orders/views/api.py#L178); E-SUPPLEMENT.
 - 영향 불변조건: 자격 증명 비공개·안전한 배포. 시나리오: DEBUG=True에서 JSON[] 요청500을 유도하면 임시 ROLE_PINS 값이 오류 응답에 포함됨(Boolean만 기록). 기본 PIN 교체만으로 방어되지 않음.
 - 최소 개선: 운영DEBUG금지·시작검증·민감설정 마스킹·오류 경계.

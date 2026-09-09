@@ -1,7 +1,9 @@
 # 4A1 — 오류 보고의 역할 PIN 가림
 
 2026-09-09 · [이슈45](https://github.com/rlagycks/bazaar_kiosk/issues/45) ·
-브랜치 `phase-4a1-sensitive-errors`, 기준 develop `8b1740cc396078c119a39bbb41c2f81937c18987`.
+[PR46](https://github.com/rlagycks/bazaar_kiosk/pull/46), 브랜치 `phase-4a1-sensitive-errors`,
+구현 커밋 `b681206`, 리뷰 반영 커밋은 PR head를 확인한다.
+기준 develop `8b1740cc396078c119a39bbb41c2f81937c18987`.
 [PR44](https://github.com/rlagycks/bazaar_kiosk/pull/44)의 PostgreSQL 전용 전환을 머지한 뒤 진행한다.
 
 ## 목적과 범위
@@ -11,10 +13,14 @@ Django 기본 오류 필터는 ROLE_PINS를 민감한 설정 이름으로 인식
 민감 POST·지역변수 데코레이터의 가림이 비활성화돼 로그인 실패 도중 제출 PIN과 기대 PIN이 노출될 수 있었다.
 
 [설정](../../bazaar_kiosk/settings.py)에서 [전용 필터](../../bazaar_kiosk/error_reporting.py)를 지정한다.
-Django5.2의 SafeExceptionReporterFilter.hidden_settings 패턴·flags를 상속하고 PIN을 추가한다.
+Django5.2의 SafeExceptionReporterFilter.hidden_settings 패턴·flags를 상속하고 PIN 분기를 추가한다.
 기존 SECRET_KEY·DB PASSWORD·AUTH/TOKEN/COOKIE 보호는 유지한다. is_active는 DEBUG와 무관하게 True다.
-로그인뿐 아니라 모든 요청 POST의 pin을 뷰 진입 전 middleware 오류에서도 가리고,
-보고서에 노출되는 MultiValueDict 지역변수의 pin도 보고용 복사본에서 가린다.
+POST 필드는 정확히 `pin`인 이름만이 아니라 같은 상속 패턴으로 대조하므로 `role_pin`·`pin_confirm`·
+`password` 같은 이름도 대소문자 구분 없이 가려진다. PIN 분기는 앞뒤를 비문자로 한정해
+`NUMBER_GROUPING`·`pinned_note`처럼 철자만 겹치는 이름은 가리지 않는다.
+로그인뿐 아니라 모든 요청 POST의 자격증명 필드를 뷰 진입 전 middleware 오류에서도 가리고,
+보고서에 노출되는 MultiValueDict 지역변수도 보고용 복사본에서 필드 단위로 가린다.
+가림 도중 예외가 나면 값을 그대로 내보내는 대신 전부 가린 값을 반환해 실패를 닫는다.
 [로그인 뷰](../../orders/views/auth.py)의 pin·expected 지역변수와 POST pin에는 Django 민감값 데코레이터를 적용한다.
 원래 요청이나 설정값을 변경하지 않으며 기존 역할·PIN 비교·성공/실패·리다이렉트는 유지한다.
 
@@ -47,7 +53,7 @@ DEBUG 가림 비활성화, 지역변수 주석 제거, 데코레이터 이전 PO
 ```
 
 새 Compose `bk-4a1-errors-20260909`, 고정 의존성의 Python3.12.11/Django5.2.17/PG15.18에서
-migration15개·앱/guard29개, 총44개·skip0을 실행한다. 새4개는 DB 접근이 없는 SimpleTestCase이며
+migration15개·앱/guard31개, 총46개·skip0을 실행한다. 새6개는 DB 접근이 없는 SimpleTestCase이며
 전체 suite의 기존 로그인·주문·주방·통계는 실제 PG를 사용한다. 결과는 [WORKLOG](WORKLOG.md)에 남긴다.
 
 ## 남는 경계
@@ -56,6 +62,15 @@ migration15개·앱/guard29개, 총44개·skip0을 실행한다. 새4개는 DB �
 임의 exception 메시지·cause/context/notes, URL/querystring, 로그 메시지·formatter 출력에 직접 넣은 비밀값,
 다른 이름·일반 dict/list로 복사한 지역변수, request별 필터·별도 reporter로 대체한 경로는 보장하지 않는다.
 테스트의 표준 로그는 고정 오류 문구를 사용한다. 모든 로그 문자열을 자동 정화하는 필터를 추가한 결과가 아니다.
+
+`request.GET`과 보고서의 요청 URL은 reporter filter가 구성에 관여하지 않으므로 이 방식으로는
+원리적으로 가릴 수 없다. 현재 로그인은 POST 전용이라 도달하지 않지만 querystring에 자격증명을
+싣는 경로를 새로 만들면 별도 대응이 필요하다.
+
+**D-032 연동 주의.** 지역변수 가림은 `orders/views/auth.py`의 `pin`·`expected`라는 이름에 묶여 있다.
+역할별 공용 계정 인증으로 전환하며 자격증명 지역변수 이름이 바뀌면 그 가림은 조용히 멈추고
+현재 회귀는 모두 통과한다. POST 필드는 이름 패턴 대조라 비교적 견디지만,
+D-032 구현 시 데코레이터 인자와 이 문서의 경계를 함께 갱신해야 한다.
 
 DEBUG 기본값, 공개 기본 PIN, SECRET_KEY 기본값, ALLOWED_HOSTS, 운영 필수 설정 실패 정책은 이번에 바꾸지 않았다.
 운영 DEBUG=False와 필수값 정책은 D-002/006·4A1 나머지 범위이고, 권한·CSRF·세션 개편은3/4A2다.
