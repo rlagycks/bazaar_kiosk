@@ -10,7 +10,7 @@ import importlib
 import inspect
 from contextlib import contextmanager
 from datetime import date
-from unittest import TestCase, skipUnless
+from unittest import TestCase
 from unittest.mock import patch
 
 from django.conf import settings
@@ -26,13 +26,9 @@ M19 = ("orders", "0019_remove_order_orders_table_rule_and_more")
 M20 = ("orders", "0020_create_floor_sequences")
 
 
-@skipUnless(
-    settings.SETTINGS_MODULE == "bazaar_kiosk.settings_test_pg",
-    "requires explicit PostgreSQL test settings",
-)
 class MigrationPathTests(TestCase):
     def setUp(self):
-        # Lazy import also permits SQLite discovery before PG support is installed.
+        # Each migration path owns an independent database.
         from orders.tests.pg_support import migration_database
 
         self.connection = self.enterContext(migration_database())

@@ -3,6 +3,27 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-09 — PR42 머지 완료와 PR44 develop 통합
+
+- PR42 수정 head `2acfd4a99f442272ab88026d3b91356daae12ae1`의 CI run34311793854,
+  django-ci14초 통과 후 승인된 squash merge를 실행했다. 실제 develop 커밋은
+  `c8c11b5c6811a97ca77e377c08b0adf552b4cf86`이다. main·운영 배포는 변경하지 않았다.
+- PR42 문서 검사: Markdown23개·링크589개·변경13문서 렌더·명령 구문·44개 위험/35단계 DAG·diff 통과.
+  PR42 전용 Compose 프로젝트·목적 label을 확인한 후 컨테이너·네트워크·볼륨을 제거했다.
+- 후속 PR44의 `postgres-only-runtime`(시작 `9ab0cce`)에 develop을 일반 merge했다.
+  squash로 겹친 문서와 테스트의 충돌을 해결하면서 PR42 리뷰 보완을 보존했다.
+  기본 PG 설정·공통 실행기·Docker/CI·번호 경로는9ab0cce와 바이트 동일하며,
+  통계 테스트/API·models·migration은 현재 develop과 동일함을 diff로 확인했다.
+- 인계 문서에 PR42 머지 사실, PG 전체40개(migration15개·앱25개·통계7개 포함), 공통 실행 명령을 반영했다.
+  과거 SQLite·앱12/16/19개·PR40 Draft 기록은 당시 증거로 구분한다. 번호·0019·정산 정책은 바꾸지 않았다.
+- 검증: 새 Compose `bk-pr44-integration-20260909`, 고정 의존성이 설치된
+  `.venv/postgres-only/clean-env/bin/python scripts/test_postgres.py`로 check 문제0·drift 없음·
+  PG15.18 전체40개 통과(skip0). 로그와 문서 렌더/검사 JSON은 `.venv/pr44-integration/`에 보관한다.
+- 통합 문서24개·링크599개·변경15문서 렌더·명령 구문·44개 위험/35단계 DAG·diff 검사를 통과했다.
+  독립 통합 리뷰에서 추가 지적은 없었다. 통합용 Compose 프로젝트/목적 label 확인 후 소유 자원을 정리했다.
+- PR44 base를 develop으로 전환하고 통합 커밋을 일반 push한다. PR44는 열린 상태로 유지한다.
+  전체2B·8A 최종 인수,0019·번호 정책·운영 데이터 이전/EC2 적용 관문은 그대로다.
+
 ## 2026-09-09 — PR42 리뷰 권고 보완과 머지 준비
 
 - 사용자 지시: 위 리뷰의 권고를 수정하고 머지. 대상 PR42의 리뷰 기준 head는 `8531e18`,
@@ -32,6 +53,32 @@
 - 다음: 최종 head CI 확인 후 PR42 머지, PR44에 develop을 병합해 PG 전용 설정과 최신 회귀를
   통합 검증한다. PR44 기준을 develop으로 바꾸되 이 작업에서 자동 머지하지 않는다.
   0019·번호 정책·운영/EC2 적용과 전체2B·8A 최종 인수 관문은 유지한다.
+
+## 2026-09-09 — D-029 PostgreSQL 전용 실행 전환
+
+- 사용자 지시: SQLite 지원 제거, PostgreSQL만 남기고 Docker로 DB 관리.
+  기준 PR42 HEAD `8531e181ed23acb17d32b2363d47d7061ebcd8ca`, 후속 브랜치 `postgres-only-runtime`.
+  통계 PR42 리뷰 보완/머지를 대신하지 않고 별도 PR로 인계한다.
+- 설정: 기본 DATABASE_URL 필수·비PG/불완전 URL 거부. SQLite settings_test 삭제,
+  PG 설정에 환경 격리 통합. DB 장애 시 파일 DB fallback 없음. 번호 counter fallback 제거,
+  기존 PG sequence 경로와 과거 migration20개·counter schema·기존 DB 파일은 보존했다.
+- Docker/CI: loopback55436 개발용 영속 Compose와55437 전용 테스트 Compose 분리.
+  이미지 index에 AMD64/ARM64 제공을 확인했다. 현재 패키지9개 버전을 CI 스냅샷으로 고정하고
+  새 Python3.12 환경 설치·pip check를 통과했다. 주 버전 업그레이드는 없다.
+- 검증: 새 설정 거부 회귀는 수정 전 실패→수정 후 통과. scripts/test_postgres.py는 프로젝트
+  전체37개를 발견해 migration15개·앱/guard22개를 실제 PG에서 실행, 모두 통과·skip0.
+  check 문제0·drift 없음. 별도 프로세스로 나눠 기존 control DB guard를 완화하지 않았다.
+- 독립 리뷰 반영: --noinput 자동 DROP을 제거하고 UUID 앱 DB와 충돌 사전 거부·EOF 입력을 추가했다.
+  중첩/다른 앱 테스트도 전체 discovery에서 분리한다. 실제 충돌 DB를 만들어 기존 DB 보존과 실행 거부를 확인했다.
+  최종 독립 코드 리뷰에서 새로운 결함은 없었다.
+- 개발 검증: 전용 임시 프로젝트 `bk-pgonly-dev-proof-20260909`에서 비superuser/NOCREATEDB 앱 역할로
+  빈 DB 전체 migrate 성공. 합성 메뉴1개가 Compose down/up 뒤 남음을 확인했다.
+  테스트 프로젝트는 `bk-pgonly-test-20260909`다. 이번 소유 label을 확인하고 두 임시 프로젝트/볼륨을 정리했다.
+  실행 로그·문서 검증 결과는 무시 경로 `.venv/postgres-only/`에 보관한다.
+- 문서: Markdown24개·링크592개·변경 문서17개 렌더·Python AST·Compose config·35단계 DAG·diff 검사 통과.
+  외부 URL 응답은 검사하지 않았다. AGENTS·루트 README·현재 인계·테스트/계획/결정·과거 보고서의 현재 안내를 갱신했다.
+  과거 SQLite 분석은 역사 기록으로 보존한다. D-029 전환/CI 기반 구현을1B/2B 전체 완료나
+  운영 인수·0019/번호 정책 승인으로 확대하지 않는다.
 
 ## 2026-09-09 — PR40 머지와 독립8A 통계 실행성 수정
 

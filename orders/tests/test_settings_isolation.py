@@ -14,22 +14,14 @@ class SettingsIsolationTests(SimpleTestCase):
         probe = textwrap.dedent("""\
             import os
             import socket
-            import sqlite3
             from unittest.mock import patch
 
             before = dict(os.environ)
             def deny_network(*args, **kwargs):
                 raise AssertionError('Test startup attempted network access')
 
-            real_connect = sqlite3.dbapi2.connect
-            opened = []
-            def memory_only(database, *args, **kwargs):
-                assert database == ':memory:', 'Test attempted persistent DB access'
-                opened.append(database)
-                return real_connect(database, *args, **kwargs)
-
             with patch.object(socket.socket, 'connect', deny_network), \
-                 patch('sqlite3.dbapi2.connect', side_effect=memory_only):
+                 patch('psycopg.connect', side_effect=deny_network):
                 import django
                 django.setup()
                 from django.conf import settings
@@ -37,9 +29,11 @@ class SettingsIsolationTests(SimpleTestCase):
                 from django.db import connection
 
                 assert dict(os.environ) == before, 'Settings mutated caller environment'
-                assert settings.DATABASES['default']['ENGINE'] == 'django.db.backends.sqlite3'
-                assert settings.DATABASES['default']['NAME'] == ':memory:'
-                assert settings.DATABASES['default']['TEST']['NAME'] == ':memory:'
+                assert settings.DATABASES['default']['ENGINE'] == 'django.db.backends.postgresql'
+                assert settings.DATABASES['default']['NAME'] == 'bk_test_control'
+                assert settings.DATABASES['default']['HOST'] == '127.0.0.1'
+                assert settings.DATABASES['default']['USER'] == 'bk_test_runner'
+                assert settings.DATABASES['default']['PASSWORD'] == 'synthetic-local-runner-only'
                 assert settings.SECRET_KEY == 'synthetic-local-tests-only-not-a-deployment-secret-key'
                 assert settings.ROLE_PINS['ORDER'] == 'test-order'
                 assert set(settings.ROLE_PINS.values()).isdisjoint({'synthetic-deployment-pin'})
@@ -50,15 +44,12 @@ class SettingsIsolationTests(SimpleTestCase):
                 assert settings.CACHES['default']['BACKEND'].endswith('.LocMemCache')
                 assert settings.STORAGES['default']['BACKEND'].endswith('.InMemoryStorage')
                 call_command('check', verbosity=0)
-                with connection.cursor() as cursor:
-                    cursor.execute('SELECT 1')
-                    assert cursor.fetchone() == (1,)
-                connection.close()
-                assert opened == [':memory:']
+                assert connection.connection is None
         """)
         env = {
             **os.environ,
-            "DJANGO_SETTINGS_MODULE": "bazaar_kiosk.settings_test",
+            "DJANGO_SETTINGS_MODULE": "bazaar_kiosk.settings_test_pg",
+            "BK_TEST_DATABASE_URL": "postgresql://bk_test_runner:synthetic-local-runner-only@127.0.0.1:55437/bk_test_control",
             # Invalid scheme proves production settings never parse this value.
             "DATABASE_URL": "invalid://synthetic-deployment-db.invalid/db",
             "DATABASE_URL_FILE": "/must-not-read-deployment-secret",

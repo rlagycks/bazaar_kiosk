@@ -2,7 +2,8 @@
 
 계획 검토: 2026-09-07 · 실행 상태 갱신: 2026-09-09
 
-**2A·1A는 완료·머지,1B는0020만 적용하고0019 정책이 남아 미완료이며2B는 미착수다.**
+**2A·1A는 완료·머지,1B는0019 정책 대기다. D-029로 PostgreSQL 전용 실행/CI 기반을 선행했다.**
+2B 전체와8A 최종 인수는 남아 있다. [전환 범위](POSTGRES_ONLY.md)를 현재 DB 실행 계약으로 따른다.
 [현재 인계](SESSION_SETUP.md)의 기준 ref·승인표·격리 명령을 따른다.
 D-P07 승인으로 적용한0020은 [PR40](https://github.com/rlagycks/bazaar_kiosk/pull/40)의
 2026-09-09 머지로 develop에 포함됐다. 독립8A 집계500 수정과 로컬 검증을 진행했고 최종 인수는2B 이후다.
@@ -118,7 +119,7 @@ D-P03/04/05의 계획상 제안을 검토해 반영했다. 기술 선택을 사�
 | [R 승인된 운영 전환 실행](#phase-r) | 12B |
 | [UI 후속 디자인 적용·제품 요구 변경](#phase-ui) | 9, 11 |
 
-8A의 코드·SQLite 검사 착수는2A만 필요하지만 **최종 종료에는2B 이후 PostgreSQL 검사도 필요**하다.
+8A의 코드·로컬 PG 검사 착수는2A만 필요하지만 **최종 종료에는2B 이후 PostgreSQL 검사도 필요**하다.
 4A2도 로컬 구현은3·4A1 이후 가능하며 최종 종료에는2B의 PostgreSQL 환경·검사가 합류해야 한다.
 4B1의 통계 브라우저 검사는8A 정상 응답 이후 수행한다. 이전 단계 완료만으로 후속 단계의
 제품 결정을 대신하지 않는다. 운영 대상 검사가 없는4A3/4B2의 외부 위험은12A의 증거가 올 때까지
@@ -130,7 +131,7 @@ Open을 유지한다. 코드 단위 완료와 위험 최종 종료를 구분하�
 파일 소유권을 기록한다. 한 하위 단계는 하나의 검토 가능한 변경 단위를 목표로 한다.
 아래 범위를 넘으면 구현 전에 쪼개되, 위험을 누락하거나 끝난 검사를 반복해 부풀리지 않는다.
 
-- 2A의 테스트/SQLite 설정과1A의 PG/Compose fixture는 파일을 분리해 병행 가능하다.
+- 2A/1A 당시 분리된 테스트 기반은 D-029에서 PostgreSQL로 통합했다.
 - 2A 이후3의 API 인가와4A1의 환경 비노출은 소유 파일이 다를 때 병행 가능하다.
   3·8A가 함께 api.py를 변경한다면 작업 순서를 직렬화하거나 명시적 통합 담당이 통합한다.
 - 10A runtime/proxy 검증은9/10B 준비와 파일이 겹치지 않으면 병행 가능하다.
@@ -145,13 +146,13 @@ Open을 유지한다. 코드 단위 완료와 위험 최종 종료를 구분하�
 
 이하 파일과 suite 이름 중 현재 없는 것은 **해당 구현 단계에서 만들 목표**다.
 이번 청사진 검토에서 실행했거나 이미 존재한다고 주장하지 않는다.
-V-LOCAL 설정은2A, V-PG 설정/Compose는1A에서 구현했다.2B의 PG CI 연결은 미착수다.
+2A/1A의 SQLite·PG 병행 방식은 D-029로 대체됐다. V-LOCAL도 전용 PostgreSQL을 사용하고 CI에 연결한다.
 일반 manage.py 명령을 기본 운영 settings로 복사 실행하지 않는다.
 
 | 프로필 | 명령·환경·완료 증거 |
 | --- | --- |
 | V-DOC | 로컬 링크/앵커/줄·fence·Markdown 렌더·44개 위험 단일 매핑·DAG·허용 파일 검사, git diff --check |
-| V-LOCAL | .venv Python3.12, 합성 credential·메모리 SQLite·빈 외부 설정을 강제하는 settings_test. 표의 test suite에 --settings=bazaar_kiosk.settings_test 사용 |
+| V-LOCAL | .venv Python3.12, 합성 credential·빈 외부 설정·전용 PostgreSQL을 강제하는 settings_test_pg. 전체 검증은 scripts/test_postgres.py |
 | V-PG-SETUP | 1A에서 구현한 compose.test.yaml의 전용 PG 서비스. localhost/test DB allowlist·자원 소유권 검증 후 fixture만 실행, 운영 URL/기존 DB 금지 |
 | V-PG | --settings=bazaar_kiosk.settings_test_pg, 별도 BK_TEST_DATABASE_URL 명시. 원래 DATABASE_URL을 읽지 않음. 독립 DB의 migrate/transaction/process 검증 |
 | V-BROWSER | 합성 계정/DB, 휴대폰 주문·서빙/PC 주방·관리자, 실제 클릭·네트워크·키보드/터치/스크린리더. Figma 캡처는 통과 증거 아님 |
@@ -164,9 +165,9 @@ V-LOCAL 설정은2A, V-PG 설정/Compose는1A에서 구현했다.2B의 PG CI 연
 전용 Compose·테스트 URL·identity 검사를 먼저 완료해야 한다. 각 단계의 'test …'는 관리 명령의 하위 인수다.
 
 ```bash
-.venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py test orders.tests.test_baseline --settings=bazaar_kiosk.settings_test
+.venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test_pg
+.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test_pg
+.venv/bin/python manage.py test orders.tests.test_baseline --settings=bazaar_kiosk.settings_test_pg
 .venv/bin/python manage.py test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg
 docker compose -f compose.test.yaml config --quiet
 ```
@@ -212,7 +213,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 - **맥락·목적:** 현재 테스트가 0개여서 회귀를 자동으로 감지하지 못한다.
 - **선행 조건:** 0. **결정 관문:** 추가 제품 결정 없이 시작 가능. 설치된 Python3.12/Django5.2.17은 분석 기준일 뿐 운영 버전 확정 아님.
 - **책임·주 위험:** 테스트 담당; 독립 기여/인수 단계.
-- **승인 대상 범위·파일:** orders/tests/; bazaar_kiosk/settings_test.py; 테스트 실행 안내. 이 범위의 구현은 해당 단계 실행 지시 이후다.
+- **승인 대상 범위·파일:** orders/tests/; bazaar_kiosk/settings_test_pg.py; 테스트 실행 안내. 이 범위의 구현은 해당 단계 실행 지시 이후다.
 - **작업:** 운영 URL·기존 SQLite를 사용하지 않는 설정, 합성 메뉴·테이블·역할 fixture, 서버 가격 스냅샷·주문 atomic·기존 로그인/주문/주방 계약을 특성화한다. 알려진 취약 동작은 재현 사례로 분리하고 정상 계약으로 고정하지 않는다.
 - **인수 기준·기대 결과:** 깨끗한 실행에서 의미 있는 테스트가 실제 수집됨. 가격/원자성의 의도적 회귀를 감지한 뒤 회귀를 제거. DB/secret 격리 확인.
 - **검증 명령·환경:** V-LOCAL: test orders.tests.test_baseline; check; makemigrations --check --dry-run. PG 동작 통과 주장은 하지 않는다.
@@ -255,11 +256,14 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 <a id="phase-2b"></a>
 ### 2B — 의존성 재현성과 PostgreSQL CI
 
-- **맥락·목적:** CI는 설치/check/drift만 수행하며 DB와 동작을 검증하지 않는다.
+- **선행 구현(D-029):** PostgreSQL 전용화에 필요한 패키지 스냅샷·PG CI·전체 테스트 분리 실행을 구현했다.
+  기존1B/운영 지원 기준은 남아 전체 단계 종료로 처리하지 않는다.
+
+- **맥락·목적:** 초기 CI는 설치/check/drift만 수행했다. D-029에서 PG 회귀 실행 기반을 선행하고 원본/운영 관문을 남긴다.
 - **선행 조건:** 2A, 1B. **결정 관문:** D-006 지원 버전·고정 방식 결정. 구현 때 공식 지원표 재확인.
 - **책임·주 위험:** 빌드·테스트 담당; BK-R004, BK-R021.
 - **승인 대상 범위·파일:** requirements/lock 파일; .github/workflows/ci.yml; 테스트 DB 실행 문서. 이 범위의 구현은 해당 단계 실행 지시 이후다.
-- **작업:** 재현 가능한 의존성 설치, SQLite 특성화와 PG 신규/업그레이드 테스트를 CI에 연결한다. 주요 버전 업그레이드는 별도 변경 단위로 분리한다.
+- **작업:** 재현 가능한 의존성 설치, PostgreSQL 특성화와 신규/업그레이드 테스트를 CI에 연결한다. 주요 버전 업그레이드는 별도 변경 단위로 분리한다.
 - **인수 기준·기대 결과:** 빈 환경 설치·pip check·실제 테스트 수집과 PG 두 경로가 통과. 핵심 회귀가 CI를 실패시킨다는 증거.
 - **검증 명령·환경:** V-LOCAL + V-PG 전체 현존 suite; python -m pip check; CI 동일 명령 로컬 재현. 원격 workflow 실행은 push 없이 가능한 증거와 구분.
 - **마이그레이션·롤백:** lock/CI만 되돌릴 때도 migration 실패 검출을 없애지 않는다.
@@ -308,7 +312,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 <a id="phase-4a3"></a>
 ### 4A3 — Compose 앱 설정·DB 권한·외부 노출 경계
 
-- **맥락·목적:** URL 누락 또는 _FILE만 설정하면 SQLite 선택, TLS/CA 전달과 자체 DB 권한도 검증 전이다.
+- **맥락·목적:** 과거 URL 누락 시 SQLite 선택은 D-029에서 제거했다. _FILE 지원·TLS/CA 전달과 운영 권한은 별도 검증 대상이다.
 - **선행 조건:** 2B, 3, 4A1. **결정 관문:** D-006 DB TLS/secret/역할. EC2 고유 구성은 D-021 확정 뒤12A에서 검증.
 - **책임·주 위험:** 설정·보안 담당; BK-R043, BK-R044.
 - **승인 대상 범위·파일:** settings.py; 환경 예시; Compose 운영 후보/이미지 설정; 연결 검사. 이 범위의 구현은 해당 단계 실행 지시 이후다.
@@ -321,7 +325,8 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 <a id="phase-8a"></a>
 ### 8A — 통계 500 실행 오류의 작은 수정
 
-- **진행 상태(2026-09-09):** 집계 별칭3줄 수정·회귀7개·PG 로컬 검증 완료(앱19개, migration15개).
+- **진행 상태(2026-09-09):** PR42 집계 별칭3줄 수정·회귀7개를 검증하고 머지했다.
+  PR44 통합 기준은 전체40개(migration15개·앱25개)이며 [최신 검증](POSTGRES_TESTING.md)을 따른다.
   [실행 기록](DASHBOARD_EXECUTION.md).2B 이후 PG 인수 전에는8A/BK-R016을 최종 종료하지 않는다.
 
 - **맥락·목적:** aggregate alias 충돌로 빈 DB와 데이터 있는 DB 모두500이다.
@@ -330,7 +335,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 - **승인 대상 범위·파일:** orders/views/api.py의 집계 표현식; 통계 실행 테스트. 이 범위의 구현은 해당 단계 실행 지시 이후다.
 - **작업:** 별칭/표현식만 고쳐 현행 필드와 기간의 정상 응답을 복구한다. 매출 의미·날짜 기본값·레거시 금액을 동시에 바꾸지 않는다.
 - **인수 기준·기대 결과:** 고정 합성 데이터에서200와 해당 표현식 산술 검증. 날짜·레거시·순수납 정확성은 별도 미해결로 유지. PG 종료 검사는2B 이후 수행.
-- **검증 명령·환경:** V-LOCAL: test orders.tests.test_dashboard_execution;2B 후 V-PG 동일 suite. DB 게이트 미통과 동안 SQLite 결과만으로 종료하지 않음.
+- **검증 명령·환경:** V-LOCAL: test orders.tests.test_dashboard_execution;2B 후 V-PG 동일 suite. D-029 선행 CI 성공만으로1B/운영 인수 관문을 면제하지 않음.
 - **마이그레이션·롤백:** schema 없음.500 복원이 아니라 실패 시 명확한 조회 불가 안내; 보안 적용은3의 권한 경계를 유지.
 - **관측·보안·인계:** BK-R016 실행성 주 담당, BK-R006/007/030은 남김. 정상 응답 fixture와 실패 원인 인계.
 

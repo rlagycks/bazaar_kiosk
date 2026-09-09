@@ -2,42 +2,24 @@
 
 첫 구현 이슈: [#35](https://github.com/rlagycks/bazaar_kiosk/issues/35).
 후속1A의 전용 Compose PG 환경과 migration 경로 재현은 [PG 테스트 안내](POSTGRES_TESTING.md)를 따른다.
-아래 SQLite 설정·명령은2A 당시 기록이다. 현재 검증은 사용자 PostgreSQL 전용 지시에 따라
-[세션 안내](SESSION_SETUP.md#격리-테스트-명령)를 사용한다. SQLite 지원 제거는 후속 PR44 범위다.
+현재 실행은 PostgreSQL 전용이며 정확한 명령은 아래와 같다.
 이 테스트는 현재 정상 로그인·주문·주방 흐름을 변경 없이 관찰하는 안전망이다.
-업무 계약 변경, 보안 수정, PostgreSQL 검증과 배포 검증은 포함하지 않는다.
+2A 당시 업무 계약·보안·배포 변경은 없었다. 현재 PostgreSQL 실행으로 전환됐다.
 
-## 최초2A 실행 기록(과거 절차)
+## 현재 실행 (D-029)
 
-저장소 루트에서 기존 가상환경을 사용한다. 검증 환경은 Python3.12.11/Django5.2.17이다.
-requirements의 버전 고정과 CI에서 테스트 실행 강제는2B에서 진행한다.
+SQLite 테스트 설정은 제거됐다. 2A 당시 SQLite 결과는 [WORKLOG](WORKLOG.md)의 역사 기록이다.
+현재 검증은 [전용 PostgreSQL 준비·정리](POSTGRES_TESTING.md)를 따른 뒤 아래 명령으로 통일한다.
 
 ```bash
-.venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py test orders.tests.test_baseline --settings=bazaar_kiosk.settings_test --verbosity 2
-.venv/bin/python manage.py test orders.tests --settings=bazaar_kiosk.settings_test --verbosity 2
+.venv/bin/python scripts/test_postgres.py
 ```
 
-마지막 명령은 환경 격리 검사까지 수집한다. 수집된 테스트가0개면 이 단계의 성공이 아니다.
-새 환경에서는 Python3.12 가상환경과 requirements 설치가 먼저 필요하며, 설치 버전을 결과에 기록한다.
-운영 환경용 명령이나 기본 settings로 바꾸어 실행하지 않는다.
-
-## 격리와 유지하는 구성
-
-[settings_test.py](../../bazaar_kiosk/settings_test.py)는 배포 환경 값을 비운 상태에서
-기본 설정을 가져온 뒤 DB·비밀값·외부 설정을 덮어쓴다. 호출자의 환경 변수는 복원한다.
-DB NAME과 TEST NAME 모두 메모리 SQLite다. 기존 db.sqlite3와 운영 DB를 읽거나 쓰지 않는다.
-캐시·파일·메일 저장소는 프로세스 메모리를 사용하며 Supabase URL/키는 비워 둔다.
-역할 PIN과 SECRET_KEY는 공개 가능한 합성 테스트 값이다. 이 설정으로 서버를 배포하지 않는다.
-
-실제 앱·middleware·URL·template·migration 체인은 유지한다. 정적 파일 URL 렌더를 위해
-manifest 저장소만 일반 staticfiles 저장소로 바꾸며 collectstatic 배포 검증을 대신하지 않는다.
-fixture는 테스트 안에서 합성 메뉴/테이블을 만들고 캐시와 테이블 LRU를 전후 정리한다.
-
-[환경 격리 테스트](../../orders/tests/test_settings_isolation.py)는 새 Python 프로세스에
-잘못된 DB URL과 합성 배포 자격증명을 주입한다. 네트워크 접속과 파일 DB 연결을 거부한 상태로
-설정 로딩·Django check·실제 메모리 SQL을 실행해 격리 여부를 확인한다.
+프로젝트 전체40개를 발견해 migration15개와 앱/guard25개를 분리 실행하며 skip0이다.
+[settings_test_pg.py](../../bazaar_kiosk/settings_test_pg.py)는 운영 환경 설정을 격리하고
+합성 역할 PIN·비밀값·메모리 cache/storage와 명시적 전용 PostgreSQL 연결을 사용한다.
+설정 import/check에는 실제 연결이 필요 없지만 데이터 테스트는 실제 PG에서 실행한다.
+권한·marker·DB identity·URL/libpq 우회·기존 앱 DB 충돌 거부를 확인한다.
 
 ## 보존하는 정상 경로
 
@@ -55,7 +37,7 @@ fixture는 테스트 안에서 합성 메뉴/테이블을 만들고 캐시와 �
 
 ## 알려진 결함은 정상 계약과 분리
 
-초기2A 당시의 결함은 익명 API 변경(BK-R001), 부족 결제(BK-R014/030), 중복 생성(BK-R012), 통계500(BK-R016),
+익명 API 변경(BK-R001), 부족 결제(BK-R014/030), 중복 생성(BK-R012), 통계500의 수정 이전 관찰(BK-R016),
 캐시·조회 누락 등은 [분석 재현 기록](ANALYSIS_REPORT.md)과 [위험 등록부](RISK_REGISTER.md)를 따른다.
 BK-R016의500은 후속8A에서 수정됐고2B 이후 최종 인수 대기다. 다른 결함과 구분한다.
 이 동작을 정상으로 주장하는 통과 테스트나 광범위한 expectedFailure로 안전망에 넣지 않는다.
@@ -69,7 +51,7 @@ BK-R016의500은 후속8A에서 수정됐고2B 이후 최종 인수 대기다. �
 각각 적용해 관련 테스트가 실패하는지 확인한다. 원본 앱 파일은 변경하지 않는다.
 실제 실행 결과와 임시 산출물 위치는 [WORKLOG](WORKLOG.md)의2A 기록을 따른다.
 
-SQLite migration 통과는 PostgreSQL 신규/기존 설치, 잠금, sequence, 동시성 증거가 아니다.
+SQLite 검사는 더 이상 지원하지 않는다. 현재 PG 검사도 운영 환경·복원/이전 증거를 대신하지 않는다.
 1A에서 PG 실패 fixture,1B에서 승인된 복구,2B에서 PG CI를 이어간다.
 2A만으로 BK-R004를 닫지 않으며 운영 테스트나 실제 데이터 이전은 실행하지 않는다.
 롤백은 테스트/테스트 설정을 제거하는 것으로 충분하며 앱 스키마·데이터 변화는 없다.

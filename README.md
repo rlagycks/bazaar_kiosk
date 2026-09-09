@@ -6,55 +6,43 @@
 
 ## 로컬 설정
 
-기존 CI 워크플로에 맞춰 Python 3.12를 사용합니다.
+개발·테스트·CI·운영에서 PostgreSQL만 지원합니다. Python3.12와 Docker Compose가 필요합니다.
 
 ```bash
 python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements-ci.txt
+docker compose -p bazaar-dev -f compose.dev.yaml up -d --wait postgres
 ```
 
-애플리케이션은 환경 변수에서 설정을 읽으며 `.env`를 자동으로 불러오지 않습니다.
-데이터베이스 명령을 실행하기 전에 로컬 설정을 구성하고 확인하세요. 다음 명령은 기존
-`.env`를 보존합니다.
+[.env.example](.env.example)의 개발 URL은 위 Compose의 loopback55436 DB를 가리킵니다.
+Django는 .env를 자동으로 읽지 않습니다. 기존 파일을 덮어쓰지 않고 검토한 뒤 적용합니다.
 
 ```bash
 test -e .env || cp .env.example .env
-# 불러오기 전에 .env를 검토하세요. 로컬 SQLite를 사용하려면 DATABASE_URL을 비워 둡니다.
 set -a
 source .env
 set +a
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py runserver 127.0.0.1:8000
 ```
 
-명시적으로 로컬 SQLite 데이터베이스를 사용하려면 데이터베이스에 영향을 주는 각 명령에서
-상속된 데이터베이스 URL을 제거합니다.
+위 migrate는 새 로컬 개발 DB용입니다. 기존/운영 DB 이전은 별도 승인된 절차를 따릅니다.
+DATABASE_URL이 누락되거나 PostgreSQL URL이 아니면 시작이 실패합니다. SQLite 자동 전환은 없습니다.
+개발 데이터는 Compose 볼륨에 보존되며 일반 종료에는 `docker compose -p bazaar-dev -f compose.dev.yaml down`을 사용합니다.
+개발 볼륨에 `--volumes`를 붙이지 마세요. 공개 합성 암호·DEBUG 설정은 로컬 개발 전용입니다.
+
+## 검사
+
+[전용 테스트 DB 준비·정리](docs/modernization/POSTGRES_TESTING.md)를 따른 뒤 실행합니다.
 
 ```bash
-env -u DATABASE_URL python manage.py migrate
-env -u DATABASE_URL python manage.py runserver
+.venv/bin/python scripts/test_postgres.py
 ```
 
-`DATABASE_URL`이 검증되지 않은 데이터베이스를 가리키는 동안에는 마이그레이션을 실행하지
-마세요. `DATABASE_URL`이 비어 있거나 설정되지 않으면 로컬 SQLite가 선택됩니다.
-PostgreSQL은 운영 환경용으로 예정된 백엔드이며, 시퀀스, 잠금, 마이그레이션 및 동시성
-검증에는 폐기 가능한 환경에서 PostgreSQL을 사용해야 합니다.
-
-이 예시는 `DEBUG=1`을 설정합니다. 현재 레거시 설정에서는 이 값 때문에
-`ALLOWED_HOSTS`가 `['*']`가 됩니다. `.env.example`의 허용 목록은 디버그를 비활성화해야만
-적용됩니다. 이를 안전한 배포 설정이 아닌 로컬 개발 동작으로 간주하세요.
-
-유용한 로컬 URL은 다음과 같습니다.
-
-- `http://127.0.0.1:8000/orders/` — 역할 로그인
-- `http://127.0.0.1:8000/admin/` — Django 관리자 페이지
-
-## 기준 검사
-
-사용자 결정에 따라 PostgreSQL로 검증한다. [현재 격리 명령](docs/modernization/SESSION_SETUP.md#격리-테스트-명령)과
-[전용 Compose 준비·정리](docs/modernization/POSTGRES_TESTING.md)를 따른다.
-리뷰 보완 후 migration15개·앱19개(통계7개 포함), skip0이다.
-위 SQLite 로컬 실행 설명은 전환 이전 기록이며 현재 권장 경로가 아니다.
-SQLite 런타임 제거와 Docker 개발 DB는 후속 [PR44](https://github.com/rlagycks/bazaar_kiosk/pull/44)에 포함돼 있다.
+전체 테스트를 발견해 migration15개와 앱/guard25개를 별도 프로세스에서 실행합니다.
+모두 PostgreSQL에서 실행하며 SQLite skip 경로는 없습니다. CI도 같은 명령을 사용합니다.
+[전환 범위·남은 결정](docs/modernization/POSTGRES_ONLY.md)에 기존 DB 파일과 마이그레이션 보존,
+영속 개발 DB·일회용 테스트 DB 구분, 운영 인수 한계를 기록했습니다.
 
 ## 현대화 워크플로
 

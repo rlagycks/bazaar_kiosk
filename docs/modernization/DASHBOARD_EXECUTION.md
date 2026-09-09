@@ -1,5 +1,9 @@
 # 8A — 통계 API 실행성 복구
 
+현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
+[공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
+PR40·PR42는 머지됐고8A는2B 이후 최종 인수 대기다. 현재40개(15+25)를 PG에서 검증한다.
+
 2026-09-09 · [이슈41](https://github.com/rlagycks/bazaar_kiosk/issues/41) ·
 [PR42](https://github.com/rlagycks/bazaar_kiosk/pull/42), 브랜치 `phase-8a-dashboard-execution`.
 기준 develop `f9b562c349a2a6318bcfa0b68fa45af800d3926e` (PR40 머지), 리뷰 기준 head `8531e18`.
@@ -43,24 +47,24 @@ B1_COUNTER 세션은 현행 역할을 사용하는 준비일 뿐이며 현재 AP
 
 ## 실행과 결과
 
-[PG 안내](POSTGRES_TESTING.md)의 전용 Compose 생성·URL 설정·identity 검사 뒤 실행하고 소유 자원을 정리한다.
+현재 전체 검증은 [PG 안내](POSTGRES_TESTING.md)의 새 전용 Compose 생성·URL 설정 뒤 실행한다.
 
 ```bash
-.venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test_pg
-.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test_pg
-.venv/bin/python manage.py test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg --verbosity 2
-.venv/bin/python manage.py test orders.tests.test_dashboard_execution orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
+.venv/bin/python scripts/test_postgres.py
 ```
 
-리뷰 보완 검증: 새 Compose `bk-pr42-review-20260909`, PostgreSQL15.18,
-Django5.2.17/Python3.12.11. migration15개와 앱19개(통계7개 포함), skip0.
-최신 실제 결과와 보조 검사는 [작업 로그](WORKLOG.md)에 기록한다.
+PR42 리뷰 보완은 새 Compose `bk-pr42-review-20260909`에서 migration15개·앱19개(통계7개 포함),
+skip0이었다. 정렬 fixture 확장 후 집중7개도 통과했다. PR42 수정 head `2acfd4a`의 CI를 확인하고
+2026-09-09 develop에 squash merge했다(`c8c11b5`). 그 CI는 당시 check/drift만 수행했다.
+
+PR44는 PostgreSQL 전용 설정과 위 회귀를 통합해 전체40개(migration15개·앱25개), skip0을 검증한다.
+Docker PostgreSQL15.18/Django5.2.17/Python3.12.11이며 CI도 같은 전체 실행기를 사용한다.
+실제 실행 결과와 정리 기록은 [작업 로그](WORKLOG.md)에 기록한다.
 
 최초 실패 회귀는 수정 전 SQLite에서4개 모두 FieldError였고, 최초 수정 후 SQLite/PG에서4개가 통과했다.
-이것은 과거 증거다. 사용자 PostgreSQL 전용 지시에 따라 이번 리뷰 검증은 PG로 수행한다.
-SQLite 런타임 제거·Docker 개발 DB·PG CI는 후속 [PR44](https://github.com/rlagycks/bazaar_kiosk/pull/44) 범위다.
-PR42의 CI는 check/drift만 실행하며 PG 인수 증거가 아니다. `phase-*`는 기존 push 필터에 없으므로
-PR 이벤트 CI로 확인한다. PR44에서 해당 push 필터도 보완한다.
+이는 과거 증거다. 현재 SQLite 런타임·테스트 설정은 제거됐고 PG로만 실행한다.
+PR42 브랜치의 push 필터 누락은 PR44에서 `phase-*` 추가로 보완됐다.
+전체2B 종료 전까지8A 최종 인수 관문은 유지한다.
 
 ## 범위와 복구
 
