@@ -2,7 +2,7 @@
 
 현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
 [공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
-PR40은 머지됐고8A는 PR42에서 실행성 수정 후 리뷰/최종 인수 대기다. 현재37개를 PG에서 검증한다.
+PR40·PR42는 머지됐고8A는2B 이후 최종 인수 대기다. 현재40개(15+25)를 PG에서 검증한다.
 
 2026-09-08 · 기준 develop `3604ccad7add5c760c3b1cecfaa7032706ddc01c` · [이슈 #39](https://github.com/rlagycks/bazaar_kiosk/issues/39).
 **상태: 사용자 승인(D-P07)으로0020을 적용 완료. 0019 정책은 미정이므로 전체1B는 여전히 미완료다.**
@@ -98,15 +98,16 @@ SQLite와의 계약 차이도 명시해야 한다.
 
 ## 승인 후 재현
 
-적용 이후에는 저장소 원본에서 바로 실행한다. [PG 안내](POSTGRES_TESTING.md)의 전용 Compose를
-띄운 뒤 아래를 실행하고, 종료·실패 후에는 같은 안내의 정리 절차를 수행한다.
+아래는0020 적용 당시의 부분 검증 명령이다. 현재 실행은 [PG 안내](POSTGRES_TESTING.md)의
+공통 실행기를 사용하며 대상 검사·전체 discovery·DB 충돌 거부·소유 자원 정리를 함께 수행한다.
 
-```bash
+```text
 .venv/bin/python manage.py test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg --verbosity 2
 .venv/bin/python manage.py test orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
 ```
 
-앞은 PG15개, 뒤는 앱12개다. `test orders.tests`를 PG 프로필로 한 번에 실행하면 runner가
+이 명령은0020 적용 당시의 범위다. 앞은 PG15개, 뒤는 당시 앱12개이며8A 테스트를 포함하지 않는다.
+현재 전체 앱 검증은 [SESSION_SETUP의 격리 명령](SESSION_SETUP.md#현재-검증-명령)을 따른다. `test orders.tests`를 PG 프로필로 한 번에 실행하면 runner가
 `default`를 자신의 테스트 DB로 바꾸므로1A의 fixture guard가 의도대로 거부한다.
 이는0020 실패가 아니며 migration 경로는 위와 같이 전용 모듈로 실행한다.
 
@@ -139,7 +140,7 @@ unset BK_TEST_DATABASE_URL BK_TEST_PG_PORT BK_TEST_PROJECT BK_CANDIDATE BK_PY BK
 [prepare_0020_candidate.py](proposals/prepare_0020_candidate.py)에 보관한다.
 두 파일 모두 **적용 이전 커밋에서만 동작하는 기록물**이다. 후보 suite는 적용 과정에서 이름이 바뀐
 상속 메서드2개를 `None`으로 덮어쓰므로 현재 HEAD의 `MigrationPathTests`에는 맞지 않는다.
-현재 검증은 위 "승인 후 재현" 명령을 사용한다.
+현재 전체 검증은 [현재 인계](SESSION_SETUP.md#현재-검증-명령)를 사용한다.
 
 임시 소스 복사본은 검증 결과 확인을 위해 자동 삭제하지 않는다. 결과를 보관한 뒤 준비 도구가
 출력한 이번 실행의 정확한 `.venv/phase-1b/0020-candidate-*` 경로만 확인해 삭제한다.

@@ -1,8 +1,9 @@
 # PostgreSQL 전용 실행 전환
 
 2026-09-09 · D-029 사용자 지시: SQLite를 지원 경로에서 제거하고 Docker로 PostgreSQL 관리.
-기준은 PR42 HEAD `8531e181ed23acb17d32b2363d47d7061ebcd8ca`, 후속 브랜치는 `postgres-only-runtime`이다.
-PR42 통계 수정에 의존하는 별도 변경이며 해당 PR의 리뷰 보완이나 머지를 대신하지 않는다.
+시작 기준은 PR42 HEAD `8531e181ed23acb17d32b2363d47d7061ebcd8ca`, 후속 브랜치는 `postgres-only-runtime`이다.
+PR42는 리뷰 보완 후 머지됐다. develop `c8c11b5`를 병합했고 PR44 base를 develop으로 전환한다.
+통계7개를 포함한 최신 회귀를 PG 전용 설정으로 검증한다.
 
 ## 변경 범위
 
@@ -20,7 +21,7 @@ PR42 통계 수정에 의존하는 별도 변경이며 해당 PR의 리뷰 보�
 ## 검증과 격리
 
 전체 발견된 테스트를 migration/app 두 묶음으로 나눠 각각 별도 프로세스에서 실행한다.
-현재37개(15+22)이며 skip0이다. 중첩 패키지·다른 앱의 테스트도 전체 discovery에서 포함한다.
+현재40개(15+25)이며 skip0이다. 중첩 패키지·다른 앱의 테스트도 전체 discovery에서 포함한다.
 DB 실제 identity·소유자·marker·권한·버전을 실행 전과 앱 실행 직전에 확인한다.
 앱 테스트 DB도 실행마다 UUID 이름을 쓰고 기존 DB가 있으면 삭제/재사용하지 않고 거부한다.
 자동 DROP을 유발하는 --noinput은 테스트 runner에 주지 않으며 자식 입력은 EOF로 닫는다.

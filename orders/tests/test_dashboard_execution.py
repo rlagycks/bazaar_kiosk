@@ -4,7 +4,7 @@ The fixed period and grouping by current menu name are existing behavior, not
 newly approved contracts. D-012/013 and BK-R034 remain separate work.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 from django.test import TestCase
@@ -18,23 +18,25 @@ class DashboardExecutionTests(TestCase):
 
     def setUp(self):
         # Use the existing counter role without locking anonymous API access in
-        # as a supported contract; endpoint authorization belongs to phase 3.
+        # as a supported contract. This setup does not prove authorization;
+        # the endpoint does not check the session yet (phase 3).
         session = self.client.session
         session["role"] = "B1_COUNTER"
         session.save()
         self.table = Table.objects.create(number=7)
 
     def make_order(self, lines, *, status="PREPARING", order_date=None):
+        order_date = order_date or self.period
         total = sum(qty * price for _, qty, price in lines)
         order = Order.objects.create(
             table=self.table, floor="B1", order_type="DINE_IN",
-            order_date=order_date or self.period, status=status,
+            order_date=order_date, status=status,
             total_price=total, payment_method="CASH",
             received_amount=total, received_cash_amount=total,
             received_ticket_amount=0,
         )
         Order.objects.filter(pk=order.pk).update(
-            created_at=datetime(2025, 10, 18, 12, 30, tzinfo=ZoneInfo("Asia/Seoul"))
+            created_at=datetime.combine(order_date, time(12, 30), ZoneInfo("Asia/Seoul"))
         )
         for menu, qty, price in lines:
             OrderItem.objects.create(
@@ -47,6 +49,8 @@ class DashboardExecutionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(set(data), {"period", "summary", "payment", "menu", "hourly"})
+        # Temporary characterization: update with the approved reporting policy
+        # in phase 8C, rather than treating the hardcoded date as a target rule.
         self.assertEqual(data["period"], {
             "start_date": "2025-10-18", "end_date": "2025-10-18", "floor": "B1",
         })
@@ -95,3 +99,41 @@ class DashboardExecutionTests(TestCase):
         self.assertEqual(data["menu"], [{"name": "Meal", "qty": 2, "amount": 2000}])
         self.assertEqual(data["payment"]["cash"], 2000)
         self.assertEqual(data["hourly"], [{"hour": "12:00", "orders": 1, "revenue": 2000}])
+
+    def test_menu_orders_by_total_qty_then_name_for_ties(self):
+        # Insertion, name ASC/DESC, and quantity order must all differ.
+        # Several tied groups also exercise a larger result sort: a tiny set
+        # can accidentally retain name order even with no SQL tie-breaker.
+        quantities = {"Zulu": 3, "Omega": 1, "Alpha": 3, "Mike": 5}
+        quantities.update({f"Menu{i:02}": 1 + i % 3 for i in range(24)})
+        lines = []
+        for name, qty in quantities.items():
+            menu = MenuItem.objects.create(name=name, price=1000)
+            lines.append((menu, qty, 1000))
+        self.make_order(lines)
+        expected = [
+            {"name": name, "qty": qty, "amount": qty * 1000}
+            for name, qty in sorted(quantities.items(), key=lambda row: (-row[1], row[0]))
+        ]
+        self.assertEqual(self.dashboard()["menu"], expected)
+
+    def test_invalid_floor_returns_bad_request(self):
+        for floor in ("F1", "BOOTH", "unknown"):
+            with self.subTest(floor=floor):
+                response = self.client.get(reverse("orders:stats-dashboard"), {"floor": floor})
+                self.assertEqual(response.status_code, 400)
+
+    def test_legacy_null_prices_count_qty_but_only_known_amounts(self):
+        unknown = MenuItem.objects.create(name="Unknown", price=9000)
+        mixed = MenuItem.objects.create(name="Mixed", price=9000)
+        legacy = self.make_order([(unknown, 4, 1000), (mixed, 5, 1000)])
+        # Model save fills in a missing price. Use UPDATE to represent existing
+        # nullable legacy rows without changing the creation/payment policy.
+        legacy.items.update(unit_price=None)
+        self.make_order([(mixed, 2, 1000)])
+        data = self.dashboard()
+        self.assertEqual(data["summary"]["items"], 11)
+        self.assertEqual(data["menu"], [
+            {"name": "Mixed", "qty": 7, "amount": 2000},
+            {"name": "Unknown", "qty": 4, "amount": 0},
+        ])

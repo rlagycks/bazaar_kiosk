@@ -3,6 +3,57 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-09 — PR42 머지 완료와 PR44 develop 통합
+
+- PR42 수정 head `2acfd4a99f442272ab88026d3b91356daae12ae1`의 CI run34311793854,
+  django-ci14초 통과 후 승인된 squash merge를 실행했다. 실제 develop 커밋은
+  `c8c11b5c6811a97ca77e377c08b0adf552b4cf86`이다. main·운영 배포는 변경하지 않았다.
+- PR42 문서 검사: Markdown23개·링크589개·변경13문서 렌더·명령 구문·44개 위험/35단계 DAG·diff 통과.
+  PR42 전용 Compose 프로젝트·목적 label을 확인한 후 컨테이너·네트워크·볼륨을 제거했다.
+- 후속 PR44의 `postgres-only-runtime`(시작 `9ab0cce`)에 develop을 일반 merge했다.
+  squash로 겹친 문서와 테스트의 충돌을 해결하면서 PR42 리뷰 보완을 보존했다.
+  기본 PG 설정·공통 실행기·Docker/CI·번호 경로는9ab0cce와 바이트 동일하며,
+  통계 테스트/API·models·migration은 현재 develop과 동일함을 diff로 확인했다.
+- 인계 문서에 PR42 머지 사실, PG 전체40개(migration15개·앱25개·통계7개 포함), 공통 실행 명령을 반영했다.
+  과거 SQLite·앱12/16/19개·PR40 Draft 기록은 당시 증거로 구분한다. 번호·0019·정산 정책은 바꾸지 않았다.
+- 검증: 새 Compose `bk-pr44-integration-20260909`, 고정 의존성이 설치된
+  `.venv/postgres-only/clean-env/bin/python scripts/test_postgres.py`로 check 문제0·drift 없음·
+  PG15.18 전체40개 통과(skip0). 로그와 문서 렌더/검사 JSON은 `.venv/pr44-integration/`에 보관한다.
+- 통합 문서24개·링크599개·변경15문서 렌더·명령 구문·44개 위험/35단계 DAG·diff 검사를 통과했다.
+  독립 통합 리뷰에서 추가 지적은 없었다. 통합용 Compose 프로젝트/목적 label 확인 후 소유 자원을 정리했다.
+- PR44 base를 develop으로 전환하고 통합 커밋을 일반 push한다. PR44는 열린 상태로 유지한다.
+  전체2B·8A 최종 인수,0019·번호 정책·운영 데이터 이전/EC2 적용 관문은 그대로다.
+
+## 2026-09-09 — PR42 리뷰 권고 보완과 머지 준비
+
+- 사용자 지시: 위 리뷰의 권고를 수정하고 머지. 대상 PR42의 리뷰 기준 head는 `8531e18`,
+  브랜치는 `phase-8a-dashboard-execution`이다. 후속 PostgreSQL 전용 PR44는 별도로 유지한다.
+- 반영: 통계 테스트4→7개. 수량 정렬과 이름 양방향 구분·동률 정렬, 지원하지 않는 층400,
+  전부/일부 NULL 단가의 수량·금액 응답을 추가했다. created_at은 주문 날짜와 맞춘다.
+  고정 기간은8C에서 바꿀 임시 특성화, counter 세션은 권한 검증 증거가 아님을 명시했다.
+- 앱 집계3줄은 그대로다. `.annotate()` 호출의 이름 해석과 중첩 집계 FieldError 기전을 설명했고,
+  이전 `-qty` 정렬이 GROUP BY를 쪼개는 오류도 기록했다. 동일 메뉴의 다른 수량 fixture를 유지한다.
+  미지원 층을 만들기 위해0019 제약을 우회하지 않는다. 전역 변이 점수를 품질 수치로 사용하지 않는다.
+- 문서: BASELINE의500을 과거 관찰로 구분, PR40 머지·8A 상태와 최신 PG 명령을 정리했다.
+  MIGRATION_REPAIR_REVIEW의 앱12개는 당시0020 검증 범위임을 명시했다.
+  timezone.utc의 naive 분기는8C 시간 처리 후속으로 추적한다. 권한·날짜·정산 정책은 변경하지 않았다.
+- 검증: 새 Compose `bk-pr42-review-20260909`에서 PG15.18 migration15개·앱19개 모두 통과, skip0.
+  check 문제0·drift 없음. 정렬 fixture 확장 후 집중7개도 통과했다.
+  프로세스 내부 변이7종(이름 ASC/DESC 단독, 동률 제거/역순, 옛 qty 정렬,
+  floor 검증 삭제, NULL 금액 fallback 삭제)을 모두 검출했다. 원본 앱은 수정하지 않았다.
+  첫4메뉴 fixture는 동률 제거를 놓쳐28메뉴로 확장했다. 보조 probe의 TEST 옵션 초기화 오류는
+  DB 생성 전에 중단됐고 설정 병합을 바로잡아 재실행했다. 앱 결함으로 세지 않는다.
+- 독립 읽기 전용 리뷰: 실행 코드의 새 결함 없음. 발견된 후속 단계8B→8C 및 BLUEPRINT의
+  구 테스트 수를 바로잡았다. 문서 링크·렌더·명령 구문·위험44개/단계35개 DAG·diff를 검증한다.
+  로그·HTML·검사 스크립트는 무시 경로 `.venv/pr42-review-fix/`에 보관한다.
+- 기존 phase-* 브랜치명은 push CI 필터와 불일치해 PR 이벤트 CI만 실행됐다.
+  후속 PR44가 push 필터·PG CI를 보완한다. PR42 CI 녹색만으로 PG 인수를 선언하지 않는다.
+- 공개 기록은 재작성하지 않는다. 이번 보완 커밋에 변경 이유·검증·범위를 본문으로 남기며
+  저장소에서 요구하지 않은 모델·세션 trailer를 만들어 붙이지 않는다.
+- 다음: 최종 head CI 확인 후 PR42 머지, PR44에 develop을 병합해 PG 전용 설정과 최신 회귀를
+  통합 검증한다. PR44 기준을 develop으로 바꾸되 이 작업에서 자동 머지하지 않는다.
+  0019·번호 정책·운영/EC2 적용과 전체2B·8A 최종 인수 관문은 유지한다.
+
 ## 2026-09-09 — D-029 PostgreSQL 전용 실행 전환
 
 - 사용자 지시: SQLite 지원 제거, PostgreSQL만 남기고 Docker로 DB 관리.
