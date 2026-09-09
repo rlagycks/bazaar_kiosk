@@ -102,7 +102,8 @@ SQLite와의 계약 차이도 명시해야 한다.
 .venv/bin/python manage.py test orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
 ```
 
-앞은 PG15개, 뒤는 앱12개다. `test orders.tests`를 PG 프로필로 한 번에 실행하면 runner가
+이 명령은0020 적용 당시의 범위다. 앞은 PG15개, 뒤는 당시 앱12개이며8A 테스트를 포함하지 않는다.
+현재 전체 앱 검증은 [SESSION_SETUP의 격리 명령](SESSION_SETUP.md#격리-테스트-명령)을 따른다. `test orders.tests`를 PG 프로필로 한 번에 실행하면 runner가
 `default`를 자신의 테스트 DB로 바꾸므로1A의 fixture guard가 의도대로 거부한다.
 이는0020 실패가 아니며 migration 경로는 위와 같이 전용 모듈로 실행한다.
 
@@ -135,7 +136,7 @@ unset BK_TEST_DATABASE_URL BK_TEST_PG_PORT BK_TEST_PROJECT BK_CANDIDATE BK_PY BK
 [prepare_0020_candidate.py](proposals/prepare_0020_candidate.py)에 보관한다.
 두 파일 모두 **적용 이전 커밋에서만 동작하는 기록물**이다. 후보 suite는 적용 과정에서 이름이 바뀐
 상속 메서드2개를 `None`으로 덮어쓰므로 현재 HEAD의 `MigrationPathTests`에는 맞지 않는다.
-현재 검증은 위 "승인 후 재현" 명령을 사용한다.
+현재 전체 검증은 [현재 인계](SESSION_SETUP.md#격리-테스트-명령)를 사용한다.
 
 임시 소스 복사본은 검증 결과 확인을 위해 자동 삭제하지 않는다. 결과를 보관한 뒤 준비 도구가
 출력한 이번 실행의 정확한 `.venv/phase-1b/0020-candidate-*` 경로만 확인해 삭제한다.

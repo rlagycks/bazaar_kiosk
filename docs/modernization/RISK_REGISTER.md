@@ -1,7 +1,7 @@
 # Bazaar Kiosk 위험 등록부
 
-최종 검증: 2026-09-08 · 기준 HEAD: `2d5bb78`(분석) · 사용자 위험 수용 없음
-44개 모두 종료되지 않았다. BK-R005만 저장소에서 수정됐고 운영 확인이 남아 있다.
+최종 검증: 2026-09-09 · 기준 HEAD: `2d5bb78`(분석) · 사용자 위험 수용 없음
+44개 모두 종료되지 않았다. BK-R005는 운영 확인 대기, BK-R016은 실행성 수정 후2B 이후 인수 대기다.
 
 총44개(Critical1/High30/Medium13). BK-R035~040은 SSE, BK-R041~044는 Compose DB·인프라
 이전의 선행 조건·설계·운영 위험이다. 신규 구성의 장애를 재현했다고 판정하지 않는다.
@@ -21,6 +21,10 @@ BK-R017과0019 정책은 그대로 Open이며 BK-R003의 일일 번호 미초기
 PG 검증·CI 실행 강제가 남아 BK-R004는 Open이다. 초기 테스트0개는 분석 당시 증거이며
 현재 구현 결과는 [테스트 안내](TESTING.md)와 [작업 로그](WORKLOG.md)를 따른다.
 
+8A 후속(2026-09-09): 별칭 수정3줄과 회귀7개로 빈/단일/다중/제외 조건의200·합계를
+PG에서 검증했다. SQLite 결과는 최초4개 회귀의 과거 검증이다.2B 이후 인수 관문은 유지한다. 날짜·레거시 결제·동명 메뉴·순매출 정책은
+변경하지 않았다. [실행성 기록](DASHBOARD_EXECUTION.md)을 따른다.
+
 각 행은 하나의 안정적인 위험 ID다. 심각도 순위(1이 가장 높음), 심각도, 증거 상태,
 선행 결정/위험, 담당 역할, **주 담당 블루프린트 단계**를 독립 열로 두었다.
 표 전체를 스프레드시트로 가져와 각 열로 정렬할 수 있다. 현재는 심각도→단계→ID 순서다.
@@ -28,7 +32,7 @@ PG 검증·CI 실행 강제가 남아 BK-R004는 Open이다. 초기 테스트0�
 
 Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다. Production-dependent는 외부
 환경/운영 데이터가 필요하고 Hypothesis는 측정 전 가설이다. Repo-fixed는 저장소 코드에서
-원인을 제거하고 회귀로 고정했다는 뜻이며, 운영 상태 확인 전까지 해결 상태는 Open으로 둔다.
+원인을 제거하고 회귀로 고정했다는 뜻이며, 해당 단계의 최종 인수·운영 확인 전까지 해결 상태는 Open으로 둔다.
 심각도와 증거 확신은 별개다.
 각 행의 링크에 파일/줄·재현·영향·시나리오·최소 개선·회귀시험·확신/미확인을 모두 보관했다.
 
@@ -55,7 +59,7 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 2 | [BK-R006 — 통계 기간이 2025-10-18로 고정](ANALYSIS_REPORT.md#bk-r006) | High | Reproduced | Open | D-013; BK-R016 | 조회·보고 담당 | 8 | 무기간/하루/범위/잘못된 날짜/자정/양 끝 경계 |
 | 2 | [BK-R009 — 최신 80개 이후 오래된 주방 대기 작업 누락](ANALYSIS_REPORT.md#bk-r009) | High | Reproduced | Open | D-003,D-010,D-014; 단계 3,6 | 조회 담당 | 8 | 혼합·단일모드 81/200초과 backlog의 초기/폴링/재접속 |
 | 2 | [BK-R010 — 프로세스별 테이블 객체 캐시가 비활성화를 무시](ANALYSIS_REPORT.md#bk-r010) | High | Reproduced | Open | D-014; 단계 3,6 | 조회 담당 | 8 | 관리자 수정 전/후·다중 워커·TTL·삭제/비활성 재조회 |
-| 2 | [BK-R016 — 통계 aggregate alias 충돌로 SQLite·PG 모두 500](ANALYSIS_REPORT.md#bk-r016) | High | Reproduced | Open | BK-R004; D-013,D-012 | 조회·보고 담당 | 8 | 빈DB/한행/동명메뉴/기간/취소/레거시 데이터의 endpoint200와 정확한 합계 |
+| 2 | [BK-R016 — 통계 aggregate alias 충돌로 SQLite·PG 모두 500](ANALYSIS_REPORT.md#bk-r016) | High | Repo-fixed | Open (2B 이후 인수 대기) | BK-R004; D-013,D-012 | 조회·보고 담당 | 8 | 빈DB/한행/동명메뉴/기간/취소/레거시 데이터의 endpoint200와 정확한 합계 |
 | 2 | [BK-R020 — Realtime 연결 상실 후 폴링 복귀·재동기화 부재](ANALYSIS_REPORT.md#bk-r020) | High | Code-supported | Open | D-010,D-007; 단계 4B,8,9 | 실시간 담당 | 10 | SUBSCRIBED이후 CLOSED/ERROR/TIMEOUT, duplicate/out-of-order/drop, 느린응답·재접속 |
 | 2 | [BK-R033 — 주방 목록·단건 응답 순서 역전 방어 부족](ANALYSIS_REPORT.md#bk-r033) | High | Code-supported | Open | D-010; 단계 8,9 | 실시간 담당 | 10 | 완료단건뒤stale목록,진행2뒤0응답,삭제뒤늦은응답·중복ID이벤트 |
 | 2 | [BK-R035 — 자체 SSE 실행에 필요한 비동기 경로·워커 조건 미확립](ANALYSIS_REPORT.md#bk-r035) | High | Code-supported | Open | D-006,D-018,D-019; BK-R001/019 | 실시간·운영 담당 | 10 | 실제 ASGI HTTP 스트림·일반 API 병행, 동기 middleware 적응/스레드·워커 수·disconnect/reload 정리 |
@@ -79,11 +83,13 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 3 | [BK-R039 — SSE 프록시 buffering·timeout·브라우저 연결 제약 미확인](ANALYSIS_REPORT.md#bk-r039) | Medium | Production-dependent | Open | D-006,D-007,D-010; BK-R035; 단계 10 | 운영·프런트 담당 | 12A | 실제 프록시 경유 프레임 flush·idle·reload, HTTP/1·HTTP/2/여러 탭·BFCache·백그라운드 복귀·fallback |
 | 3 | [BK-R025 — 동일 트리와 고유 이력을 혼동한 Git 정리 위험](ANALYSIS_REPORT.md#bk-r025) | Medium | Reproduced | Open | D-001; 별도 원격 승인 | 저장소 관리자 | G | refs/trees/left-right/branch diff/내용검사·체크포인트 AGENTS 존재 |
 
+
+
 ## 기존 기준선에서 바뀐 판정
 
 BK-R003/005는 PG15.18로 재현해 가설을 해소했다. BK-R003은 최초 치명적 후보에서 High로
 정밀화했다(정상16건 번호고유·실패후 부모0행). BK-R006/007은 helper/aggregate 계층에서 재현했고
-정상 dashboard 응답은 BK-R016에 막혀 있다. BK-R008/009/010도 제한된 로컬 fixture 재현으로
+당시 정상 dashboard 응답은 BK-R016에 막혔다.8A에서 별칭 오류를 수정해 합성 DB 응답을 복구했다. BK-R008/009/010도 제한된 로컬 fixture 재현으로
 격상했다. BK-R002는 기본값 존재와 운영 사용을 분리하여 High로 분류하고 DEBUG의 재정의된
 PIN 노출을 BK-R028로 별도 등록했다. BK-R011은 브라우저 실행 미재현 상태를 유지한다.
 
