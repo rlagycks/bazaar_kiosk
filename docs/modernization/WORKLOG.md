@@ -3,6 +3,38 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-09 — PR44 머지와4A1 오류 보고 비노출
+
+- 사용자 지시: 다음 단계 진행. PR44 head `fb87fb38b3a1e6536b7f73898bbfb406c3b1e0d0`의
+  미반영 리뷰 없음·MERGEABLE/CLEAN, push/PR CI 성공을 확인했다. base 변경 때 취소된 중복 CI와
+  완료된 최신 실행을 구분했다. 기존 로컬·CI40개 통과 이후 코드 변경이 없어 불필요하게 반복하지 않았다.
+- PR44를 squash merge했다. 실제 develop 커밋은 `8b1740cc396078c119a39bbb41c2f81937c18987`.
+  이슈45·브랜치 `phase-4a1-sensitive-errors`를 이 기준에서 생성했다. main·운영 적용은 변경하지 않았다.
+- D-030: BLUEPRINT4A1의 독립 부분인 Django 오류 보고 PIN 가림만 선택했다.
+  settings의 기본 reporter filter 지정, 별도 filter의 PIN 설정 패턴·DEBUG 중 민감값 가림,
+  POST pin과 MultiValueDict 복사본 가림, login_view의 민감 POST/지역변수 주석을 적용했다.
+  역할·성공/실패·리다이렉트·세션 정책·운영 필수값·DEBUG 기본값은 바꾸지 않았다.
+- django-security 스킬을 참고하고 설치 Django5.2.17와 공식 오류 보고 API로 실제 확장 지점을 확인했다.
+  예제의 별도 인증체계·운영 설정을 무조건 적용하지 않았다. helper는 hidden_settings의 기존 패턴/flags를 유지한다.
+- 테스트: 새4개는 합성 값만 쓰고 DB 접속이 없다. 원본 동작 복원에서6조건 실패, 수정 후4개 통과.
+  최초 테스트 URLconf namespace 누락은 의도한 로그인 실패보다 먼저 예외를 내므로 fixture를 고친 뒤 재현했다.
+  독립 검토에서 데코레이터 이전 middleware 오류 경계를 확인해 해당 POST 노출을 실패 재현하고 필터에서 가렸다.
+  PIN 패턴·DEBUG 가림·지역변수 주석·조기 POST 가림·MultiValueDict 가림 제거5종 모두 검출한다.
+  독립 리뷰의 MultiValueDict 지역변수 검증 공백을 반영해 해당 프레임 fixture를 강화했고 집중4개가 통과했다.
+  외부 메일을 보내지 않고 locmem backend의 보고서1건과 text/HTML 내용만 확인했다.
+- 전체 검증: 새 Compose `bk-4a1-errors-20260909`, 고정 의존성 환경의
+  `.venv/postgres-only/clean-env/bin/python scripts/test_postgres.py`로 migration15개·앱29개,
+  총44개 통과·skip0, check 문제0·drift 없음. 기존 로그인·주문·주방·통계를 실제 PG에서 검사했다.
+  후속 오류 경계 추가 전43개 결과와 최종44개 결과를 구분한다.
+- 문서 검사: Markdown25개·링크615개·변경17문서 렌더·명령 구문·위험44개/35단계 DAG·diff 통과.
+  이번 Compose의 프로젝트/목적 label을 확인하고 컨테이너·네트워크·볼륨을 정리했다.
+- 기록: 무시 경로 `.venv/phase-4a1/`에 red/green·변이·PG·문서 검증을 보관한다.
+  [구현 기록](SENSITIVE_ERRORS.md)에 공식 출처·보장 범위·미구현 경계·실행 방법을 기록했다.
+- 남은 관문: 임의 exception/log 문자열·URL/querystring·다른 이름으로 복사한 지역변수 등은
+  전역 정화하지 않는다. 운영 설정 누락 거부·공개 기본 PIN·식별/권한·D-002/003/006은 미정이다.
+  BK-R028은 지정 경로의 Repo-fixed/Open이며4A1 전체·1B/2B·8A 최종 인수는 유지한다.
+  다음은 이 좁은 구현의 PR 검토이며 운영 시작 규칙/권한 매트릭스가 정해지면 해당 범위를 이어간다.
+
 ## 2026-09-09 — PR42 머지 완료와 PR44 develop 통합
 
 - PR42 수정 head `2acfd4a99f442272ab88026d3b91356daae12ae1`의 CI run34311793854,

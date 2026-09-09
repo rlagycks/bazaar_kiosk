@@ -29,6 +29,9 @@ PG 검증·CI 실행 강제가 남아 BK-R004는 Open이다. 초기 테스트0�
 PG에서 검증했다. SQLite 결과는 최초4개 회귀의 과거 검증이다.2B 이후 인수 관문은 유지한다. 날짜·레거시 결제·동명 메뉴·순매출 정책은
 변경하지 않았다. [실행성 기록](DASHBOARD_EXECUTION.md)을 따른다.
 
+4A1 후속: BK-R028의 Django 설정 PIN·POST pin·주석 지정 지역변수를 가리고 회귀4개를 추가했다.
+임의 예외/로그 문자열과 운영 시작 정책은 남는다. [검증 범위](SENSITIVE_ERRORS.md). 전체 위험은 Open이다.
+
 각 행은 하나의 안정적인 위험 ID다. 심각도 순위(1이 가장 높음), 심각도, 증거 상태,
 선행 결정/위험, 담당 역할, **주 담당 블루프린트 단계**를 독립 열로 두었다.
 표 전체를 스프레드시트로 가져와 각 열로 정렬할 수 있다. 현재는 심각도→단계→ID 순서다.
@@ -47,7 +50,7 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 2 | [BK-R017 — 과거 스키마 축소와 신규 제약의 데이터 호환성 미검증](ANALYSIS_REPORT.md#bk-r017) | High | Reproduced | Open | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | 0018 시점 F1/BOOTH/포장null fixture→0019, 정제복사본 dry-run·백업복원·구앱 호환 |
 | 2 | [BK-R004 — 동작 테스트 0개와 실행을 강제하지 않는 CI](ANALYSIS_REPORT.md#bk-r004) | High | Reproduced | Open | D-006,D-008; 단계 1 | 테스트 담당 | 2B | 2A 로컬 특성화·가격/atomic 변이 검출 완료; PG CI 및 회귀 감지 강제 필요 |
 | 2 | [BK-R002 — 공개된 기본 역할 PIN·개발 설정으로 시작 가능](ANALYSIS_REPORT.md#bk-r002) | High | Code-supported | Open | D-002,D-006; 단계 3 | 보안·운영 담당 | 4A | 설정 누락 시작 실패, 잘못된 PIN 반복, 공개 프록시/HTTPS 설정 |
-| 2 | [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | Reproduced | Open | D-002,D-006; 단계 3 | 보안·운영 담당 | 4A | 합성 자격증명으로500 HTML/JSON·로그에 값이 없는지, env누락 실패 |
+| 2 | [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | Repo-fixed | Open (4A1/운영 인수 대기) | D-002,D-006; 단계 3 | 보안·운영 담당 | 4A | 합성 자격증명으로500 HTML/JSON·로그에 값이 없는지, env누락 실패 |
 | 2 | [BK-R043 — Compose 환경·secret·DB TLS 계약과 현재 settings의 불일치](ANALYSIS_REPORT.md#bk-r043) | High | Code-supported | Open | D-006,D-020,D-021; BK-R002/022; 단계 2,3 | 설정·보안·인프라 담당 | 4A | URL 누락/빈 값·_FILE만·실제 secret 읽기·잘못된 DB·기본 SSL/명시 TLS/CA·재시작 후 동일 DB와 앱 권한 확인 |
 | 2 | [BK-R044 — 자체 DB의 공인 포트·권한·비밀 전달 경계 구성 누락 가능성](ANALYSIS_REPORT.md#bk-r044) | High | Hypothesis | Open | D-002,D-003,D-006,D-020,D-021; BK-R001/002/028; 단계 3 | 보안·인프라 담당 | 4A | 외부 DB/ASGI 차단·신뢰 헤더 위조·앱 DDL/superuser 거부·이미지/config/log secret 검사·IAM/SSM/DB 권한 회수·기존 DB 비밀번호 교체 |
 | 2 | [BK-R011 — 저장 문자열이 실행 가능한 HTML·인라인 핸들러에 보간](ANALYSIS_REPORT.md#bk-r011) | High | Code-supported | Open | 단계 2,3 | 프런트·보안 담당 | 4B | 메뉴/테이블/메모의 HTML·따옴표·백슬래시·유니코드 payload 브라우저 검증 |
