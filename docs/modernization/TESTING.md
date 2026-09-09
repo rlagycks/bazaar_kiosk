@@ -2,7 +2,7 @@
 
 첫 구현 이슈: [#35](https://github.com/rlagycks/bazaar_kiosk/issues/35).
 후속1A의 전용 Compose PG 환경과 migration 경로 재현은 [PG 테스트 안내](POSTGRES_TESTING.md)를 따른다.
-현재 SQLite 전체 수집은27개 중12개 실행·15개 PG skip이며 PG 인수는 별도 명령으로 확인한다.
+8A 추가 후 현재 SQLite 전체 수집은31개 중16개 실행·15개 PG skip이며 PG 인수는 별도 명령으로 확인한다.
 이 테스트는 현재 정상 로그인·주문·주방 흐름을 변경 없이 관찰하는 안전망이다.
 업무 계약 변경, 보안 수정, PostgreSQL 검증과 배포 검증은 포함하지 않는다.
 
@@ -71,3 +71,5 @@ SQLite migration 통과는 PostgreSQL 신규/기존 설치, 잠금, sequence, �
 1A에서 PG 실패 fixture,1B에서 승인된 복구,2B에서 PG CI를 이어간다.
 2A만으로 BK-R004를 닫지 않으며 운영 테스트나 실제 데이터 이전은 실행하지 않는다.
 롤백은 테스트/테스트 설정을 제거하는 것으로 충분하며 앱 스키마·데이터 변화는 없다.
+
+8A의 별칭500 회귀4개는 [통계 실행성 검증](DASHBOARD_EXECUTION.md)을 따른다.2A의 기존8개 정상 흐름은 그대로다.

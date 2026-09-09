@@ -25,7 +25,7 @@ docker compose -p "$BK_TEST_PROJECT" -f compose.test.yaml up -d --wait postgres
 export BK_TEST_DATABASE_URL="postgresql://bk_test_runner:synthetic-local-runner-only@127.0.0.1:${BK_TEST_PG_PORT}/bk_test_control"
 .venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test_pg
 .venv/bin/python manage.py test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg --verbosity 2
-.venv/bin/python manage.py test orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
+.venv/bin/python manage.py test orders.tests.test_dashboard_execution orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
 ```
 
 컨테이너의 pg_isready 성공만으로 인수하지 않는다. fixture helper가 연결 후 실제 DB 이름,
@@ -76,10 +76,10 @@ DB에서 자동 삭제하지 않는다는 점을 합성 데이터로 확인한�
 .venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
 ```
 
-SQLite 프로필에서는 PG15개가 명시적으로 skip된다. 기존9개와 대상/정리 guard3개를 실행하며,
-PG 인수에는 앞의 명시적 PG 명령에서 migration15개·앱12개가 skip0으로 실행된 결과가 별도로 있어야 한다.
+SQLite 프로필에서는 PG15개가 명시적으로 skip된다. 기존9개와 대상/정리 guard3개·8A 집계4개를 실행하며,
+PG 인수에는 앞의 명시적 PG 명령에서 migration15개·앱16개가 skip0으로 실행된 결과가 별도로 있어야 한다.
 0020 적용 이후 runner의 빈 PG 테스트 DB 생성이 성공하므로 앱 테스트를 PG에서 실행할 수 있다.
-다만 `test orders.tests`를 PG 프로필로 한 번에 실행하면27개를 수집하되 runner가 `default`를
+다만 `test orders.tests`를 PG 프로필로 한 번에 실행하면31개를 수집하되 runner가 `default`를
 자기 테스트 DB로 바꾸므로 migration 경로15개를 fixture guard가 의도대로 거부한다.
 그래서 두 명령을 나눠 실행한다.
 이는0020 실패가 아니며, 어떤 실패도 fake migration이나 runner 우회로 숨기지 않는다.

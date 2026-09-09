@@ -3,6 +3,32 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-09 — PR40 머지와 독립8A 통계 실행성 수정
+
+- 사용자 지시와 D-028: PR 리뷰·문제없으면 머지·다음 작업 진행. PR40의 최종 HEAD
+  `a26d1a1af97b2e5833b92be9cbce7c5ee810b7d0`에서 CI pass·MERGEABLE/CLEAN을 확인하고
+  squash merge했다. 실제 develop merge 커밋은 `f9b562c349a2a6318bcfa0b68fa45af800d3926e`다.
+  원격 브랜치 삭제·운영 적용은 하지 않았다.
+- 이슈 [41](https://github.com/rlagycks/bazaar_kiosk/issues/41), 새 브랜치
+  `fix/phase-8a-dashboard-execution`은 위 merge 커밋에서 시작했다.
+  0019 정책은 사용자에게 질문한 상태다. 답변을 대신 정하지 않고 계획의 독립8A만 진행했다.
+- 앱 변경: stats_dashboard의 집계 별칭 qty를 qty_sum으로 분리하고 정렬/응답 매핑을 맞춘3줄.
+  JSON qty 필드·기존 기간·결제·이름 그룹·인가·schema·migration은 유지한다.
+- 실패 회귀: test_dashboard_execution4개가 수정 전 동일 FieldError로 모두 실패했다.
+  수정 후 check 문제0·drift 없음, SQLite 전체31개 수집/16개 통과/PG15개 skip,
+  PG 앱16개 통과/skip0. PR40에서 같은 세션에 migration15개가 통과했고 이후 migration은 무변경이다.
+- 독립 코드 리뷰: 새 결함 없음. 수량 정렬 사례를 가나다순과 반대인 수량순으로 강화하고
+  집중4개를 SQLite/PG 양쪽에서 재검증했다. 결제 정책·동명 메뉴 상세 계약 확장은
+  해당 코드가 바뀌지 않았고 별도 보고 계약 범위라 추가하지 않았다.
+- 전용 자원: 이번 PR40 검증의 Compose `bk40-final-20260909`를 순차 재사용해8A를 검증했다.
+  결과 로그는 무시 경로 `.venv/phase-8a/`에 보관했다. 프로젝트/목적 label을 확인하고
+  이번 컨테이너·네트워크·볼륨을 제거했다. 다른 프로젝트는 변경하지 않았다.
+- 문서: Markdown23개·링크578개·변경 문서10개 렌더·명령 구문·44개 위험/35단계 DAG·diff 검사 통과.
+  외부 URL 응답은 검사하지 않았다. 현재 인계·README·BLUEPRINT·위험 등록부·결정·테스트 명령과
+  [8A 기록](DASHBOARD_EXECUTION.md)을 갱신했다.
+  BK-R016은 Repo-fixed/Open(2B 이후 인수 대기),1B·2B 관문은 그대로다.8A 전체 종료나
+  운영/실기기 인수·날짜·레거시/순매출 정확성 해결로 보고하지 않는다.
+
 ## 2026-09-09 — PR40 머지 전 최종 리뷰
 
 - 사용자 지시: 열린 PR을 검토하고 문제없으면 머지한 뒤 다음 작업 진행.
