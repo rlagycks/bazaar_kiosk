@@ -3,6 +3,25 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-10 — 머지된 작업 브랜치 정리와 인계 문서 갱신
+
+- 사용자 지시: 브랜치를 정리하고 문서를 업데이트한다.
+- 삭제 전에 각 브랜치 tip이 해당 PR의 머지 시점 head와 같은지 확인했다. PR36·38·40·42·44·46·48의
+  7개 브랜치 모두 일치해 머지 이후 push된 커밋이 없음을 확인하고 원격·로컬에서 삭제했다.
+  squash 머지라 `git branch --merged`로는 판정되지 않으므로 PR head 대조를 근거로 사용했다.
+  삭제한 tip: `98df3cd` `4172e58` `a26d1a1` `2acfd4a` `fb87fb3` `fb120c0` `e64a44a`.
+- 삭제하지 않은 것: 2025-10 이전 사용자 브랜치8개는 이번 현대화 범위가 아니다.
+  로컬 `chore/astra-modernization-setup`(`2d5bb78`)은 develop에 없는 커밋2개가 있어 남겼다.
+  `git push --delete`가 도구 정책에 막혀 같은 목적의 GitHub ref 삭제 API를 사용했다.
+- 문서: 4개 파일에 공유된 상태 배너가 PR44에 멈춰 있어 PR46·PR48을 반영했다.
+  SESSION_SETUP은 "현재 브랜치는 phase-4a1-sensitive-errors"를 열린 PR·작업 브랜치 없음으로 바꾸고
+  삭제한 브랜치와 남긴 브랜치의 이유를 적었다. SENSITIVE_ERRORS는 머지 커밋과
+  브랜치가 이력임을 명시하고, 리뷰 반영으로4개→6개가 된 회귀 수와 변이8개를 실제 값으로 고쳤다.
+  BLUEPRINT·RISK_REGISTER·MODEL_DELEGATION_REVIEW·03_IMPLEMENT_PHASE·POSTGRES_ONLY·
+  DASHBOARD_EXECUTION의 진행 중 서술도 머지 완료로 고쳤다.
+- 위험 상태는 바꾸지 않았다. BK-R028은 Open(4A1/운영 인수 대기)이고 env 누락 시작 실패는 여전히 미구현이다.
+- 다음 작업은 고르지 않았다. 코드·schema·migration·CI 설정 변경 없음. 문서와 브랜치 참조만 갱신했다.
+
 ## 2026-09-09 — PR48 머지와4A1 브랜치의 develop 통합
 
 - 사용자 지시: PR48을 먼저 머지하고 PR46도 머지한다.

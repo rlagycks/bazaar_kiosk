@@ -1,10 +1,11 @@
 # Bazaar Kiosk 현대화 실행 청사진
 
-계획 검토: 2026-09-07 · 실행 상태 갱신: 2026-09-09
+계획 검토: 2026-09-07 · 실행 상태 갱신: 2026-09-10
 
 **2A·1A는 완료·머지,1B는0019 정책 대기다. D-029로 PostgreSQL 전용 실행/CI 기반을 선행했다.**
-PR44는 머지됐다. 다음 독립 범위는4A1 오류 보고의 PIN 가림이다.
-2B 전체와8A·4A1 최종 인수는 남아 있다. [전환 범위](POSTGRES_ONLY.md)를 현재 DB 실행 계약으로 따른다.
+PR44에 이어4A1 오류 보고의 PIN 가림은 PR46으로, D-031/D-032 결정 기록은 PR48로 머지됐다.
+2B 전체와8A·4A1 최종 인수는 남아 있고 다음 독립 범위는 아직 고르지 않았다.
+[전환 범위](POSTGRES_ONLY.md)를 현재 DB 실행 계약으로 따른다.
 [현재 인계](SESSION_SETUP.md)의 기준 ref·승인표·격리 명령을 따른다.
 D-P07 승인으로 적용한0020은 [PR40](https://github.com/rlagycks/bazaar_kiosk/pull/40)의
 2026-09-09 머지로 develop에 포함됐다. 독립8A 집계500 수정과 로컬 검증을 진행했고 최종 인수는2B 이후다.
@@ -290,7 +291,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 <a id="phase-4a1"></a>
 ### 4A1 — DEBUG·기본 자격증명 노출의 선행 차단
 
-- **부분 구현(2026-09-09):** [오류 보고 PIN 가림](SENSITIVE_ERRORS.md)과 회귀4개를 적용했다.
+- **부분 구현(2026-09-09, PR46 머지):** [오류 보고 PIN 가림](SENSITIVE_ERRORS.md)과 회귀6개를 적용했다.
   개발/운영 필수 설정·기본값·시작 거부 정책은 D-002/006 미정이므로 전체 단계는 미완료다.
 
 - **맥락·목적:** 환경에서 바꾼 PIN도 DEBUG 오류에 노출될 수 있다.
@@ -714,7 +715,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 | [BK-R025 — 동일 트리와 고유 이력을 혼동한 Git 정리 위험](ANALYSIS_REPORT.md#bk-r025) | Medium | G | [G](#phase-g) | refs/trees/left-right/branch diff/내용검사·체크포인트 AGENTS 존재 |
 | [BK-R026 — order_date와 created_at·자정 주방 집계 경계 불일치](ANALYSIS_REPORT.md#bk-r026) | Medium | 8 | [8C](#phase-8c) | Seoul23:59:59→00:00,할당지연,전일대기,같은시각다른날짜 보고 |
 | [BK-R027 — 테이블 슬롯·항목 mode·포장 flag 의미 불명확](ANALYSIS_REPORT.md#bk-r027) | Medium | 6 | [6B](#phase-6b) | 101~120/일반테이블 경계·혼합항목·flag조합 |
-| [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | 4A | [4A1](#phase-4a1) | 합성 자격증명으로500 HTML/JSON·로그에 값이 없는지, env누락 실패 |
+| [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | 4A | [4A1](#phase-4a1) | 합성 자격증명으로500 HTML/JSON·로그에 값이 없는지(PR46 적용), env누락 실패는 미구현 |
 | [BK-R029 — 가변 CDN 스크립트와 콘텐츠 보안 정책 검증 부재](ANALYSIS_REPORT.md#bk-r029) | Medium | 4B | [4B2](#phase-4b2) | D-018 외부 CDN/SDK·키 제거, 자체 SSE/폴링만으로 주방 여정·CSP |
 | [BK-R030 — 수납·거스름돈·취소 환불·순매출 계약 미확정](ANALYSIS_REPORT.md#bk-r030) | High | 7 | [7A](#phase-7a) | 초과현금·과다식권·혼합거스름·취소전후·부분환불·레거시미분류 |
 | [BK-R031 — 과거 삭제·재추가 필드와 카테고리의 복구 원천 미확인](ANALYSIS_REPORT.md#bk-r031) | High | 7 | [7C](#phase-7c) | 정제된과거버전fixture·행수/금액대조·백업복원·정방향완화 |
