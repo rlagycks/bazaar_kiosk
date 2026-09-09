@@ -7,10 +7,9 @@
 ## 현재 작업 재개
 
 [SESSION_SETUP.md](SESSION_SETUP.md)의 최신 단계·승인표·격리 명령부터 확인합니다.
-2026-09-08 기준2A·1A는 머지 완료입니다. 1B는 D-P07 승인으로0020을 적용해
-[PR40](https://github.com/rlagycks/bazaar_kiosk/pull/40)을2026-09-09 머지했지만0019 정책이 미정이라 미완료이며,
-2B는 미착수입니다. 독립8A의 [통계 실행성 수정](DASHBOARD_EXECUTION.md)은 코드·로컬 검증 완료,
-2B 이후 최종 인수 대기입니다. 현재 PR head와 로컬 변경을 확인하고 승인된 하위 작업 하나만 이어갑니다.
+2026-09-09 기준 PR40은 머지,1B는0019 정책 대기, PR42의8A는 리뷰/최종 인수 대기입니다.
+D-029로 **개발·테스트·CI·운영 DB는 PostgreSQL만 지원**합니다. [전환 범위](POSTGRES_ONLY.md)와
+[테스트 안내](POSTGRES_TESTING.md)를 따르며2B 전체 종료는 남아 있습니다.
 
 [구현 프롬프트03](prompts/03_IMPLEMENT_PHASE.md)에 정확한 범위·기준·승인 근거를 채워 사용합니다.
 0020 적용의 정확한 diff·검증·남은 관문은 [적용 기록](MIGRATION_REPAIR_REVIEW.md)에 있습니다.

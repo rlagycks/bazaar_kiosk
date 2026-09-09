@@ -6,10 +6,13 @@ on:
       - 'feat/**'
       - 'fix/**'
       - 'refactor/**'
+      - 'phase-*'
+      - postgres-only-runtime
   pull_request:
     branches:
       - develop
       - main
+      - phase-8a-dashboard-execution
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -17,28 +20,27 @@ concurrency:
 jobs:
   django-ci:
     runs-on: ubuntu-latest
+    env:
+      BK_TEST_PROJECT: bk-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      BK_TEST_PG_PORT: '55437'
+      BK_TEST_DATABASE_URL: postgresql://bk_test_runner:synthetic-local-runner-only@127.0.0.1:55437/bk_test_control
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'
-
-      - name: Install deps
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-ci.txt
+      - name: Install verified dependency snapshot
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # 개발 도구 있으면: pip install -r requirements-dev.txt
-
-      - name: Django system check
-        env:
-          SECRET_KEY: dummy
-          DEBUG: 'True'
-        run: python manage.py check
-
-      - name: Migrations should be up-to-date
-        env:
-          SECRET_KEY: dummy
-          DEBUG: 'True'
-        run: python manage.py makemigrations --check --dry-run
+          python -m pip install -r requirements-ci.txt
+          python -m pip check
+      - name: Start isolated PostgreSQL
+        run: docker compose -p "$BK_TEST_PROJECT" -f compose.test.yaml up -d --wait postgres
+      - name: Check and test on PostgreSQL
+        run: python scripts/test_postgres.py
+      - name: Clean up this job's PostgreSQL resources
+        if: always()
+        run: docker compose -p "$BK_TEST_PROJECT" -f compose.test.yaml down --volumes

@@ -1,17 +1,17 @@
 # 1A — 로컬 PostgreSQL migration 경로 재현
 
 [이슈 #37](https://github.com/rlagycks/bazaar_kiosk/issues/37), 기준 develop의2A 머지 커밋 ff013b4.
-이 환경은 합성 데이터만 사용하는 일회용 테스트 클러스터다. **테스트 통과는 운영 DB의 상태나
+이 환경은 합성 데이터만 사용하는 일회용 테스트 클러스터다. D-029 이후 유일한 테스트 DB 경로다. **테스트 통과는 운영 DB의 상태나
 운영 적용 성공을 뜻하지 않는다.** 앱 업무 코드는 변경하지 않는다.
 2026-09-08 D-P07 승인으로0020만 수정됐다. 아래 표는 그 이후의 기대 결과다.
 수정 전 기대 결과는 [적용 기록](MIGRATION_REPAIR_REVIEW.md)과 이 문서의 git 이력에 남아 있다.
 
 ## 전용 환경 시작
 
-Python3.12 가상환경과 requirements, Docker Compose가 필요하다. 검증한 버전은
+Python3.12 가상환경과 requirements-ci.txt 설치, Docker Compose가 필요하다. 검증한 버전은
 Python3.12.11/Django5.2.17/psycopg3.3.5, Docker29.4.1/Compose5.1.3,
 PostgreSQL15.18/aarch64다. Compose는 검증 당시 로컬 이미지 digest를 고정했다.
-이 선택은 D-006 운영 지원 버전·EC2 구성 승인이 아니다. 다른 CPU의 이미지 가용성은 별도 확인한다.
+이 선택은 D-006 운영 지원 버전·EC2 구성 승인이 아니다. D-029 전환에서 AMD64/ARM64 manifest 제공을 확인했다.
 
 아래 명령은 저장소 루트와 같은 셸에서 실행한다. 프로젝트 이름은 매번 새로 생성한다.
 포트가 이미 사용 중이면 다른 비특권 포트를 지정하고 URL에도 같은 포트를 사용한다.
@@ -23,9 +23,7 @@ export BK_TEST_PG_PORT=55437
 docker compose -p "$BK_TEST_PROJECT" -f compose.test.yaml config --quiet
 docker compose -p "$BK_TEST_PROJECT" -f compose.test.yaml up -d --wait postgres
 export BK_TEST_DATABASE_URL="postgresql://bk_test_runner:synthetic-local-runner-only@127.0.0.1:${BK_TEST_PG_PORT}/bk_test_control"
-.venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test_pg
-.venv/bin/python manage.py test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg --verbosity 2
-.venv/bin/python manage.py test orders.tests.test_dashboard_execution orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
+.venv/bin/python scripts/test_postgres.py
 ```
 
 컨테이너의 pg_isready 성공만으로 인수하지 않는다. fixture helper가 연결 후 실제 DB 이름,
@@ -69,20 +67,13 @@ DB에서 자동 삭제하지 않는다는 점을 합성 데이터로 확인한�
 빈 DB 사례는 전체 앱의 leaf migration을 적용하며 나머지는 orders의 특정 이력 경로를 검증한다.
 이 격리 합성 DB 결과로 실제 운영 환경의 설치 성공을 주장하지 않는다.
 
-## 로컬 회귀와 정리
+## 전체 검증과 정리
 
-```bash
-.venv/bin/python manage.py test orders.tests --settings=bazaar_kiosk.settings_test --verbosity 2
-.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
-```
-
-SQLite 프로필에서는 PG15개가 명시적으로 skip된다. 기존9개와 대상/정리 guard3개·8A 집계4개를 실행하며,
-PG 인수에는 앞의 명시적 PG 명령에서 migration15개·앱16개가 skip0으로 실행된 결과가 별도로 있어야 한다.
-0020 적용 이후 runner의 빈 PG 테스트 DB 생성이 성공하므로 앱 테스트를 PG에서 실행할 수 있다.
-다만 `test orders.tests`를 PG 프로필로 한 번에 실행하면31개를 수집하되 runner가 `default`를
-자기 테스트 DB로 바꾸므로 migration 경로15개를 fixture guard가 의도대로 거부한다.
-그래서 두 명령을 나눠 실행한다.
-이는0020 실패가 아니며, 어떤 실패도 fake migration이나 runner 우회로 숨기지 않는다.
+공통 실행기는 전체37개를 발견해 migration15개와 앱/guard22개를 별도 프로세스에서 실행한다.
+SQLite 설정이나 skip 경로는 없다. test orders.tests의 단일 PG 실행은 Django가 default DB를
+바꾸므로 migration helper의 엄격한 control DB guard와 충돌한다. guard를 완화하지 않고 분리한다.
+앱 DB도 실행마다 UUID 이름을 사용한다. 실행 전 실제 대상과 기존 DB 충돌을 확인하고 자동 삭제를 금지한다.
+자식 프로세스 실패는 전체 명령 실패로 전파한다. CI도 동일 명령을 실행한다.
 
 helper는 자신이 CREATE한 UUID DB만 DROP한다. 소유자 변경이나 외부 연결로 cleanup이 실패하면
 강제 세션 종료·FORCE DROP을 하지 않고 오류를 보고한다. 프로세스 강제 종료 시 남는 전용 DB는

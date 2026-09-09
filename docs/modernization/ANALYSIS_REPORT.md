@@ -1,5 +1,9 @@
 # Bazaar Kiosk 증거 우선 현대화 분석
 
+현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
+[공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
+PR40은 머지됐고8A는 PR42에서 실행성 수정 후 리뷰/최종 인수 대기다. 현재37개를 PG에서 검증한다.
+
 최종 검증: 2026-09-07 · 통합 책임: 주 에이전트 · 범위: 프롬프트 01 + 자체 SSE·Compose PostgreSQL·EC2 후보 분석
 
 ## 권고와 분석 경계

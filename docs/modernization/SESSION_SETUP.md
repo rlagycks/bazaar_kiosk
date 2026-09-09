@@ -4,82 +4,42 @@
 
 ## 현재 단계와 기준
 
-| 단계 | 현재 상태 | 근거·다음 조건 |
-| --- | --- | --- |
-| 2A | 완료, PR36 머지 | [격리 SQLite 테스트](TESTING.md) |
-| 1A | 완료, PR38 머지 | [전용 PostgreSQL fixture](POSTGRES_TESTING.md) |
-|1B |0020 적용 완료,0019 정책 미정이므로 미완료 | [PR40](https://github.com/rlagycks/bazaar_kiosk/pull/40), [적용 기록](MIGRATION_REPAIR_REVIEW.md). D-P07 accepted |
-|8A | 집계 별칭500 수정·로컬 검증 완료, 최종 종료 대기 | [실행성 검증](DASHBOARD_EXECUTION.md).2B 이후 PG 인수 관문 유지 |
-|2B | 미착수 | 의존성 재현성과 PG CI 연결. PG 테스트 DB 생성은 가능해졌으나 [BLUEPRINT](BLUEPRINT.md#phase-2b)의 선행은1B 종료다 |
-
-PR40은2026-09-09 머지됐다. 확인된 develop 기준은 `f9b562c349a2a6318bcfa0b68fa45af800d3926e`다.
-현재 작업은 이 커밋에서 만든 `phase-8a-dashboard-execution`이다.
-0020 적용본은 develop에 포함됐다. 새 세션마다 로컬/원격 HEAD와 열린 PR을 다시 확인한다.
+- 2A·1A와 PR40(0020 복구)은 머지됐다.1B는0019 정책·운영 확인이 남아 미완료다.
+- PR42의8A 집계 수정은 코드/로컬 검증 완료, 리뷰 보완과 최종 인수 대기다.
+- D-029로 개발·테스트·CI·운영 DB를 PostgreSQL로 통일한다. 현재 브랜치는 `postgres-only-runtime`,
+  기준은 PR42 HEAD `8531e181ed23acb17d32b2363d47d7061ebcd8ca`다.
+- 2B의 PostgreSQL CI 기반은 선행 구현했지만1B와 지원/운영 관문이 남아 전체 완료가 아니다.
 
 ```bash
 git status --short
 git branch --show-current
 git rev-parse HEAD
-git diff --stat
 gh pr list --state open --json number,title,headRefName,baseRefName,isDraft,url
 ```
 
-조회 실패는 미확인으로 기록한다. 과거 인증 실패를 현재 인증 상태로 간주하지 않는다.
-새 worktree는 검증된 ref와 필요한 최신 문서·후보를 포함해야 한다. 사용자 변경을 보존하며
-main/develop에 직접 구현하거나 문서 확보를 위해 자동 merge하지 않는다.
+새 세션마다 실제 ref·사용자 변경·열린 PR을 확인한다. 현재 문서가 없는 기준으로 자동 전환하지 않는다.
 
-## 적용 승인 상태
+## 승인과 범위
 
-| 작업 | 상태·범위 |
-| --- | --- |
-|0020 적용 구현·검증·문서화 | 사용자 승인됨(2026-09-08) |
-| 검토 브랜치 push와 PR40 본문 갱신 | 사용자 승인됨(2026-09-08). 같은 브랜치의 후속 push는 이 승인 범위이며 merge는 아니다 |
-| 격리 PG에서의 재검증 | 허용. 전용 Compose 프로젝트·소유 자원만 사용하고 종료 후 정리 |
-| 원본0020 수정 | **승인·적용 완료**(2026-09-08). D-P07 accepted. 이후 추가 migration 수정은 새 승인이 필요 |
-| 0019 과거 주문 처리 | 정책 미정. 삭제·테이블 재배정·제약 완화를 임의로 적용하지 않음 |
-| 번호 정책·운영 위험 수용 | 미정. BK-R003의 PG 다음 날 번호 연속은0020 패치 승인으로 수용되지 않음 |
-| PR40 리뷰·조건부 merge와 다음 독립 작업 | 사용자 승인됨(2026-09-09). 최신 head 검증 통과 후 merge;0019 정책·운영 적용은 제외 |
-| 실제 모델 위임·운영 DB 적용·배포 | 범위 밖. 별도 작업 지시와 해당 승인을 확인 |
+D-029는 SQLite 실행/테스트 지원 제거, PostgreSQL 전용 설정·번호 경로·개발 Compose·필수 CI 전환 지시다.
+이슈·브랜치·PR 작업 방식은 유지한다. PR42 자체의 리뷰 보완/머지는 별도이며 변경은 후속 PR로 인계한다.
+D-P07의0020 적용은 완료됐다.0019 정책·번호 정책·운영 DB 적용·EC2 배포는 여전히 미정 또는 별도 승인이다.
+기존 데이터 파일·과거 migration·counter 테이블을 삭제하지 않는다.
+[결정 기록](DECISIONS.md), [현재 전환 범위](POSTGRES_ONLY.md), [작업 로그](WORKLOG.md)를 함께 읽는다.
 
-근거는 [AGENTS](../../AGENTS.md), [결정 기록](DECISIONS.md), [작업 로그](WORKLOG.md)다.
-문서·리뷰 권고 자체를 사용자 승인으로 해석하지 않는다. 이미 받은 승인은 같은 범위에서 유지하되
-새 세션에 승인 근거·제외 범위를 전달한다. 이 표가 기존 사용자 승인을 취소하거나 확장하지 않는다.
+## 현재 검증 명령
 
-## 격리 테스트 명령
-
-저장소 루트에서 실행한다. 기존 검증 환경은 Python3.12.11/Django5.2.17이며 새 환경에서는
-설치 버전과 접근 권한을 확인한다. 기본 settings나 기존 db.sqlite3로 대체하지 않는다.
+[POSTGRES_TESTING](POSTGRES_TESTING.md)의 새 전용 Compose 생성·명시적 테스트 URL 설정 후 실행한다.
 
 ```bash
-.venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
-.venv/bin/python manage.py test orders.tests --settings=bazaar_kiosk.settings_test --verbosity 2
+.venv/bin/python scripts/test_postgres.py
 ```
 
-8A 회귀4개 추가 후 SQLite 결과는31개 수집·16개 실행·PG15개 skip이다.
-SQLite에서0020은 vendor 분기로 아무 것도 하지 않으므로 SQLite 통과는 PG 설치 성공을 뜻하지 않는다.
-
-PG는 [POSTGRES_TESTING](POSTGRES_TESTING.md)의 전용 Compose 생성·URL 설정·실제
-identity 검사를 완료한 뒤 다음 두 명령을 실행한다. 테스트 종료 또는 실패 후에는 같은 안내의
-소유 자원 정리 절차를 수행한다. 순서는 준비 → 검사 → 정리다.
-
-```bash
-.venv/bin/python manage.py test orders.tests.test_migration_paths --settings=bazaar_kiosk.settings_test_pg --verbosity 2
-.venv/bin/python manage.py test orders.tests.test_dashboard_execution orders.tests.test_baseline orders.tests.test_pg_guard orders.tests.test_settings_isolation --settings=bazaar_kiosk.settings_test_pg --verbosity 2
-```
-
-앞은 migration 경로다. 신규 설치·NULL·0·다수 행 MAX·양수40과 재적용 no-op·원본 적용본 no-op·
-동명sequence42P07·생성 후 실패 원자성·역이행 후 재적용이 성공하고, 그 옆에0019의 과거 제약 실패4개,
-수정 전0020 SQL의22003 실패1개, frozen 사본 무결성1개가 함께 고정돼 있다.
-따라서 이 suite의 통과는 전체 migration 경로가 모두 성공한다는 뜻이 아니다.
-정확한 사례 수는 실행 출력을 그대로 인용한다.
-
-앞은15개, 뒤는8A를 포함한 앱16개다. 앱 테스트는0020 적용 이후 처음으로 runner의 빈 PG 테스트 DB 생성이
-성공해 실행할 수 있게 됐다. `test orders.tests`를 PG 프로필로 한 번에 돌리면31개를 수집하지만
-runner가 `default`를 자기 테스트 DB로 바꾸므로1A의 fixture guard가 migration 경로15개를 의도대로
-거부한다. 이는0020 실패가 아니며 guard 완화나 fake migration으로 우회하지 않는다.
-0019 정책은 여전히 미정이므로 전체1B 완료로 보고하지 않는다.
-현재 CI는 check/drift만 수행하므로 녹색 CI를 PG 인수로 보고하지 않는다.
+실제 대상 검증 후 check/drift와 프로젝트 전체 테스트를 migration/app 별도 프로세스로 실행한다.
+현재37개(15+22), 모두 PostgreSQL·skip0이다. DB 충돌은 자동 삭제하지 않고 오류로 종료한다.
+일반 DATABASE_URL·기존 SQLite 파일·개발용 DB를 테스트 대상으로 사용하지 않는다.
+테스트가 끝나거나 실패하면 안내의 소유 label 검증·정리 절차를 따른다.
+CI도 같은 명령을 사용한다. PG 성공을0019 정책이나 운영 배포 승인으로 확대하지 않는다.
 
 ## 모델 설정과 과거 기록
 

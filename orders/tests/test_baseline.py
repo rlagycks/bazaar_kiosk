@@ -1,7 +1,6 @@
 """Phase 2A: supported happy paths, not unresolved security/payment policies.
 
-Run only with bazaar_kiosk.settings_test. SQLite results do not establish
-PostgreSQL sequence, locking, migration, or concurrency guarantees.
+Run with bazaar_kiosk.settings_test_pg and the dedicated Compose test database.
 """
 
 from unittest.mock import patch
@@ -288,7 +287,7 @@ class OrderAtomicBaselineTests(OrderFixtureMixin, TransactionTestCase):
             pass
 
         def allocate_then_fail(order):
-            # Execute real writes, including the SQLite counter, before failing.
+            # Execute real writes, including PostgreSQL sequence allocation, before failing.
             allocate(order)
             order.refresh_from_db()
             observed.append(order.pk)
@@ -296,9 +295,6 @@ class OrderAtomicBaselineTests(OrderFixtureMixin, TransactionTestCase):
             self.assertEqual(order.items.count(), 2)
             self.assertEqual(order.total_price, 13700)
             self.assertIsNotNone(order.order_no)
-            if connection.vendor == "sqlite":
-                self.assertEqual(FloorOrderCounter.objects.count(), 1)
-                self.assertEqual(FloorOrderCounter.objects.get().last_no, order.order_no)
             raise InjectedLateFailure("synthetic failure after persisted allocation")
 
         with patch.object(api, "allocate_floor_order_no", side_effect=allocate_then_fail):

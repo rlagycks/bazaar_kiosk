@@ -1,11 +1,13 @@
 """Explicit local PostgreSQL fixture profile; never uses DATABASE_URL."""
 
 import os
+import re
+import uuid
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
 
-from .settings_test import *  # noqa: F403
+from unittest.mock import patch
 
 
 def test_database_config(raw):
@@ -47,4 +49,49 @@ def test_database_config(raw):
     }
 
 
-DATABASES = {"default": test_database_config(os.environ.get("BK_TEST_DATABASE_URL", ""))}
+# Validate the caller's explicit fixture target before importing base settings.
+_test_config = test_database_config(os.environ.get("BK_TEST_DATABASE_URL", ""))
+with patch.dict(os.environ, {
+    "DATABASE_URL": "postgresql://bk_test_runner:synthetic-local-runner-only@127.0.0.1:"
+                    + _test_config["PORT"] + "/bk_test_control?sslmode=disable",
+}, clear=True):
+    from .settings import *  # noqa: F403
+
+_app_database_name = os.environ.get("BK_TEST_APP_DATABASE", "bk_test_app_" + uuid.uuid4().hex)
+if not re.fullmatch(r"bk_test_app_[0-9a-f]{32}", _app_database_name):
+    raise ImproperlyConfigured("Invalid disposable application test database name")
+_test_config["TEST"] = {"NAME": _app_database_name}
+DATABASES = {"default": _test_config}
+
+
+SECRET_KEY = "synthetic-local-tests-only-not-a-deployment-secret-key"
+DEBUG = False
+ALLOWED_HOSTS = ["testserver", "localhost", "127.0.0.1"]
+CSRF_TRUSTED_ORIGINS = []
+SECURE_PROXY_SSL_HEADER = None
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "bazaar-characterization-tests",
+    }
+}
+EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+SUPABASE_URL = ""
+SUPABASE_ANON_KEY = ""
+ROLE_PINS = {
+    "ORDER": "test-order",
+    "B1_COUNTER": "test-counter",
+    "KITCHEN": "test-kitchen",
+    "KITCHEN_HALL": "test-hall",
+    "KITCHEN_TAKEOUT": "test-takeout",
+}
+
+# Template tests need static URLs, not a deployment's collectstatic manifest.
+STATIC_ROOT = None
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.InMemoryStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}

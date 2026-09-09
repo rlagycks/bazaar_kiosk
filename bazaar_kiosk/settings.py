@@ -1,6 +1,7 @@
 #BAZAAR_KIOSK/bazaar_kiosk/setting.py
 from pathlib import Path
 import os
+from django.core.exceptions import ImproperlyConfigured
 from urllib.parse import urlparse, parse_qs, unquote
 
 # --- 기본 경로/디버그 ---
@@ -68,26 +69,28 @@ WSGI_APPLICATION = "bazaar_kiosk.wsgi.application"
 
 # --- 데이터베이스 ---
 def _parse_database_url(db_url: str):
-    u = urlparse(db_url)
-    if u.scheme not in ("postgres", "postgresql"):
-        raise ValueError("DATABASE_URL must use postgres/postgresql scheme")
+    error = "DATABASE_URL must be a complete PostgreSQL URL (host, database and user required)"
+    try:
+        u = urlparse(db_url.strip())
+        if (u.scheme not in ("postgres", "postgresql") or not u.hostname
+                or not u.username or not u.path.strip("/") or u.fragment):
+            raise ValueError
+        port = u.port
+    except (ValueError, AttributeError):
+        raise ImproperlyConfigured(error) from None
     return {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": unquote(u.path[1:]),
-        "USER": unquote(u.username) if u.username else "",
+        "USER": unquote(u.username),
         "PASSWORD": unquote(u.password) if u.password else "",
-        "HOST": u.hostname or "",
-        "PORT": str(u.port or ""),
+        "HOST": u.hostname,
+        "PORT": str(port or ""),
         "OPTIONS": {"sslmode": parse_qs(u.query).get("sslmode", ["require"])[0]},
     }
 
-_db_url = os.environ.get("DATABASE_URL")
-if _db_url:
-    DATABASES = {"default": _parse_database_url(_db_url)}
-else:
-    DATABASES = {
-        "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}
-    }
+
+# Missing or invalid configuration must never select a local file database.
+DATABASES = {"default": _parse_database_url(os.environ.get("DATABASE_URL", ""))}
 
 # --- Supabase realtime ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")

@@ -1,5 +1,9 @@
 # 8A — 통계 API 실행성 복구
 
+현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
+[공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
+PR40은 머지됐고8A는 PR42에서 실행성 수정 후 리뷰/최종 인수 대기다. 현재37개를 PG에서 검증한다.
+
 2026-09-09 · [이슈41](https://github.com/rlagycks/bazaar_kiosk/issues/41) ·
 기준 develop `f9b562c349a2a6318bcfa0b68fa45af800d3926e` (PR40 머지).
 코드 수정·로컬 검증은 완료했고 BLUEPRINT의2B 이후 PG 최종 인수는 대기 중이다.
@@ -23,9 +27,9 @@
 거스름돈·순매출·취소 환불의 목표 정책을 승인하는 테스트가 아니다. 해당 결정과 위험은 남아 있다.
 테스트는 기존 B1_COUNTER 세션을 사용하며 익명 API 접근을 정상 계약으로 고정하지 않는다.
 
-## 실행과 결과
+## 8A 당시 실행과 결과 (과거 기록)
 
-```bash
+```text
 .venv/bin/python manage.py check --settings=bazaar_kiosk.settings_test
 .venv/bin/python manage.py makemigrations --check --dry-run --settings=bazaar_kiosk.settings_test
 .venv/bin/python manage.py test orders.tests --settings=bazaar_kiosk.settings_test --verbosity 2
