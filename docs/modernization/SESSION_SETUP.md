@@ -10,7 +10,8 @@
 - 현재 브랜치는 `phase-4a1-sensitive-errors`([PR46](https://github.com/rlagycks/bazaar_kiosk/pull/46)).
   오류 보고의 설정 PIN·로그인 POST/지역변수 가림을 구현·검증한다. [4A1 범위와 증거](SENSITIVE_ERRORS.md).
   운영 시작 정책은 미정이어서4A1 전체는 미완료다.
-- D-031/D-032 결정 문서는 `docs/external-access-shared-accounts` 브랜치로 분리했다.
+- D-031/D-032 결정 문서는 `docs/external-access-shared-accounts` 브랜치로 분리해
+  [PR48](https://github.com/rlagycks/bazaar_kiosk/pull/48)로 머지했다. develop 기준은 `c44338e`다.
   4A1 브랜치에 미커밋으로 쌓여 있던 것을 독립 감사 지적에 따라 옮겼다.
 - 2B의 PostgreSQL CI 기반은 선행 구현했지만1B와 지원/운영 관문이 남아 전체 완료가 아니다.
 
@@ -24,6 +25,11 @@ gh pr list --state open --json number,title,headRefName,baseRefName,isDraft,url
 새 세션마다 실제 ref·사용자 변경·열린 PR을 확인한다. 현재 문서가 없는 기준으로 자동 전환하지 않는다.
 
 ## 승인과 범위
+
+D-031로 외부 인터넷 접속을 허용하는 방향이 확정됐다. HTTPS·도메인 연결은 검토 중이며
+D-032로 역할별 공용 계정 인증과 기존 주방 전체·홀·포장 계정 구분을 확정했다.
+역할별 세부 권한·통계/관리자 권한 구분·세션 정책은 미정이다.
+현재 PIN 로그인에서 공용 계정 인증으로의 전환·계정 생성과 실제 외부 공개·배포는 아직 실행하지 않았다.
 
 D-029는 SQLite 실행/테스트 지원 제거, PostgreSQL 전용 설정·번호 경로·개발 Compose·필수 CI 전환 지시다.
 이슈·브랜치·PR 작업 방식은 유지한다. 사용자 추가 지시로 PR42 리뷰 보완·머지를 완료했다.
