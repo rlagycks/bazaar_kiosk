@@ -1,7 +1,8 @@
 # PostgreSQL 전용 실행 전환
 
 2026-09-09 · D-029 사용자 지시: SQLite를 지원 경로에서 제거하고 Docker로 PostgreSQL 관리.
-시작 기준은 PR42 HEAD `8531e181ed23acb17d32b2363d47d7061ebcd8ca`, 후속 브랜치는 `postgres-only-runtime`이다.
+시작 기준은 PR42 HEAD `8531e181ed23acb17d32b2363d47d7061ebcd8ca`, 후속 브랜치는 `postgres-only-runtime`이었다.
+그 브랜치는2026-09-10에 삭제했으므로 아래 이름은 이력이며 현재 조회 대상이 아니다.
 PR42 리뷰 보완을 통합한 PR44는2026-09-09 머지됐다. develop merge 커밋은 `8b1740c`다.
 통계7개를 포함한 최신 회귀를 PG 전용 설정으로 검증한다.
 

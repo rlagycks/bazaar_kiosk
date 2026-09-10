@@ -2,9 +2,12 @@
 
 현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
 [공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
-PR40·PR42·PR44는 머지됐고8A는2B 이후 최종 인수 대기다. 현재46개(15+31)를 PG에서 검증한다.
+PR40·PR42·PR44·PR46·PR48은 머지됐고8A는2B 이후 최종 인수 대기다. 현재46개(15+31)를 PG에서 검증한다.
+4A1은 오류 보고 가림만 머지됐고 운영 시작 정책과 BK-R028 종료는 대기다(2026-09-10).
 
-2026-09-08 · 기준 develop `3604ccad7add5c760c3b1cecfaa7032706ddc01c` · [이슈 #39](https://github.com/rlagycks/bazaar_kiosk/issues/39).
+2026-09-08 · 기준 develop `3604ccad7add5c760c3b1cecfaa7032706ddc01c` · [이슈 #39](https://github.com/rlagycks/bazaar_kiosk/issues/39) ·
+[PR40](https://github.com/rlagycks/bazaar_kiosk/pull/40)은2026-09-09 머지됐고 develop 커밋은 `f9b562c`다.
+작업 브랜치 `review/phase-1b-migration-repair`는2026-09-10에 삭제해 이름은 이력이다.
 **상태: 사용자 승인(D-P07)으로0020을 적용 완료. 0019 정책은 미정이므로 전체1B는 여전히 미완료다.**
 운영 데이터는 변경하지 않았다. 저장소 migration20개 중0020 하나만 아래 diff대로 바뀌었고
 나머지19개는 기준 커밋과 바이트 동일하다. 검증은1A 전용 PostgreSQL 환경에서 진행했다.

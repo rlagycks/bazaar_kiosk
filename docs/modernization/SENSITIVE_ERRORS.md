@@ -1,14 +1,17 @@
 # 4A1 — 오류 보고의 역할 PIN 가림
 
 2026-09-09 · [이슈45](https://github.com/rlagycks/bazaar_kiosk/issues/45) ·
-[PR46](https://github.com/rlagycks/bazaar_kiosk/pull/46), 브랜치 `phase-4a1-sensitive-errors`,
-구현 커밋 `b681206`, 리뷰 반영 커밋은 PR head를 확인한다.
-기준 develop `8b1740cc396078c119a39bbb41c2f81937c18987`.
-[PR44](https://github.com/rlagycks/bazaar_kiosk/pull/44)의 PostgreSQL 전용 전환을 머지한 뒤 진행한다.
+[PR46](https://github.com/rlagycks/bazaar_kiosk/pull/46)은2026-09-09 squash 머지됐다.
+develop 커밋은 `745578759b4ad2e37c74ad4284d79baf3173c112`다.
+구현 커밋 `b681206`, 리뷰 반영 `d27f2b5`, develop 통합 머지 `fb120c0`이 그 안에 접혔다.
+브랜치 `phase-4a1-sensitive-errors`는2026-09-10에 삭제했으므로 아래 이름은 이력이다.
+기준 develop은 `8b1740cc396078c119a39bbb41c2f81937c18987`이었고
+[PR44](https://github.com/rlagycks/bazaar_kiosk/pull/44)의 PostgreSQL 전용 전환 뒤에 진행했다.
+머지 전 [PR48](https://github.com/rlagycks/bazaar_kiosk/pull/48)의 D-031/D-032를 통합했다.
 
 ## 목적과 범위
 
-사용자의 다음 단계 진행 지시로 BLUEPRINT4A1에서 독립적으로 가능한 비노출 처리를 적용한다.
+사용자의 다음 단계 진행 지시로 BLUEPRINT4A1에서 독립적으로 가능한 비노출 처리를 적용했다.
 Django 기본 오류 필터는 ROLE_PINS를 민감한 설정 이름으로 인식하지 않았다. 또한 DEBUG=True에서는
 민감 POST·지역변수 데코레이터의 가림이 비활성화돼 로그인 실패 도중 제출 PIN과 기대 PIN이 노출될 수 있었다.
 
@@ -29,7 +32,8 @@ POST 필드는 정확히 `pin`인 이름만이 아니라 같은 상속 패턴으
 
 ## 검증
 
-[새 회귀4개](../../orders/tests/test_security_settings.py)는 매번 서로 다른 합성 PIN과 SECRET_KEY를 생성한다.
+[새 회귀6개](../../orders/tests/test_security_settings.py)는 매번 서로 다른 합성 PIN과 SECRET_KEY를 생성한다.
+리뷰 반영으로4개에서6개가 됐다. 아래 목록의 마지막2개가 그때 추가된 사례다.
 
 - DEBUG=True 오류의 HTML과 Accept: application/json 요청에 대한 기존 plaintext 보고에서 설정 PIN·secret 부재.
 - 실제 login_view에서 제출/기대 PIN을 읽은 다음 렌더 오류를 주입해 POST·지역변수 가림 확인.
@@ -37,12 +41,22 @@ POST 필드는 정확히 `pin`인 이름만이 아니라 같은 상속 패턴으
 - 로그인 데코레이터 이전 middleware 오류에도 POST pin이 가려지고 원래 요청 값은 보존됨.
 - DEBUG=False의 일반500, django.request의 표준 예외 기록, AdminEmailHandler의 text·HTML 보고를 검사.
   이메일은 메모리 backend에1건만 생성하며 외부로 보내지 않는다. 오류 설명과 비민감 role은 남아 있어야 한다.
+- Django 기본 필터·DEBUG=False로 전용 필터를 배제해 `@sensitive_post_parameters`만의 효과를 고정.
+  이것이 없으면 데코레이터가 삭제돼도 전용 필터가 대신 가려 아무 테스트도 실패하지 않는다.
+- `PIN`·`role_pin`·`password` 필드로 이름 패턴 대조와 상속 flags(대소문자 무시)를 고정.
 
 Django는 비HTML Accept 요청에 JSON 대신 text/plain 기술 오류를 반환한다. 이 패치에서 새로운 JSON 오류 계약을
 만들지 않았다. plaintext만으로 지역변수 보호를 입증하지 않고 HTML 및 프레임 데이터까지 검사한다.
 
-원본 동작을 프로세스 내부에서 복원하면4개 테스트의6개 조건이 실패한다. PIN 패턴 제거,
+원본 동작을 프로세스 내부에서 복원하면4개 테스트의6개 조건이 실패한다(회귀가4개였을 때의 측정값이다). PIN 패턴 제거,
 DEBUG 가림 비활성화, 지역변수 주석 제거, 데코레이터 이전 POST 필터 제거, MultiValueDict 지역변수 필터 제거를 각각 검출했다.
+리뷰 반영 후에는 이전에 살아남던 변이8개가 모두 실패한다. 목록은 [작업 로그](WORKLOG.md)의
+2026-09-09 리뷰 반영 항목을 따른다: 상속 flags 제거, 두 데코레이터 각각 제거,
+`get_post_parameters`/`get_cleansed_multivaluedict` 제거, 전체 가림, 빈 치환 문자열, copy 제거.
+변이 실행 로그는 저장소에 포함되지 않은 작업 디렉터리에만 있으므로 이 수치는 기록된 관찰이며
+새 클론에서 그대로 재현되는 산출물이 아니다. 재확인하려면 같은 변이를 다시 적용해야 한다.
+빈 보고서 강제 실험에서는6개 테스트가 모두 실패했다. DEBUG일 때 보고서 본문에 오류 문구가 있는지
+먼저 확인하므로 빈 보고서에는 부재 단언이 통과하지 않는다.
 추적 앱 파일을 변이 실험으로 변경하지 않았다. 초기 테스트 URLconf의 orders namespace 누락은 수정하고
 의도한 로그인 렌더 오류에 도달한 뒤 실패/성공 근거를 다시 수집했다.
 
