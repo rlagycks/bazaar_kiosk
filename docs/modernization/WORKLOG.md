@@ -10,16 +10,29 @@
   7개 브랜치 모두 일치해 머지 이후 push된 커밋이 없음을 확인하고 원격·로컬에서 삭제했다.
   squash 머지라 `git branch --merged`로는 판정되지 않으므로 PR head 대조를 근거로 사용했다.
   삭제한 tip: `98df3cd` `4172e58` `a26d1a1` `2acfd4a` `fb87fb3` `fb120c0` `e64a44a`.
-- 삭제하지 않은 것: 2025-10 이전 사용자 브랜치8개는 이번 현대화 범위가 아니다.
+- 삭제하지 않은 것: `origin/main`과2025-09~10 사용자 브랜치8개는 이번 정리 대상이 아니다.
+  이들의 정식 정리는 BK-R025(단계 G)의 별도 원격 승인 사안으로 남고 BK-R025는 Open 그대로다.
   로컬 `chore/astra-modernization-setup`(`2d5bb78`)은 develop에 없는 커밋2개가 있어 남겼다.
   `git push --delete`가 도구 정책에 막혀 같은 목적의 GitHub ref 삭제 API를 사용했다.
-- 문서: 4개 파일에 공유된 상태 배너가 PR44에 멈춰 있어 PR46·PR48을 반영했다.
-  SESSION_SETUP은 "현재 브랜치는 phase-4a1-sensitive-errors"를 열린 PR·작업 브랜치 없음으로 바꾸고
-  삭제한 브랜치와 남긴 브랜치의 이유를 적었다. SENSITIVE_ERRORS는 머지 커밋과
-  브랜치가 이력임을 명시하고, 리뷰 반영으로4개→6개가 된 회귀 수와 변이8개를 실제 값으로 고쳤다.
-  BLUEPRINT·RISK_REGISTER·MODEL_DELEGATION_REVIEW·03_IMPLEMENT_PHASE·POSTGRES_ONLY·
-  DASHBOARD_EXECUTION의 진행 중 서술도 머지 완료로 고쳤다.
+  보관 tag는 만들지 않았고 삭제한 팁은 `refs/pull/<번호>/head`로만 복구된다. 결정은 D-033에 기록했다.
+- 문서: 5개 파일에 공유된 상태 배너가 PR44에 멈춰 있어 PR46·PR48을 반영했다.
+  SESSION_SETUP은 "현재 브랜치는 phase-4a1-sensitive-errors"를 지우고 기준 ref를 고정하는 대신
+  매 세션 조회하도록 바꿨다. 삭제한 브랜치와 남긴 브랜치의 이유도 적었다.
+  SENSITIVE_ERRORS는 머지 커밋과 브랜치가 이력임을 명시하고 회귀4개→6개를 반영했다.
+  변이8개는 저장소에 없는 로그의 기록된 관찰임을 밝히고 WORKLOG를 출처로 가리키게 했다.
+  README·ANALYSIS_REPORT·GIT_RECOVERY·BLUEPRINT 단계 G와 BK-R028 행,
+  RISK_REGISTER·MODEL_DELEGATION_REVIEW·03_IMPLEMENT_PHASE·POSTGRES_ONLY·
+  DASHBOARD_EXECUTION·MIGRATION_REPAIR_REVIEW의 진행 중 서술과 누락된 출처도 고쳤다.
 - 위험 상태는 바꾸지 않았다. BK-R028은 Open(4A1/운영 인수 대기)이고 env 누락 시작 실패는 여전히 미구현이다.
+- 리뷰3건(읽기 전용, 병렬): 사실 정확성 / 문서 세트 일관성 / 프로세스·위험 상태 감사.
+  같은 배너가5개 파일에 있는데4개만 고치고 WORKLOG에 개수까지 틀리게 적은 것,
+  `열린 PR과 작업 브랜치는 없다`가 이 PR 자신 때문에 거짓인 것, develop SHA를 고정해
+  머지 즉시 낡게 만든 것, README·GIT_RECOVERY·BLUEPRINT 단계 G가 브랜치 삭제와 모순인 것,
+  측정값이던 `4개 테스트의6개 조건`을 근거 없는 `6개 테스트`로 바꾼 것,
+  변이8개 목록에 없는 항목을 예시로 든 것, BK-R028 종료 증거에 `(PR46 적용)`을 붙여
+  JSON 계약까지 처리한 것처럼 좁힌 것을 각각 지적받아 모두 되돌리거나 고쳤다.
+  리뷰 하나가 "일치한다"고 넘긴 BK-R028·변이 목록 두 건은 직접 확인해 다른 두 리뷰가 옳았다.
+- 검증: 변경한 파일의 상대 링크·앵커 해석, `git diff --check` 통과. 문서 외 파일 변경 없음.
 - 다음 작업은 고르지 않았다. 코드·schema·migration·CI 설정 변경 없음. 문서와 브랜치 참조만 갱신했다.
 
 ## 2026-09-09 — PR48 머지와4A1 브랜치의 develop 통합

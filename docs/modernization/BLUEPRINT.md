@@ -649,9 +649,12 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 - **책임·주 위험:** 저장소 담당; BK-R025.
 - **승인 대상 범위·파일:** GIT_RECOVERY.md; refs/콘텐츠 비교 결과. 이 범위의 구현은 해당 단계 실행 지시 이후다.
 - **작업:** 고유 콘텐츠·기준 ref·준비 문서 체크포인트를 확인한다. 원격 정리는 실행하지 않고 명령과 복구 계획을 준비한다.
+  단, 머지 완료된 현대화 작업 브랜치7개의 삭제는2026-09-10 별도 사용자 지시로 이미 수행했다([작업 로그](WORKLOG.md)).
+  이 단계의 금지는 분석 대상인 과거 사용자 브랜치와 main·기본 브랜치·태그·보호 설정에 한정한다. BK-R025는 Open이다.
 - **인수 기준·기대 결과:** 원격 변경 전 보존/기준 결정; 실제 새 worktree에 최신 분석/청사진 파일이 있는지 확인. HEAD에 파일 존재만으로 최신 내용 포함을 단정하지 않음.
 - **검증 명령·환경:** V-DOC; git rev-parse HEAD; git diff origin/main..origin/develop; git cat-file -e HEAD:AGENTS.md; 로컬 작업 파일과 기준 ref 비교.
-- **마이그레이션·롤백:** 기존 refs/사용자 미커밋 변경 보존; force push/자동 merge/브랜치 삭제 금지.
+- **마이그레이션·롤백:** 기존 refs/사용자 미커밋 변경 보존; force push/자동 merge 금지.
+  브랜치 삭제 금지는 과거 사용자 브랜치에 적용한다. 머지된 작업 브랜치도 사용자 지시와 머지 확인 없이는 삭제하지 않는다.
 - **관측·보안·인계:** BK-R025 증거·체크포인트 diff 인계. 원격 승인과 로컬2A 착수를 분리.
 
 <a id="phase-r"></a>
@@ -715,7 +718,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 | [BK-R025 — 동일 트리와 고유 이력을 혼동한 Git 정리 위험](ANALYSIS_REPORT.md#bk-r025) | Medium | G | [G](#phase-g) | refs/trees/left-right/branch diff/내용검사·체크포인트 AGENTS 존재 |
 | [BK-R026 — order_date와 created_at·자정 주방 집계 경계 불일치](ANALYSIS_REPORT.md#bk-r026) | Medium | 8 | [8C](#phase-8c) | Seoul23:59:59→00:00,할당지연,전일대기,같은시각다른날짜 보고 |
 | [BK-R027 — 테이블 슬롯·항목 mode·포장 flag 의미 불명확](ANALYSIS_REPORT.md#bk-r027) | Medium | 6 | [6B](#phase-6b) | 101~120/일반테이블 경계·혼합항목·flag조합 |
-| [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | 4A | [4A1](#phase-4a1) | 합성 자격증명으로500 HTML/JSON·로그에 값이 없는지(PR46 적용), env누락 실패는 미구현 |
+| [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | 4A | [4A1](#phase-4a1) | 합성 자격증명으로500 HTML/비HTML(text/plain)·로그에 값이 없는지, **env누락 실패(미구현)** |
 | [BK-R029 — 가변 CDN 스크립트와 콘텐츠 보안 정책 검증 부재](ANALYSIS_REPORT.md#bk-r029) | Medium | 4B | [4B2](#phase-4b2) | D-018 외부 CDN/SDK·키 제거, 자체 SSE/폴링만으로 주방 여정·CSP |
 | [BK-R030 — 수납·거스름돈·취소 환불·순매출 계약 미확정](ANALYSIS_REPORT.md#bk-r030) | High | 7 | [7A](#phase-7a) | 초과현금·과다식권·혼합거스름·취소전후·부분환불·레거시미분류 |
 | [BK-R031 — 과거 삭제·재추가 필드와 카테고리의 복구 원천 미확인](ANALYSIS_REPORT.md#bk-r031) | High | 7 | [7C](#phase-7c) | 정제된과거버전fixture·행수/금액대조·백업복원·정방향완화 |
