@@ -67,7 +67,7 @@ DEBUG 가림 비활성화, 지역변수 주석 제거, 데코레이터 이전 PO
 ```
 
 새 Compose `bk-4a1-errors-20260909`, 고정 의존성의 Python3.12.11/Django5.2.17/PG15.18에서
-migration15개·앱/guard31개, 총46개·skip0을 실행한다. 새6개는 DB 접근이 없는 SimpleTestCase이며
+migration15개·앱/guard38개, 총53개·skip0을 실행한다. 새6개는 DB 접근이 없는 SimpleTestCase이며
 전체 suite의 기존 로그인·주문·주방·통계는 실제 PG를 사용한다. 결과는 [WORKLOG](WORKLOG.md)에 남긴다.
 
 ## 남는 경계

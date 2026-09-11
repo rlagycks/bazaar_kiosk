@@ -10,7 +10,9 @@
 2026-09-10 기준 PR40·PR42·PR44·PR46·PR48은 머지,1B는0019 정책 대기,8A는2B 이후 최종 인수 대기입니다.
 D-029로 **개발·테스트·CI·운영 DB는 PostgreSQL만 지원**합니다. [전환 범위](POSTGRES_ONLY.md)와
 [테스트 안내](POSTGRES_TESTING.md)를 따르며2B 전체 종료는 남아 있습니다.
-[4A1 오류 보고의 PIN 가림](SENSITIVE_ERRORS.md)은 PR46으로 머지됐고 다음 독립 범위는 아직 고르지 않았습니다.
+[4A1 오류 보고의 PIN 가림](SENSITIVE_ERRORS.md)은 PR46으로 머지됐습니다.
+현재는 단계3의 준비로 [권한 현황 측정과 D-003 결정표](AUTHORIZATION_MATRIX.md)를 만들었습니다.
+인가 강제 구현은 D-003 확정 후 별도 승인이며 BK-R001은 Critical·Open입니다.
 운영 시작 정책·4A1 전체 인수는 별도이며 BK-R028은 Open입니다.
 D-031/D-032(외부 접속·역할별 공용 계정)는 PR48로 결정만 기록했고 인증 구현은 시작 전입니다.
 
