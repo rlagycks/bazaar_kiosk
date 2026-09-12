@@ -4,7 +4,6 @@ from typing import Any, Dict, List
 
 from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest, Http404
 from django.views.decorators.http import require_http_methods
-from django.views.decorators.csrf import csrf_exempt  # 개발 편의. 운영 전 제거 권장.
 from django.views.decorators.cache import cache_page
 from django.db import transaction
 from django.db.models import Sum, F, IntegerField, Count, Max
@@ -18,6 +17,7 @@ from orders.models import (
     Table, MenuItem, Order, OrderItem,
 )
 from orders.services import allocate_floor_order_no
+from orders.views.auth import COUNTER_ROLES, KITCHEN_ROLES, require_api_roles
 
 
 # ---------- 공용 ----------
@@ -111,6 +111,7 @@ def _get_table_by_number(number: int) -> Table:
 
 
 # ---------- 메뉴/테이블 ----------
+@require_api_roles()
 @cache_page(60)
 @require_http_methods(["GET"])
 def tables_list(request: HttpRequest):
@@ -119,6 +120,7 @@ def tables_list(request: HttpRequest):
     return JsonResponse({"items": items})
 
 
+@require_api_roles()
 @cache_page(60)
 @require_http_methods(["GET"])
 def menus_list(request: HttpRequest):
@@ -143,7 +145,7 @@ def menus_list(request: HttpRequest):
 
 
 # ---------- 주문 목록/생성 ----------
-@csrf_exempt
+@require_api_roles()
 @require_http_methods(["GET", "POST"])
 def orders_collection(request: HttpRequest):
     if request.method == "GET":
@@ -343,7 +345,7 @@ def orders_collection(request: HttpRequest):
 
 
 # ---------- 상태 변경 ----------
-@csrf_exempt
+@require_api_roles(*KITCHEN_ROLES)
 @require_http_methods(["PATCH"])
 def order_status(request: HttpRequest, order_id: int):
     try:
@@ -376,7 +378,7 @@ def _sync_order_status_from_items(order: Order) -> None:
         order.save(update_fields=["status", "updated_at"])
 
 
-@csrf_exempt
+@require_api_roles(*KITCHEN_ROLES)
 @require_http_methods(["PATCH"])
 def order_item_progress(request: HttpRequest, item_id: int):
     try:
@@ -425,6 +427,7 @@ def order_item_progress(request: HttpRequest, item_id: int):
 
 
 # ---------- 간이 통계(카운터용) ----------
+@require_api_roles(*COUNTER_ROLES)
 @require_http_methods(["GET"])
 def stats_menu_counts(request: HttpRequest):
     floor = (request.GET.get("floor") or FloorChoices.B1).upper()
@@ -453,6 +456,7 @@ def stats_menu_counts(request: HttpRequest):
     return JsonResponse({"items": data}, status=200)
 
 
+@require_api_roles()
 @require_http_methods(["GET"])
 def kitchen_menu_summary(request: HttpRequest):
     floor = (request.GET.get("floor") or FloorChoices.B1).upper()
@@ -477,6 +481,7 @@ def kitchen_menu_summary(request: HttpRequest):
     return JsonResponse({"items": data}, status=200)
 
 
+@require_api_roles()
 @require_http_methods(["GET"])
 def order_detail(request: HttpRequest, order_id: int):
     try:
@@ -486,6 +491,7 @@ def order_detail(request: HttpRequest, order_id: int):
     return JsonResponse(_serialize_order(order), status=200)
 
 
+@require_api_roles(*COUNTER_ROLES)
 @require_http_methods(["GET"])
 def stats_dashboard(request: HttpRequest):
     orders_qs, start_date, end_date = _filtered_orders(request)

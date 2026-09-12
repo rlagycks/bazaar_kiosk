@@ -3,7 +3,7 @@
 현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
 [공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
 머지된 PR 목록은 여기에 고정하지 않는다. 최신 상태는 [SESSION_SETUP](SESSION_SETUP.md)과
-`gh pr list --state merged`로 확인한다.8A는2B 이후 최종 인수 대기이고 현재53개(15+38)를 PG에서 검증한다.
+`gh pr list --state merged`로 확인한다.8A는2B 이후 최종 인수 대기이고 현재57개(15+42)를 PG에서 검증한다.
 4A1은 오류 보고 가림만 머지됐다. 운영 시작 정책은 D-039로 확정됐고 구현과 BK-R028 종료는 대기다.
 
 2026-09-08 · 기준 develop `3604ccad7add5c760c3b1cecfaa7032706ddc01c` · [이슈 #39](https://github.com/rlagycks/bazaar_kiosk/issues/39) ·

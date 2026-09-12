@@ -1,14 +1,23 @@
-"""Phase 3 preparation for BK-R001: measure the authorization surface, decide nothing.
+"""Phase 3: the approved authorization matrix for BK-R001.
 
-BK-R001 is the only Critical risk and stays Open. D-003 (the role/route matrix) is
-undecided, so this module deliberately does NOT assert a target policy. It pins what
-the server does today, endpoint by endpoint, so D-003 can be chosen from measured
-behavior instead of from the page decorators — which do not guard the API at all.
+These were characterization tests pinning that every API was open to everyone.
+D-036 (block anonymous) and D-040 (per-account subjects) replaced that, so the
+expectations below are now a contract, not a defect report. The previous OPEN
+expectations were confirmed to fail against this implementation before being
+rewritten — without that step a passing suite would prove nothing.
 
-Read the assertions as a defect report, not as a contract worth keeping: most of them
-record that an unauthenticated client succeeds. A green run here is NOT evidence that
-authorization exists. When phase 3 lands, these expectations must be replaced with the
-approved matrix, and every expectation that currently reads OPEN must fail first.
+Approved matrix, D-040 as revised 2026-09-13:
+
+    order-status, order-item-progress     주방        (KITCHEN_ROLES)
+    stats-dashboard, stats-menu-counts    주방 카운터  (COUNTER_ROLES)
+    everything else                       인증된 계정 전체
+
+"Everything else" is authenticated-only on purpose. D-040 left those subjects
+undecided, and guessing a role restriction would invent an approval. Anonymous
+is refused everywhere, which is the part D-036 did decide.
+
+Rejections are 403 for both "no session" and "wrong role" while identification
+is session-based; the 401/403 split waits for D-035's refresh flow (4A2).
 
 Run with bazaar_kiosk.settings_test_pg and the dedicated Compose test database.
 """
@@ -19,6 +28,7 @@ from django.urls import reverse
 
 from orders.models import MenuItem, Order, OrderItem, Table
 from orders.views import api
+from orders.views.auth import COUNTER_ROLES, KITCHEN_ROLES
 
 ROLE_PINS = {
     "ORDER": "test-order-pin",
@@ -28,21 +38,19 @@ ROLE_PINS = {
     "KITCHEN_TAKEOUT": "test-takeout-pin",
 }
 
-# Every actor a request can arrive as. "GHOST" is a session carrying a role string
-# the application does not define: it separates "has any session" from "has a role
-# the server recognises", which the page guard and the API treat differently.
 ROLES = tuple(ROLE_PINS)
+# "GHOST" holds a session whose role the server never issued. It separates
+# "has a session" from "has a role the server recognises"; without it, a guard
+# that only checked for session presence would still pass every case here.
 ACTORS = ("anonymous", *ROLES, "GHOST")
+UNAUTHENTICATED = ("anonymous", "GHOST")
 
-# What the measurement means, kept out of the status codes so the table stays readable.
-OPEN = "OPEN"  # reached the handler; no authorization was applied
-DENY = "DENY"  # redirected to login or refused before the handler
+ALLOWED = "ALLOWED"
+REFUSED = "REFUSED"
 
 
 @override_settings(ROLE_PINS=ROLE_PINS)
-class AuthorizationSurfaceTests(TestCase):
-    """One row per (endpoint, actor). The matrix is the deliverable for D-003."""
-
+class AuthorizationMatrixTests(TestCase):
     def setUp(self):
         cache.clear()
         api._get_table_by_number.cache_clear()
@@ -50,10 +58,10 @@ class AuthorizationSurfaceTests(TestCase):
         self.addCleanup(api._get_table_by_number.cache_clear)
         self.table = Table.objects.create(number=7)
         self.menu = MenuItem.objects.create(name="Meal", price=1000)
-        self.order = self._make_order()
+        self.order = self.make_order()
         self.item = self.order.items.first()
 
-    def _make_order(self):
+    def make_order(self):
         order = Order.objects.create(
             table=self.table, floor="B1", order_type="DINE_IN",
             status="PREPARING", total_price=1000, payment_method="CASH",
@@ -62,9 +70,11 @@ class AuthorizationSurfaceTests(TestCase):
         OrderItem.objects.create(order=order, menu_item=self.menu, qty=1, unit_price=1000)
         return order
 
+    def reset_order(self):
+        self.order.status = "PREPARING"
+        self.order.save(update_fields=["status"])
+
     def client_as(self, actor):
-        """A client carrying the given actor's session. No PIN is used for GHOST:
-        the point is to hold a session whose role the server never issued."""
         client = Client()
         if actor == "anonymous":
             return client
@@ -77,134 +87,243 @@ class AuthorizationSurfaceTests(TestCase):
             reverse("orders:login"), {"role": actor, "pin": ROLE_PINS[actor]}
         )
         self.assertEqual(response.status_code, 302, f"{actor} could not log in")
-        self.assertEqual(client.session["role"], actor)
         return client
 
-    # --- request builders -------------------------------------------------
-    # Each returns (method, url, kwargs) for a request that is *valid* apart from
-    # who is sending it, so a refusal can only come from authorization.
+    # --- the matrix ------------------------------------------------------
+    # Each entry is (method, url builder, request kwargs, allowed roles).
+    # An empty allowed set means "any authenticated account".
 
-    def read_requests(self):
+    def endpoints(self):
         return {
-            "tables": ("get", reverse("orders:tables"), {}),
-            "menus": ("get", reverse("orders:menus"), {}),
-            "orders-collection": ("get", reverse("orders:orders-collection"), {}),
+            "tables": ("get", reverse("orders:tables"), {}, ()),
+            "menus": ("get", reverse("orders:menus"), {}, ()),
+            "orders-collection-read": (
+                "get", reverse("orders:orders-collection"), {}, (),
+            ),
             "order-detail": (
-                "get", reverse("orders:order-detail", args=[self.order.id]), {},
+                "get", reverse("orders:order-detail", args=[self.order.id]), {}, (),
             ),
             "kitchen-menu-summary": (
-                "get", reverse("orders:kitchen-menu-summary"), {},
+                "get", reverse("orders:kitchen-menu-summary"), {}, (),
             ),
-            "stats-menu-counts": ("get", reverse("orders:stats-menu-counts"), {}),
-            "stats-dashboard": (
-                "get", reverse("orders:stats-dashboard"), {"data": {"floor": "B1"}},
-            ),
-        }
-
-    def write_requests(self):
-        return {
-            "orders-collection": ("post", reverse("orders:orders-collection"), {
+            "orders-collection-create": ("post", reverse("orders:orders-collection"), {
                 "data": {
                     "floor": "B1", "order_type": "DINE_IN", "table_number": "7",
                     "payment_method": "CASH", "received_cash_amount": 1000,
                     "items": [{"menu_item_id": self.menu.id, "qty": 1}],
                 },
                 "content_type": "application/json",
-            }),
+            }, ()),
             "order-status": (
-                "patch", reverse("orders:order-status", args=[self.order.id]), {
-                    "data": {"status": "READY"}, "content_type": "application/json",
-                },
+                "patch", reverse("orders:order-status", args=[self.order.id]),
+                {"data": {"status": "READY"}, "content_type": "application/json"},
+                KITCHEN_ROLES,
             ),
             "order-item-progress": (
-                "patch",
-                reverse("orders:order-item-progress", args=[self.item.id]), {
-                    "data": {"done": True}, "content_type": "application/json",
-                },
+                "patch", reverse("orders:order-item-progress", args=[self.item.id]),
+                {"data": {"done": True}, "content_type": "application/json"},
+                KITCHEN_ROLES,
+            ),
+            "stats-menu-counts": (
+                "get", reverse("orders:stats-menu-counts"), {}, COUNTER_ROLES,
+            ),
+            "stats-dashboard": (
+                "get", reverse("orders:stats-dashboard"), {"data": {"floor": "B1"}},
+                COUNTER_ROLES,
             ),
         }
 
     def send(self, client, spec):
-        method, url, kwargs = spec
+        method, url, kwargs, _ = spec
         return getattr(client, method)(url, **kwargs)
 
-    @staticmethod
-    def classify(response):
-        """DENY only for the shapes this app uses to refuse: a login redirect or a
-        403/401. Anything that reaches the handler — including a 400 for business
-        reasons — is OPEN, because the request was never stopped on identity."""
-        if response.status_code in (401, 403):
-            return DENY
-        if response.status_code in (301, 302) and "/login" in response.get("Location", ""):
-            return DENY
-        return OPEN
-
-    # --- positive control -------------------------------------------------
-
-    def test_page_guard_is_detected_so_an_open_api_result_is_not_a_harness_bug(self):
-        """Without this, every OPEN below could just mean the client never
-        authenticated. The pages use the same sessions and DO refuse."""
-        page_expectations = {
-            "order": {"ORDER"},
-            "b1-counter": {"B1_COUNTER"},
-            "kitchen": {"KITCHEN", "KITCHEN_HALL", "KITCHEN_TAKEOUT"},
-            "kitchen-hall": {"KITCHEN_HALL"},
-            "kitchen-takeout": {"KITCHEN_TAKEOUT"},
-        }
-        for page, allowed in page_expectations.items():
-            for actor in ACTORS:
-                with self.subTest(page=page, actor=actor):
-                    response = self.client_as(actor).get(reverse(f"orders:{page}"))
-                    expected = OPEN if actor in allowed else DENY
-                    self.assertEqual(
-                        self.classify(response), expected,
-                        f"page {page} for {actor} was {response.status_code}",
-                    )
-
-    # --- the measurement --------------------------------------------------
-
-    def test_every_read_api_is_open_to_every_actor_including_anonymous(self):
-        # Revenue and order data (stats-dashboard, stats-menu-counts, orders-collection)
-        # are in here. This is BK-R001's 매출 기밀성 limb.
-        for name, spec in self.read_requests().items():
+    def test_every_endpoint_answers_the_approved_matrix_for_every_actor(self):
+        for name, spec in self.endpoints().items():
+            allowed = spec[3]
             for actor in ACTORS:
                 with self.subTest(endpoint=name, actor=actor):
+                    self.reset_order()
                     response = self.send(self.client_as(actor), spec)
-                    self.assertEqual(
-                        self.classify(response), OPEN,
-                        f"{name} unexpectedly refused {actor}; the matrix changed",
+                    permitted = (
+                        actor not in UNAUTHENTICATED
+                        and (not allowed or actor in allowed)
                     )
-                    self.assertEqual(response.status_code, 200)
+                    if permitted:
+                        # Assert success, not merely "not 403": a guard that
+                        # broke the handler would otherwise look like a pass.
+                        self.assertIn(
+                            response.status_code, (200, 201),
+                            f"{name} refused {actor}, which the matrix allows",
+                        )
+                    else:
+                        self.assertEqual(
+                            response.status_code, 403,
+                            f"{name} did not refuse {actor} with 403",
+                        )
 
-    def test_every_write_api_is_open_to_every_actor_including_anonymous(self):
-        for name, spec in self.write_requests().items():
-            for actor in ACTORS:
-                with self.subTest(endpoint=name, actor=actor):
-                    self.setUp_state_for_write()
-                    response = self.send(self.client_as(actor), spec)
-                    self.assertEqual(
-                        self.classify(response), OPEN,
-                        f"{name} unexpectedly refused {actor}; the matrix changed",
-                    )
-                    self.assertIn(response.status_code, (200, 201))
+    def test_refusals_are_json_and_never_an_html_login_redirect(self):
+        """A redirect would reach the caller as an HTML page and surface as a
+        JSON parse error rather than a permission problem."""
+        for name, spec in self.endpoints().items():
+            with self.subTest(endpoint=name):
+                response = self.send(self.client_as("anonymous"), spec)
+                self.assertEqual(response.status_code, 403)
+                self.assertTrue(response["Content-Type"].startswith("application/json"))
+                self.assertIn("detail", response.json())
+                self.assertFalse(response.has_header("Location"))
 
-    def setUp_state_for_write(self):
-        """Writes mutate the fixture, so restore a clean target between actors."""
-        self.order.status = "PREPARING"
-        self.order.save(update_fields=["status"])
-        self.item.refresh_from_db()
-
-    def test_order_role_can_drive_kitchen_progress_and_cancel_orders(self):
-        """The specific cross-role case BK-R001 names: a serving-only role reaching
-        kitchen and counter commands. Recorded separately because the approved
-        matrix (D-003) is most likely to differ from today exactly here."""
+    def test_refusal_body_does_not_disclose_the_role_or_the_allowed_set(self):
         client = self.client_as("ORDER")
-        progress = client.patch(
+        response = client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
+        self.assertEqual(response.status_code, 403)
+        body = response.content.decode()
+        for leak in ("ORDER", "B1_COUNTER", "KITCHEN"):
+            self.assertNotIn(leak, body)
+
+    # --- ordering guarantees --------------------------------------------
+
+    def test_authorization_runs_before_the_cached_response_is_served(self):
+        """`tables` and `menus` are cache_page views. If the guard sat inside
+        the cache, a body warmed by an authorised caller would then be handed
+        to anyone. Warm it first, then check an anonymous caller."""
+        for name in ("orders:tables", "orders:menus"):
+            with self.subTest(endpoint=name):
+                cache.clear()
+                warm = self.client_as("ORDER").get(reverse(name))
+                self.assertEqual(warm.status_code, 200)
+                cached = self.client_as("ORDER").get(reverse(name))
+                self.assertEqual(cached.status_code, 200)
+                refused = self.client_as("anonymous").get(reverse(name))
+                self.assertEqual(refused.status_code, 403)
+                self.assertTrue(
+                    refused["Content-Type"].startswith("application/json")
+                )
+
+    def test_authorization_runs_before_the_method_check(self):
+        """An unauthenticated caller must not learn which methods a route
+        accepts. Authorization is the outer decorator, so it answers first."""
+        anonymous = self.client_as("anonymous")
+        self.assertEqual(anonymous.post(reverse("orders:tables")).status_code, 403)
+        self.assertEqual(
+            anonymous.get(reverse("orders:order-status", args=[self.order.id])).status_code,
+            403,
+        )
+        # The method boundary still exists for an authorised caller.
+        self.assertEqual(
+            self.client_as("ORDER").post(reverse("orders:tables")).status_code, 405,
+        )
+        self.assertEqual(
+            self.client_as("KITCHEN").get(
+                reverse("orders:order-status", args=[self.order.id])
+            ).status_code,
+            405,
+        )
+
+    def test_logout_revokes_api_access(self):
+        """Previously session teardown did not reach the API, so "expired
+        session" and "no session" were the same row. Now it revokes."""
+        client = self.client_as("B1_COUNTER")
+        before = client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
+        self.assertEqual(before.status_code, 200)
+        client.get(reverse("orders:logout"))
+        self.assertNotIn("role", client.session)
+        after = client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
+        self.assertEqual(after.status_code, 403)
+
+    # --- CSRF ------------------------------------------------------------
+
+    def write_specs(self):
+        return {
+            name: spec for name, spec in self.endpoints().items()
+            if spec[0] in ("post", "patch")
+        }
+
+    def role_for(self, spec):
+        allowed = spec[3]
+        return allowed[0] if allowed else "ORDER"
+
+    def test_writes_are_rejected_without_a_csrf_token(self):
+        """`@csrf_exempt` was removed from all three write endpoints. The
+        control is the status code: 403 from CSRF, while the same client with
+        a token succeeds in the next test — so this is the check firing, not
+        the authorization guard refusing a valid session."""
+        for name, spec in self.write_specs().items():
+            with self.subTest(endpoint=name):
+                self.reset_order()
+                enforcing = Client(enforce_csrf_checks=True)
+                role = self.role_for(spec)
+                login = enforcing.post(
+                    reverse("orders:login"),
+                    {"role": role, "pin": ROLE_PINS[role]},
+                    HTTP_X_CSRFTOKEN=enforcing.get(reverse("orders:login")).cookies[
+                        "csrftoken"
+                    ].value,
+                )
+                self.assertEqual(login.status_code, 302, "login itself failed")
+                response = self.send(enforcing, spec)
+                self.assertEqual(
+                    response.status_code, 403,
+                    f"{name} accepted a tokenless write",
+                )
+
+    def test_writes_succeed_with_a_csrf_token_from_the_page(self):
+        """The positive half: the same enforcing client, same role, plus the
+        token the screen would read from the cookie."""
+        for name, spec in self.write_specs().items():
+            with self.subTest(endpoint=name):
+                self.reset_order()
+                enforcing = Client(enforce_csrf_checks=True)
+                role = self.role_for(spec)
+                token = enforcing.get(reverse("orders:login")).cookies["csrftoken"].value
+                self.assertEqual(
+                    enforcing.post(
+                        reverse("orders:login"),
+                        {"role": role, "pin": ROLE_PINS[role]},
+                        HTTP_X_CSRFTOKEN=token,
+                    ).status_code,
+                    302,
+                )
+                # Django rotates the token on login, so re-read the cookie.
+                token = enforcing.cookies["csrftoken"].value
+                method, url, kwargs, _ = spec
+                response = getattr(enforcing, method)(
+                    url, **kwargs, HTTP_X_CSRFTOKEN=token
+                )
+                self.assertIn(
+                    response.status_code, (200, 201),
+                    f"{name} rejected a properly tokened write",
+                )
+
+    def test_write_capable_pages_set_the_csrf_cookie(self):
+        """Without the cookie the screens cannot send a token at all, so the
+        guard above would make every write fail in the browser."""
+        for role, page in (
+            ("ORDER", "order"),
+            ("KITCHEN", "kitchen"),
+            ("KITCHEN_HALL", "kitchen-hall"),
+            ("KITCHEN_TAKEOUT", "kitchen-takeout"),
+        ):
+            with self.subTest(page=page):
+                client = self.client_as(role)
+                response = client.get(reverse(f"orders:{page}"))
+                self.assertEqual(response.status_code, 200)
+                # response.cookies holds only what THIS response set, so the
+                # page itself is issuing the token, not the earlier login.
+                self.assertIn("csrftoken", response.cookies)
+                self.assertTrue(response.cookies["csrftoken"].value)
+
+    # --- existing journeys ----------------------------------------------
+
+    def test_the_existing_kitchen_and_counter_journeys_still_work(self):
+        """Phase 3's acceptance criterion is that normal journeys survive.
+        These are the exact calls the two screens make today."""
+        kitchen = self.client_as("KITCHEN")
+        progress = kitchen.patch(
             reverse("orders:order-item-progress", args=[self.item.id]),
-            data={"done": True}, content_type="application/json",
+            data={"prepared_qty": 1}, content_type="application/json",
         )
         self.assertEqual(progress.status_code, 200)
-        cancel = client.patch(
+        cancel = kitchen.patch(
             reverse("orders:order-status", args=[self.order.id]),
             data={"status": "CANCELLED"}, content_type="application/json",
         )
@@ -212,49 +331,14 @@ class AuthorizationSurfaceTests(TestCase):
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, "CANCELLED")
 
-    def test_write_apis_accept_requests_with_no_csrf_token(self):
-        """csrf_exempt on the three write endpoints, measured with a client that
-        does enforce CSRF. The control is the login POST: same client, and it is
-        refused, so a 200 here is the exemption and not a disabled check."""
-        enforcing = Client(enforce_csrf_checks=True)
-        refused = enforcing.post(
-            reverse("orders:login"), {"role": "ORDER", "pin": ROLE_PINS["ORDER"]}
-        )
-        self.assertEqual(refused.status_code, 403, "CSRF enforcement is not active")
+        counter = self.client_as("B1_COUNTER")
+        dashboard = counter.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertIn("summary", dashboard.json())
 
-        for name, spec in self.write_requests().items():
-            with self.subTest(endpoint=name):
-                self.setUp_state_for_write()
-                response = self.send(enforcing, spec)
-                self.assertIn(
-                    response.status_code, (200, 201),
-                    f"{name} began rejecting tokenless writes; the matrix changed",
-                )
-
-    def test_method_boundaries_are_the_only_enforced_gate_on_the_api(self):
-        """require_http_methods is the sole guard present. Pinning it keeps a later
-        phase from mistaking a 405 for authorization."""
-        cases = (
-            ("orders:tables", [], "post", 405),
-            ("orders:menus", [], "post", 405),
-            ("orders:orders-collection", [], "patch", 405),
-            ("orders:order-status", [self.order.id], "get", 405),
-            ("orders:order-item-progress", [self.item.id], "get", 405),
-            ("orders:stats-dashboard", [], "post", 405),
-        )
-        for name, args, method, expected in cases:
-            with self.subTest(endpoint=name, method=method):
-                client = self.client_as("anonymous")
-                response = getattr(client, method)(reverse(name, args=args))
-                self.assertEqual(response.status_code, expected)
-
-    def test_logout_changes_nothing_about_api_access(self):
-        """Session teardown is the app's only revocation. It does not reach the API,
-        so 'expired session' and 'no session' are the same row in the matrix."""
-        client = self.client_as("B1_COUNTER")
-        before = client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
-        self.assertEqual(before.status_code, 200)
-        client.get(reverse("orders:logout"))
-        self.assertNotIn("role", client.session)
-        after = client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
-        self.assertEqual(after.status_code, 200)
+    def test_pages_still_refuse_the_wrong_role_by_redirecting(self):
+        """The page guard is unchanged: screens redirect, APIs answer JSON.
+        This keeps the two rejection styles from drifting into each other."""
+        response = self.client_as("ORDER").get(reverse("orders:kitchen"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/login", response["Location"])

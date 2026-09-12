@@ -15,7 +15,7 @@ SQLite 테스트 설정은 제거됐다. 2A 당시 SQLite 결과는 [WORKLOG](WO
 .venv/bin/python scripts/test_postgres.py
 ```
 
-프로젝트 전체53개를 발견해 migration15개와 앱/guard38개를 분리 실행하며 skip0이다.
+프로젝트 전체57개를 발견해 migration15개와 앱/guard42개를 분리 실행하며 skip0이다.
 [settings_test_pg.py](../../bazaar_kiosk/settings_test_pg.py)는 운영 환경 설정을 격리하고
 합성 역할 PIN·비밀값·메모리 cache/storage와 명시적 전용 PostgreSQL 연결을 사용한다.
 설정 import/check에는 실제 연결이 필요 없지만 데이터 테스트는 실제 PG에서 실행한다.
@@ -58,5 +58,6 @@ SQLite 검사는 더 이상 지원하지 않는다. 현재 PG 검사도 운영 �
 
 8A의 별칭500 및 리뷰 보완 회귀7개는 [통계 실행성 검증](DASHBOARD_EXECUTION.md)을 따른다.
 4A1의 오류 보고 비노출 회귀6개는 [4A1 범위와 증거](SENSITIVE_ERRORS.md)를 따른다.
-단계3 준비의 권한 측정 회귀7개는 [측정과 D-003 결정표](AUTHORIZATION_MATRIX.md)를 따른다.
-이 7개는 현재 동작을 고정한 특성화이며 인가가 존재한다는 증거가 아니다.2A의 기존8개 정상 흐름은 그대로다.
+단계3의 권한 인가 회귀11개는 [구현과 증거](API_AUTHORIZATION.md)를 따른다.
+준비 단계의 특성화7개를 교체한 것이며, 교체 전에 이전 기대값이 실패하는지 확인했다.
+선행 측정 기록은 [권한 현황](AUTHORIZATION_MATRIX.md)에 남아 있다.2A의 기존8개 정상 흐름은 그대로다.
