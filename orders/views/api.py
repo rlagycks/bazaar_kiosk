@@ -526,10 +526,10 @@ def stats_dashboard(request: HttpRequest):
     menu_breakdown = list(
         items_qs.values("menu_item__name")
         .annotate(
-            qty=Sum("qty"),
+            qty_sum=Sum("qty"),
             amount=Sum(F("qty") * F("unit_price"), output_field=IntegerField()),
         )
-        .order_by("-qty", "menu_item__name")
+        .order_by("-qty_sum", "menu_item__name")
     )
 
     hourly = list(
@@ -577,7 +577,7 @@ def stats_dashboard(request: HttpRequest):
         "menu": [
             {
                 "name": row["menu_item__name"],
-                "qty": row["qty"],
+                "qty": row["qty_sum"],
                 "amount": row["amount"] or 0,
             }
             for row in menu_breakdown

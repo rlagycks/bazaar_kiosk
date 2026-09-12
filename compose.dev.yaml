@@ -1,0 +1,24 @@
+# Local development only. Persistent data; ordinary down must not remove volumes.
+services:
+  postgres:
+    image: postgres:15-alpine@sha256:cd17e2ac98240fce1541ad2a803b34009b4eea5aec8a832363cdc7eca62e722e
+    environment:
+      POSTGRES_DB: bazaar_dev
+      POSTGRES_USER: bazaar_dev_bootstrap
+      POSTGRES_PASSWORD: synthetic-local-bootstrap-only
+    ports:
+      - "127.0.0.1:${BK_DEV_PG_PORT:-55436}:5432"
+    volumes:
+      - pg_dev_data:/var/lib/postgresql/data
+      - ./scripts/pg_dev_init.sql:/docker-entrypoint-initdb.d/10-dev-role.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bazaar_dev -d bazaar_dev"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    labels:
+      org.bazaar-kiosk.purpose: local-development
+volumes:
+  pg_dev_data:
+    labels:
+      org.bazaar-kiosk.purpose: local-development

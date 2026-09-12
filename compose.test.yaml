@@ -1,0 +1,24 @@
+# Local migration fixtures only. Use an explicit, unique `-p` project name.
+services:
+  postgres:
+    image: postgres:15-alpine@sha256:cd17e2ac98240fce1541ad2a803b34009b4eea5aec8a832363cdc7eca62e722e
+    environment:
+      POSTGRES_DB: bk_test_control
+      POSTGRES_USER: bk_test_bootstrap
+      POSTGRES_PASSWORD: synthetic-local-bootstrap-only
+    ports:
+      - "127.0.0.1:${BK_TEST_PG_PORT:-55437}:5432"
+    volumes:
+      - pg_test_data:/var/lib/postgresql/data
+      - ./orders/tests/pg_init.sql:/docker-entrypoint-initdb.d/10-test-role.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bk_test_runner -d bk_test_control"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    labels:
+      org.bazaar-kiosk.purpose: phase-1a-local-test
+volumes:
+  pg_test_data:
+    labels:
+      org.bazaar-kiosk.purpose: phase-1a-local-test
