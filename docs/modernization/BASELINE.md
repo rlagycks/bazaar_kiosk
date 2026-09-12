@@ -2,8 +2,9 @@
 
 현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
 [공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
-PR40·PR42·PR44·PR46·PR48은 머지됐고8A는2B 이후 최종 인수 대기다. 현재53개(15+38)를 PG에서 검증한다.
-4A1은 오류 보고 가림만 머지됐고 운영 시작 정책과 BK-R028 종료는 대기다(2026-09-10).
+머지된 PR 목록은 여기에 고정하지 않는다. 최신 상태는 [SESSION_SETUP](SESSION_SETUP.md)과
+`gh pr list --state merged`로 확인한다.8A는2B 이후 최종 인수 대기이고 현재53개(15+38)를 PG에서 검증한다.
+4A1은 오류 보고 가림만 머지됐다. 운영 시작 정책은 D-039로 확정됐고 구현과 BK-R028 종료는 대기다.
 
 후속4A1(2026-09-09): 설정 ROLE_PINS·로그인 POST/지역변수의 Django 오류 보고 노출을 가렸다.
 아래 DEBUG PIN 노출은 수정 전 관찰이다. [범위와 남은 경계](SENSITIVE_ERRORS.md)를 따르며
@@ -135,7 +136,7 @@ PG는 기존 로컬 이미지로 만든 PostgreSQL15.18/aarch64 일회용 컨테
 ## Compose PostgreSQL·EC2 후보의 추가 기준선
 
 - 사용자 방향 D-020은 DB를 Docker Compose의 PostgreSQL로 이전해 직접 운영하는 것이다.
-  EC2는 사용자 검토 후보(D-021 proposed)이며 리전·사양·단일 호스트·HA 수용은 확정되지 않았다.
+  EC2는 D-038로 **배포 대상이 확정**됐다. 리전·사양·단일 호스트·HA 수용은 여전히 확정되지 않았다.
 - 현행 추적/비무시 파일에는 Dockerfile·Compose·.dockerignore·배포/백업 실행 파일이 없다.
   현재 운영 플랫폼/DB 버전/관리 객체가 무엇인지는 소스만으로 확정하지 않는다.
 - E-INFRA-STATIC 합성 settings import5조건: DATABASE_URL 없음/`DATABASE_URL_FILE`만 지정은
@@ -172,7 +173,8 @@ PG는 기존 로컬 이미지로 만든 PostgreSQL15.18/aarch64 일회용 컨테
 ## 다음 관문
 
 [DECISIONS.md](DECISIONS.md)의 노출·역할, 번호·결제, 운영 DB·기존 데이터, 포장·상태·복구
-정책과 SSE/이전 상세 D-019/022·EC2 후보 D-021은 pending/proposed다.
+정책과 SSE/이전 상세 D-019/022는 pending이다. EC2 배포 대상은 D-038 accepted이고
+구성 상세는 D-006/D-021에 남는다. 인증·데이터·브랜치 전제는 D-034~D-040을 따른다.
 사용자 지정 자체 SSE·Compose PostgreSQL·세 기능 영역 방향 D-018/020/023은 accepted다.
 지상/부스 정리 세부 범위 D-024는 pending이다. [프롬프트02](prompts/02_REVIEW_BLUEPRINT.md)에서
 새 위험과 의존성·단계 경계를 검토한 뒤 승인된 구현 단계를 선택한다. 이번 분석에는 구현 승인이 없다.
