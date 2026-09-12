@@ -11,8 +11,12 @@
 D-029로 **개발·테스트·CI·운영 DB는 PostgreSQL만 지원**합니다. [전환 범위](POSTGRES_ONLY.md)와
 [테스트 안내](POSTGRES_TESTING.md)를 따르며2B 전체 종료는 남아 있습니다.
 [4A1 오류 보고의 PIN 가림](SENSITIVE_ERRORS.md)은 PR46으로 머지됐습니다.
-현재는 단계3의 준비로 [권한 현황 측정과 D-003 결정표](AUTHORIZATION_MATRIX.md)를 만들었습니다.
-인가 강제 구현은 D-003 확정 후 별도 승인이며 BK-R001은 Critical·Open입니다.
+단계3 준비로 [권한 현황 측정](AUTHORIZATION_MATRIX.md)을 마쳤고 PR52로 머지했습니다.
+2026-09-12에 D-034~D-040을 기록했습니다. 주방 계정 단일화, JWT 인증,
+익명 차단과 CSRF 면제 제거 준비, 과거 데이터 없음, EC2 배포와 main=배포/develop=개발,
+설정 누락 시 시작 거부, 3계정 권한 매트릭스입니다.
+인가 강제 구현은 별도 승인이며 BK-R001은 Critical·Open입니다.
+머지 상태와 기준 ref는 [SESSION_SETUP](SESSION_SETUP.md)과 `gh pr list`로 확인합니다.
 운영 시작 정책·4A1 전체 인수는 별도이며 BK-R028은 Open입니다.
 D-031/D-032(외부 접속·역할별 공용 계정)는 PR48로 결정만 기록했고 인증 구현은 시작 전입니다.
 
