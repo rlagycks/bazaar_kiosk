@@ -4,6 +4,7 @@ from functools import wraps
 from django.conf import settings
 from django.shortcuts import render, redirect
 from django.urls import reverse
+from django.http import JsonResponse
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 
 ROLE_DEFINITIONS = [
@@ -69,3 +70,41 @@ def require_roles(*allowed_roles: str):
 
 def require_role(role: str):
     return require_roles(role)
+
+
+# 주방 계정은 D-034로 1개로 단일화하기로 했으나 아직 구현 전이다. 세 역할이 오늘도
+# 같은 주방 화면과 같은 기능을 공유하므로, 단일화 전까지 "주방"은 이 셋 전부를 뜻한다.
+KITCHEN_ROLES = ("KITCHEN", "KITCHEN_HALL", "KITCHEN_TAKEOUT")
+COUNTER_ROLES = ("B1_COUNTER",)
+
+
+def require_api_roles(*allowed_roles: str):
+    """Authorize an API endpoint from the session role, answering in JSON.
+
+    Pages redirect to the login screen. An API must not: the caller parses JSON
+    and a redirect arrives as an HTML login page, so the browser reports a parse
+    error instead of a permission problem.
+
+    Both "no session" and "wrong role" answer 403 while identification is
+    session-based. Splitting them into 401/403 only becomes meaningful once
+    D-035's token refresh exists, so that choice belongs to 4A2 (D-036 미결).
+
+    Passing no role names means "any authenticated account". That is the
+    anonymous block D-036 approved, without inventing a role restriction for
+    the endpoints whose subject D-040 left undecided.
+    """
+    allowed = {r.upper() for r in allowed_roles if r}
+
+    def deco(viewfunc):
+        @wraps(viewfunc)
+        def _wrapped(request, *args, **kwargs):
+            role = request.session.get("role")
+            if not role or role.upper() not in ROLE_TO_URLNAME:
+                return JsonResponse({"detail": "로그인이 필요합니다."}, status=403)
+            if allowed and role.upper() not in allowed:
+                # Name neither the caller's role nor the allowed set: a rejected
+                # client has no use for it and it maps the permission model.
+                return JsonResponse({"detail": "권한이 없습니다."}, status=403)
+            return viewfunc(request, *args, **kwargs)
+        return _wrapped
+    return deco

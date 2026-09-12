@@ -3,7 +3,7 @@
 현재 실행 안내(2026-09-09, D-029): [PostgreSQL 전용 전환](POSTGRES_ONLY.md)과
 [공통 검증 명령](POSTGRES_TESTING.md)을 따른다. 아래 SQLite 관찰·이전 수치·명령은 당시 증거다.
 머지된 PR 목록은 여기에 고정하지 않는다. 최신 상태는 [SESSION_SETUP](SESSION_SETUP.md)과
-`gh pr list --state merged`로 확인한다.8A는2B 이후 최종 인수 대기이고 현재53개(15+38)를 PG에서 검증한다.
+`gh pr list --state merged`로 확인한다.8A는2B 이후 최종 인수 대기이고 현재57개(15+42)를 PG에서 검증한다.
 4A1은 오류 보고 가림만 머지됐다. 운영 시작 정책은 D-039로 확정됐고 구현과 BK-R028 종료는 대기다.
 
 최종 검증: 2026-09-07 · 통합 책임: 주 에이전트 · 범위: 프롬프트 01 + 자체 SSE·Compose PostgreSQL·EC2 후보 분석
@@ -973,8 +973,11 @@ DB URL2개는 USER/PASS/HOST 기호형 예시로 확인되어 실제 DB 자격�
 <a id="bk-r001"></a>
 ### BK-R001 — API 역할 인가 부재와 변경 API CSRF 면제
 
-- 심각도/상태: **Critical / Reproduced**. 확신: 높음.
+- 심각도/상태: **Critical / Repo-fixed(인가·CSRF 경계만)**. 아래는 수정 이전 관찰이다.
+  현재 동작·남은 경계는 [등록부](RISK_REGISTER.md)와 [단계3 구현과 증거](API_AUTHORIZATION.md)를 따른다.
+  인증 방식은 바꾸지 않았으므로 해결 상태는 Open이다. 확신: 높음.
 - 근거: [orders/views/api.py:146-148](../../orders/views/api.py#L146),346-348,379-381; [orders/urls.py:22-31](../../orders/urls.py#L22); 재현 E-SQLite.
+  행 번호는 수정 전 기준이다. 데코레이터 추가로 현재 파일의 행 번호는 다르다.
 - 영향 불변조건: 서버 권한·주문 신뢰성·매출 기밀성. 시나리오: 로그인 없이 생성 201, 상태/진행 PATCH 200, 조회 200. ORDER 역할도 주방 진행 변경 200.
 - 최소 개선: 경로·메서드별 역할 검사와 CSRF를 같이 강제; 페이지/버튼을 권한으로 삼지 않음.
 - 의존성/담당: D-003; 단계 2; 단계 3; 보안 담당.
