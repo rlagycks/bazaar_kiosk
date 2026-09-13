@@ -15,7 +15,7 @@ SQLite 테스트 설정은 제거됐다. 2A 당시 SQLite 결과는 [WORKLOG](WO
 .venv/bin/python scripts/test_postgres.py
 ```
 
-프로젝트 전체57개를 발견해 migration15개와 앱/guard42개를 분리 실행하며 skip0이다.
+프로젝트 전체59개를 발견해 migration15개와 앱/guard44개를 분리 실행하며 skip0이다.
 [settings_test_pg.py](../../bazaar_kiosk/settings_test_pg.py)는 운영 환경 설정을 격리하고
 합성 역할 PIN·비밀값·메모리 cache/storage와 명시적 전용 PostgreSQL 연결을 사용한다.
 설정 import/check에는 실제 연결이 필요 없지만 데이터 테스트는 실제 PG에서 실행한다.
@@ -37,9 +37,11 @@ SQLite 테스트 설정은 제거됐다. 2A 당시 SQLite 결과는 [WORKLOG](WO
 
 ## 알려진 결함은 정상 계약과 분리
 
-익명 API 변경(BK-R001), 부족 결제(BK-R014/030), 중복 생성(BK-R012), 통계500의 수정 이전 관찰(BK-R016),
+익명 API 변경(BK-R001의 수정 이전 관찰), 부족 결제(BK-R014/030), 중복 생성(BK-R012), 통계500의 수정 이전 관찰(BK-R016),
 캐시·조회 누락 등은 [분석 재현 기록](ANALYSIS_REPORT.md)과 [위험 등록부](RISK_REGISTER.md)를 따른다.
 BK-R016의500은 후속8A에서 수정됐고2B 이후 최종 인수 대기다. 다른 결함과 구분한다.
+BK-R001의 인가·CSRF는 단계3에서 수정됐고 [권한 회귀](../../orders/tests/test_permissions.py)가 정상 계약을 고정한다.
+인증 방식은 바뀌지 않았고 해결 상태는 Open이다.
 이 동작을 정상으로 주장하는 통과 테스트나 광범위한 expectedFailure로 안전망에 넣지 않는다.
 해당 수정 단계에서 위험 ID에 연결된 실패 회귀 테스트를 먼저 추가한다.
 잘못된 PIN은 오류 context가 있어도 현재 템플릿에 안내가 표시되지 않는 것으로 확인했다.

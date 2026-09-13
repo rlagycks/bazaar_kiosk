@@ -289,7 +289,8 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
   [측정과 결정표](AUTHORIZATION_MATRIX.md).
 - **구현 완료(2026-09-13):** D-036·D-040의 매트릭스를 강제하고 CSRF 면제를 제거했다.
   [구현과 증거](API_AUTHORIZATION.md). 401/403 구분·생성/조회 주체·브라우저 여정은 남는다.
-  BK-R001은 Repo-fixed이며 해결 상태는 운영 인수까지 Open이다.
+  BK-R001은 익명 차단·CSRF 항목만 Repo-fixed다. 매출 기밀성은 `orders-collection` 노출로 미해결이며
+  해결 상태는 운영 인수까지 Open이다.
 - **선행 조건:** 2A. **결정 관문:** D-003 경로/메서드/객체·mode 권한. 기존 H/T 전체 주방 접근을 조용히 제한하지 않음.
 - **책임·주 위험:** 보안 담당; BK-R001.
 - **승인 대상 범위·파일:** orders/views/auth.py; api.py; urls.py; CSRF 요청 부분; 권한 테스트. 이 범위의 구현은 해당 단계 실행 지시 이후다.

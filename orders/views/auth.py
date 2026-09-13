@@ -91,9 +91,22 @@ def require_api_roles(*allowed_roles: str):
 
     Passing no role names means "any authenticated account". That is the
     anonymous block D-036 approved, without inventing a role restriction for
-    the endpoints whose subject D-040 left undecided.
+    the endpoints whose subject D-040 left undecided. Because that sentinel is
+    an empty set, a restriction that collapses to empty by accident would read
+    as the sentinel and open the endpoint. Both mistakes raise at import time
+    instead: naming roles and getting no restriction is never intended.
     """
     allowed = {r.upper() for r in allowed_roles if r}
+    if allowed_roles and not allowed:
+        raise ValueError(
+            "require_api_roles() was given role names that resolve to nothing. "
+            "Pass no arguments to mean 'any authenticated account'."
+        )
+    unknown = allowed - set(ROLE_TO_URLNAME)
+    if unknown:
+        # A typo would otherwise build a set nothing matches and lock every
+        # role out of the endpoint, silently, until someone hits it in service.
+        raise ValueError(f"require_api_roles() got unknown roles: {sorted(unknown)}")
 
     def deco(viewfunc):
         @wraps(viewfunc)

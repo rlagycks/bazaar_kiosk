@@ -22,13 +22,24 @@ is session-based; the 401/403 split waits for D-035's refresh flow (4A2).
 Run with bazaar_kiosk.settings_test_pg and the dedicated Compose test database.
 """
 
+from importlib import import_module
+
 from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from orders.models import MenuItem, Order, OrderItem, Table
 from orders.views import api
-from orders.views.auth import COUNTER_ROLES, KITCHEN_ROLES
+from orders.views.auth import COUNTER_ROLES, KITCHEN_ROLES, ROLE_LABELS
+
+# The approved matrix is written here as literals, NOT imported from the code
+# under test. Deriving it from KITCHEN_ROLES/COUNTER_ROLES would move the
+# expectation in lockstep with the implementation, so widening either tuple
+# would pass unnoticed -- exactly the escalation this file exists to catch.
+# test_the_role_constants_still_match_the_approved_matrix pins the constants
+# themselves, so a deliberate change has to be made here too.
+APPROVED_KITCHEN = ("KITCHEN", "KITCHEN_HALL", "KITCHEN_TAKEOUT")
+APPROVED_COUNTER = ("B1_COUNTER",)
 
 ROLE_PINS = {
     "ORDER": "test-order-pin",
@@ -117,19 +128,19 @@ class AuthorizationMatrixTests(TestCase):
             "order-status": (
                 "patch", reverse("orders:order-status", args=[self.order.id]),
                 {"data": {"status": "READY"}, "content_type": "application/json"},
-                KITCHEN_ROLES,
+                APPROVED_KITCHEN,
             ),
             "order-item-progress": (
                 "patch", reverse("orders:order-item-progress", args=[self.item.id]),
                 {"data": {"done": True}, "content_type": "application/json"},
-                KITCHEN_ROLES,
+                APPROVED_KITCHEN,
             ),
             "stats-menu-counts": (
-                "get", reverse("orders:stats-menu-counts"), {}, COUNTER_ROLES,
+                "get", reverse("orders:stats-menu-counts"), {}, APPROVED_COUNTER,
             ),
             "stats-dashboard": (
                 "get", reverse("orders:stats-dashboard"), {"data": {"floor": "B1"}},
-                COUNTER_ROLES,
+                APPROVED_COUNTER,
             ),
         }
 
@@ -173,12 +184,28 @@ class AuthorizationMatrixTests(TestCase):
                 self.assertFalse(response.has_header("Location"))
 
     def test_refusal_body_does_not_disclose_the_role_or_the_allowed_set(self):
-        client = self.client_as("ORDER")
-        response = client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
-        self.assertEqual(response.status_code, 403)
-        body = response.content.decode()
-        for leak in ("ORDER", "B1_COUNTER", "KITCHEN"):
-            self.assertNotIn(leak, body)
+        """Both refusal branches. The English role codes alone are not enough:
+        this app names roles in Korean, so a body reading "주방 카운터 전용"
+        would leak the allowed set while passing an English-only check."""
+        url = reverse("orders:stats-dashboard")
+        leaks = (*ROLES, *ROLE_LABELS.values())
+        cases = (
+            ("wrong role", self.client_as("ORDER"), "권한이 없습니다."),
+            ("no session", self.client_as("anonymous"), "로그인이 필요합니다."),
+        )
+        for label, client, expected in cases:
+            with self.subTest(branch=label):
+                response = client.get(url, {"floor": "B1"})
+                self.assertEqual(response.status_code, 403)
+                # Pin the body exactly. Asserting only on absence lets any
+                # future message through, including a disclosing one.
+                self.assertEqual(response.json(), {"detail": expected})
+                body = response.content.decode()
+                for leak in leaks:
+                    self.assertNotIn(leak, body)
+                for header in response.headers.values():
+                    for leak in leaks:
+                        self.assertNotIn(leak, header)
 
     # --- ordering guarantees --------------------------------------------
 
@@ -335,6 +362,42 @@ class AuthorizationMatrixTests(TestCase):
         dashboard = counter.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn("summary", dashboard.json())
+
+    # --- the matrix itself, not just the responses -----------------------
+
+    def test_the_role_constants_still_match_the_approved_matrix(self):
+        """The expectations above are literals on purpose, so widening a role
+        tuple in the code cannot move them. That leaves one gap: the widening
+        would be invisible rather than wrong. This closes it by pinning the
+        constants, so changing who counts as 주방 or 카운터 has to be a
+        deliberate edit here, traceable back to D-040."""
+        self.assertEqual(tuple(KITCHEN_ROLES), APPROVED_KITCHEN)
+        self.assertEqual(tuple(COUNTER_ROLES), APPROVED_COUNTER)
+
+    def test_every_api_route_appears_in_the_matrix(self):
+        """The table is a hand-written dict. A duplicated key would silently
+        discard the earlier entry, and a new endpoint would simply never be
+        checked. Both failures are invisible without this."""
+        from django.urls import resolve
+
+        declared = set()
+        for spec in self.endpoints().values():
+            declared.add(resolve(spec[1]).url_name)
+
+        routed = {
+            pattern.name
+            for pattern in import_module("orders.urls").urlpatterns
+            if getattr(pattern, "callback", None) is not None
+            and pattern.callback.__module__ == api.__name__
+        }
+        self.assertEqual(declared, routed)
+
+        # orders-collection carries GET and POST, so the route count and the
+        # check count differ by one. Pin both: a duplicate key would shrink
+        # the table while leaving the route set intact.
+        self.assertEqual(len(routed), 9)
+        self.assertEqual(len(self.endpoints()), 10)
+        self.assertEqual(len(self.write_specs()), 3)
 
     def test_pages_still_refuse_the_wrong_role_by_redirecting(self):
         """The page guard is unchanged: screens redirect, APIs answer JSON.

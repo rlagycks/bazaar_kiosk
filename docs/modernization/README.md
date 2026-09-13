@@ -16,7 +16,8 @@ D-029로 **개발·테스트·CI·운영 DB는 PostgreSQL만 지원**합니다. 
 익명 차단과 CSRF 면제 제거 준비, 과거 데이터 없음, EC2 배포와 main=배포/develop=개발,
 설정 누락 시 시작 거부, 3계정 권한 매트릭스입니다.
 단계3의 API 인가와 CSRF 경계는 2026-09-13에 구현했습니다([구현과 증거](API_AUTHORIZATION.md)).
-BK-R001은 Repo-fixed이나 운영 인수 전까지 해결 상태는 Open입니다.
+BK-R001은 익명 차단·CSRF 항목만 Repo-fixed입니다. 매출 기밀성은 `orders-collection`으로
+남아 있어 D-040 후속 결정이 필요하며 해결 상태는 Open입니다.
 인증 방식(D-035의 JWT)은 아직 바꾸지 않았고 4A2 범위입니다.
 머지 상태와 기준 ref는 [SESSION_SETUP](SESSION_SETUP.md)과 `gh pr list`로 확인합니다.
 운영 시작 정책·4A1 전체 인수는 별도이며 BK-R028은 Open입니다.
