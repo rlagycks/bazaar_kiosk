@@ -17,7 +17,12 @@ from orders.models import (
     Table, MenuItem, Order, OrderItem,
 )
 from orders.services import allocate_floor_order_no
-from orders.views.auth import COUNTER_ROLES, KITCHEN_ROLES, require_api_roles
+from orders.views.auth import (
+    COUNTER_ROLES,
+    KITCHEN_ROLES,
+    ORDER_READ_ROLES,
+    require_api_roles,
+)
 
 
 # ---------- 공용 ----------
@@ -145,7 +150,7 @@ def menus_list(request: HttpRequest):
 
 
 # ---------- 주문 목록/생성 ----------
-@require_api_roles()
+@require_api_roles(by_method={"GET": ORDER_READ_ROLES})
 @require_http_methods(["GET", "POST"])
 def orders_collection(request: HttpRequest):
     if request.method == "GET":
@@ -481,7 +486,7 @@ def kitchen_menu_summary(request: HttpRequest):
     return JsonResponse({"items": data}, status=200)
 
 
-@require_api_roles()
+@require_api_roles(*ORDER_READ_ROLES)
 @require_http_methods(["GET"])
 def order_detail(request: HttpRequest, order_id: int):
     try:

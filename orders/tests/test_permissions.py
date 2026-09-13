@@ -10,7 +10,13 @@ Approved matrix, D-040 as revised 2026-09-13:
 
     order-status, order-item-progress     주방        (KITCHEN_ROLES)
     stats-dashboard, stats-menu-counts    주방 카운터  (COUNTER_ROLES)
+    orders-collection GET, order-detail   주방+카운터  (ORDER_READ_ROLES)
     everything else                       인증된 계정 전체
+
+Reading an order carries its money -- total_price, payment_method, the cash and
+ticket split, change, per-item unit_price -- so leaving it open would undo the
+counter-only restriction on the stats endpoints rather than stay neutral on it.
+Creating an order stays open: the ordering screen posts and never reads back.
 
 "Everything else" is authenticated-only on purpose. D-040 left those subjects
 undecided, and guessing a role restriction would invent an approval. Anonymous
@@ -30,7 +36,12 @@ from django.urls import reverse
 
 from orders.models import MenuItem, Order, OrderItem, Table
 from orders.views import api
-from orders.views.auth import COUNTER_ROLES, KITCHEN_ROLES, ROLE_LABELS
+from orders.views.auth import (
+    COUNTER_ROLES,
+    KITCHEN_ROLES,
+    ORDER_READ_ROLES,
+    ROLE_LABELS,
+)
 
 # The approved matrix is written here as literals, NOT imported from the code
 # under test. Deriving it from KITCHEN_ROLES/COUNTER_ROLES would move the
@@ -40,6 +51,7 @@ from orders.views.auth import COUNTER_ROLES, KITCHEN_ROLES, ROLE_LABELS
 # themselves, so a deliberate change has to be made here too.
 APPROVED_KITCHEN = ("KITCHEN", "KITCHEN_HALL", "KITCHEN_TAKEOUT")
 APPROVED_COUNTER = ("B1_COUNTER",)
+APPROVED_ORDER_READ = APPROVED_KITCHEN + APPROVED_COUNTER
 
 ROLE_PINS = {
     "ORDER": "test-order-pin",
@@ -109,10 +121,11 @@ class AuthorizationMatrixTests(TestCase):
             "tables": ("get", reverse("orders:tables"), {}, ()),
             "menus": ("get", reverse("orders:menus"), {}, ()),
             "orders-collection-read": (
-                "get", reverse("orders:orders-collection"), {}, (),
+                "get", reverse("orders:orders-collection"), {}, APPROVED_ORDER_READ,
             ),
             "order-detail": (
-                "get", reverse("orders:order-detail", args=[self.order.id]), {}, (),
+                "get", reverse("orders:order-detail", args=[self.order.id]), {},
+                APPROVED_ORDER_READ,
             ),
             "kitchen-menu-summary": (
                 "get", reverse("orders:kitchen-menu-summary"), {}, (),
@@ -373,6 +386,7 @@ class AuthorizationMatrixTests(TestCase):
         deliberate edit here, traceable back to D-040."""
         self.assertEqual(tuple(KITCHEN_ROLES), APPROVED_KITCHEN)
         self.assertEqual(tuple(COUNTER_ROLES), APPROVED_COUNTER)
+        self.assertEqual(tuple(ORDER_READ_ROLES), APPROVED_ORDER_READ)
 
     def test_every_api_route_appears_in_the_matrix(self):
         """The table is a hand-written dict. A duplicated key would silently
@@ -398,6 +412,93 @@ class AuthorizationMatrixTests(TestCase):
         self.assertEqual(len(routed), 9)
         self.assertEqual(len(self.endpoints()), 10)
         self.assertEqual(len(self.write_specs()), 3)
+
+    def test_reading_an_order_is_refused_to_the_ordering_account(self):
+        """The stats endpoints are counter-only, but the same figures ride
+        along on every serialized order. If the read stayed open, restricting
+        stats would accomplish nothing -- so this pins the money out of reach
+        and pins that creating an order is still open."""
+        money = (
+            "total_price", "payment_method", "received_cash_amount",
+            "received_ticket_amount", "change_amount", "unit_price",
+        )
+        listing = reverse("orders:orders-collection")
+        detail = reverse("orders:order-detail", args=[self.order.id])
+
+        ordering = self.client_as("ORDER")
+        for url in (listing, detail):
+            with self.subTest(url=url):
+                self.assertEqual(ordering.get(url).status_code, 403)
+
+        # The counter reads it, and the body really does carry the figures --
+        # otherwise the refusal above would be protecting nothing.
+        body = self.client_as("B1_COUNTER").get(listing).json()
+        self.assertTrue(body["results"], "no orders to inspect; the test proves nothing")
+        served = body["results"][0]
+        for field in money:
+            with self.subTest(field=field):
+                self.assertTrue(
+                    field in served or any(field in item for item in served["items"]),
+                    f"{field} is missing, so this test no longer guards it",
+                )
+
+        # Creating is not reading: the ordering screen must still post.
+        created = ordering.post(
+            listing,
+            data={
+                "floor": "B1", "order_type": "DINE_IN", "table_number": "7",
+                "payment_method": "CASH", "received_cash_amount": 1000,
+                "items": [{"menu_item_id": self.menu.id, "qty": 1}],
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(created.status_code, 201)
+
+    # --- session and CSRF boundaries -------------------------------------
+
+    def test_login_issues_a_new_session_key(self):
+        """The session is now the only authorization credential the API has,
+        so a key planted before login must not survive it."""
+        client = Client()
+        client.get(reverse("orders:login"))
+        planted = client.session.session_key
+        self.assertIsNotNone(planted, "no pre-login session to plant; test is vacuous")
+
+        response = client.post(
+            reverse("orders:login"), {"role": "KITCHEN", "pin": ROLE_PINS["KITCHEN"]}
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(client.session["role"], "KITCHEN")
+        self.assertNotEqual(client.session.session_key, planted)
+
+    def test_a_csrf_rejection_on_the_api_is_json_not_html(self):
+        """CsrfViewMiddleware runs outside every view decorator, so a tokenless
+        write never reaches the guard. Without a JSON failure view the caller
+        gets an HTML page and reports a parse error, not a permission problem."""
+        client = Client(enforce_csrf_checks=True)
+        client.post(
+            reverse("orders:login"), {"role": "KITCHEN", "pin": ROLE_PINS["KITCHEN"]}
+        )
+        response = client.patch(
+            reverse("orders:order-status", args=[self.order.id]),
+            data={"status": "READY"}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(response["Content-Type"].startswith("application/json"))
+        self.assertIn("detail", response.json())
+        body = response.content.decode()
+        # The reason string names the check that failed; it is not the caller's.
+        for leak in ("CSRF", "Referer", "origin", *ROLES):
+            self.assertNotIn(leak, body)
+
+    def test_a_csrf_rejection_on_a_page_is_still_the_html_page(self):
+        """A browser navigation should see a page, not a JSON blob. This keeps
+        the JSON answer scoped to the API instead of applying it everywhere."""
+        response = Client(enforce_csrf_checks=True).post(
+            reverse("orders:login"), {"role": "KITCHEN", "pin": ROLE_PINS["KITCHEN"]}
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(response["Content-Type"].startswith("text/html"))
 
     def test_pages_still_refuse_the_wrong_role_by_redirecting(self):
         """The page guard is unchanged: screens redirect, APIs answer JSON.

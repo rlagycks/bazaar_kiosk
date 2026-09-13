@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
 from orders.models import FloorOrderCounter, MenuItem, Order, OrderItem, Table
@@ -127,8 +127,25 @@ class OrderFixtureMixin(BaselineMixin):
         self.assertEqual(response.status_code, 201, response.content)
         return response.json()
 
+    def reader(self):
+        """A client allowed to read orders back.
+
+        Phase 3 restricted order reads to 주방·카운터 because the serialized
+        body carries the order's money. These tests create as ORDER, which can
+        no longer read, so reading back is done with a kitchen session. The
+        ordering screen never reads back -- it only posts -- so this is a
+        verification step rather than part of the journey, and test_permissions
+        pins that ORDER really is refused on both read endpoints.
+        """
+        client = Client()
+        response = client.post(
+            reverse("orders:login"), {"role": "KITCHEN", "pin": ROLE_PINS["KITCHEN"]}
+        )
+        self.assertEqual(response.status_code, 302)
+        return client
+
     def detail(self, order_id):
-        response = self.client.get(reverse("orders:order-detail", args=[order_id]))
+        response = self.reader().get(reverse("orders:order-detail", args=[order_id]))
         self.assertEqual(response.status_code, 200)
         return response.json()
 
@@ -164,7 +181,7 @@ class OrderBaselineTests(OrderFixtureMixin, TestCase):
                 self.assertEqual(
                     set(order.items.values_list("service_mode", flat=True)), {order_type}
                 )
-                response = self.client.get(
+                response = self.reader().get(
                     reverse("orders:orders-collection"),
                     {"floor": "B1", "types": order_type},
                 )
@@ -223,7 +240,7 @@ class OrderBaselineTests(OrderFixtureMixin, TestCase):
         self.assertEqual(order.total_price, 13700)
         self.assertEqual([item.line_total for item in order.items.all()], [8600, 5100])
         self.assert_prices(self.detail(order.pk))
-        response = self.client.get(reverse("orders:orders-collection"))
+        response = self.reader().get(reverse("orders:orders-collection"))
         self.assertEqual(response.status_code, 200)
         self.assert_prices(response.json()["results"][0])
 
