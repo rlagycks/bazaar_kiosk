@@ -10,7 +10,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # The published default PINs. Named here so the startup check can refuse them
 # without the check itself becoming the place they are written down twice.
 LEGACY_DEMO_ROLE_PINS = "ORDER:1001,B1_COUNTER:2001,KITCHEN:3001,KITCHEN_HALL:4001,KITCHEN_TAKEOUT:5001"
+
+# Every SECRET_KEY this repository publishes. A deployment must not wear any of
+# them. The second one is what .env.example ships, so it is the value most
+# likely to be carried to a server by someone who copied that file.
 _DEV_SECRET_KEY = "dev-only-not-for-prod"
+_PUBLISHED_SECRET_KEYS = frozenset({
+    _DEV_SECRET_KEY,
+    "replace-with-a-long-random-development-secret",
+})
+# Django's own check --deploy (W009) uses 50. Matching it keeps one threshold.
+_MIN_SECRET_KEY_LENGTH = 50
 
 
 def _require_explicit_debug() -> bool:
@@ -41,6 +51,99 @@ def _split_csv(env_key: str):
 
 ALLOWED_HOSTS = ["*"] if DEBUG else _split_csv("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = [] if DEBUG else _split_csv("CSRF_TRUSTED_ORIGINS")
+
+
+def parse_role_pins(raw: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    if not raw:
+        return result
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if ":" in pair:
+            role, pin = pair.split(":", 1)
+            result[role.strip().upper()] = pin.strip()
+    return result
+
+
+_ROLE_PINS_RAW = os.environ.get("ROLE_PINS", LEGACY_DEMO_ROLE_PINS)
+ROLE_PINS = parse_role_pins(_ROLE_PINS_RAW)
+_LEGACY_ROLE_PINS = parse_role_pins(LEGACY_DEMO_ROLE_PINS)
+
+
+# --- 운영 필수 설정 검증 (D-039) ---
+def _bad_role_pins() -> bool:
+    """True when ROLE_PINS is unset, still published, or not a usable set.
+
+    Compared **after parsing**, never as a raw string. The parser strips each
+    pair, strips around the colon and uppercases the role, so every one of those
+    normalisations is a way to write the published PINs in a form a string
+    comparison would not recognise -- a trailing comma is enough. What has to be
+    refused is the credential, not one particular way of spelling it.
+    """
+    if "ROLE_PINS" not in os.environ or not ROLE_PINS:
+        return True
+    # Any overlap, not just equality: a set that keeps one published PIN and
+    # adds a new role still hands that role's screen to a published credential.
+    if set(ROLE_PINS.items()) & set(_LEGACY_ROLE_PINS.items()):
+        return True
+    # Every role needs one, or those terminals cannot log in and the failure
+    # only shows up on the floor. A blank PIN is a configured non-credential.
+    if set(ROLE_PINS) != set(_LEGACY_ROLE_PINS) or not all(ROLE_PINS.values()):
+        return True
+    # Shared PINs collapse the role separation phase 3 exists to enforce:
+    # holding one role's PIN would authenticate as any role sharing it.
+    return len(set(ROLE_PINS.values())) != len(ROLE_PINS)
+
+
+def _bad_secret_key() -> bool:
+    key = SECRET_KEY.strip()
+    if key.lower() in {k.lower() for k in _PUBLISHED_SECRET_KEYS}:
+        return True
+    return len(key) < _MIN_SECRET_KEY_LENGTH
+
+
+def _refuse_deployment_defaults() -> None:
+    """Refuse to start a deployment that is still wearing development values.
+
+    Silently falling back to a default is how the published PINs and the
+    development secret reach a public host. Every check names the environment
+    variable and never the value it found. Nothing renders a Django error report
+    at this point -- the module has not finished importing, so the credential
+    filter is not active either -- but the message travels wherever a boot
+    failure travels, and the values are what must not travel with it.
+
+    Development is untouched. This runs only when DEBUG is off.
+    """
+    missing = []
+    if _bad_secret_key():
+        missing.append("SECRET_KEY")
+    # A wildcard is not a configured host. The whole reason DEBUG has no default
+    # is to keep ALLOWED_HOSTS=['*'] off a public host; accepting a literal "*"
+    # here would permit by hand exactly what that refuses by accident.
+    if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
+        missing.append("ALLOWED_HOSTS")
+    # Django only reports a schemeless origin through a system check, and
+    # gunicorn does not run system checks at boot. Without this the app starts
+    # and silently rejects the origins it was configured to trust.
+    if not CSRF_TRUSTED_ORIGINS or not all("://" in o for o in CSRF_TRUSTED_ORIGINS):
+        missing.append("CSRF_TRUSTED_ORIGINS")
+    if _bad_role_pins():
+        missing.append("ROLE_PINS")
+    # DATABASE_URL is required in every mode, but it is parsed further down.
+    # Naming it here means one refusal lists everything instead of a deployment
+    # discovering the requirements one restart at a time.
+    if not os.environ.get("DATABASE_URL", "").strip():
+        missing.append("DATABASE_URL")
+    if missing:
+        raise ImproperlyConfigured(
+            "Deployment (DEBUG=0) requires these environment variables to be set "
+            "to non-default values: " + ", ".join(sorted(missing)) + ". "
+            "See .env.example. Values are never logged."
+        )
+
+
+if not DEBUG:
+    _refuse_deployment_defaults()
 
 LANGUAGE_CODE = "ko-kr"
 TIME_ZONE = "Asia/Seoul"
@@ -147,53 +250,4 @@ if not DEBUG:
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- S2: Role PIN 설정(로그인용) ---
-def parse_role_pins(raw: str) -> dict[str, str]:
-    result: dict[str, str] = {}
-    if not raw:
-        return result
-    for pair in raw.split(","):
-        pair = pair.strip()
-        if ":" in pair:
-            role, pin = pair.split(":", 1)
-            result[role.strip().upper()] = pin.strip()
-    return result
-
-_ROLE_PINS_RAW = os.environ.get("ROLE_PINS", LEGACY_DEMO_ROLE_PINS)
-ROLE_PINS = parse_role_pins(_ROLE_PINS_RAW)
-
-
-# --- 운영 필수 설정 검증 (D-039) ---
-def _refuse_deployment_defaults() -> None:
-    """Refuse to start a deployment that is still wearing development values.
-
-    Silently falling back to a default is how the published PINs and the
-    development secret reach a public host. Every check below names the
-    environment variable and never the value it found: this exception can reach
-    an error report, and the values are exactly what must not appear there.
-
-    Development is untouched. This runs only when DEBUG is off.
-    """
-    missing = []
-    if not os.environ.get("SECRET_KEY") or SECRET_KEY == _DEV_SECRET_KEY:
-        missing.append("SECRET_KEY")
-    if not ALLOWED_HOSTS:
-        missing.append("ALLOWED_HOSTS")
-    if not CSRF_TRUSTED_ORIGINS:
-        missing.append("CSRF_TRUSTED_ORIGINS")
-    # The PINs are a credential, so "unset" and "still the published demo set"
-    # are the same failure. D-035 replaces this mechanism in 4A2; until then it
-    # is the only thing standing between the internet and the kitchen screens.
-    if "ROLE_PINS" not in os.environ or _ROLE_PINS_RAW.strip() == LEGACY_DEMO_ROLE_PINS:
-        missing.append("ROLE_PINS")
-    elif not ROLE_PINS:
-        missing.append("ROLE_PINS")
-    if missing:
-        raise ImproperlyConfigured(
-            "Deployment (DEBUG=0) requires these environment variables to be set "
-            "to non-default values: " + ", ".join(sorted(missing)) + ". "
-            "See .env.example. Values are never logged."
-        )
-
-
-if not DEBUG:
-    _refuse_deployment_defaults()
+# 파서와 값은 위의 운영 필수 설정 검증 블록에서 정의한다.

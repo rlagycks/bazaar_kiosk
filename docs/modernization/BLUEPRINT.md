@@ -740,7 +740,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 | [BK-R025 — 동일 트리와 고유 이력을 혼동한 Git 정리 위험](ANALYSIS_REPORT.md#bk-r025) | Medium | G | [G](#phase-g) | refs/trees/left-right/branch diff/내용검사·체크포인트 AGENTS 존재 |
 | [BK-R026 — order_date와 created_at·자정 주방 집계 경계 불일치](ANALYSIS_REPORT.md#bk-r026) | Medium | 8 | [8C](#phase-8c) | Seoul23:59:59→00:00,할당지연,전일대기,같은시각다른날짜 보고 |
 | [BK-R027 — 테이블 슬롯·항목 mode·포장 flag 의미 불명확](ANALYSIS_REPORT.md#bk-r027) | Medium | 6 | [6B](#phase-6b) | 101~120/일반테이블 경계·혼합항목·flag조합 |
-| [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | 4A | [4A1](#phase-4a1) | 합성 자격증명으로500 HTML/비HTML(text/plain)·로그에 값이 없는지, **env누락 실패(미구현)** |
+| [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | 4A | [4A1](#phase-4a1) | 합성 자격증명으로500 HTML/비HTML(text/plain)·로그에 값이 없는지, env누락 실패. **운영 실제 값·운영 `DEBUG=1` 차단(4A3)은 미확인** |
 | [BK-R029 — 가변 CDN 스크립트와 콘텐츠 보안 정책 검증 부재](ANALYSIS_REPORT.md#bk-r029) | Medium | 4B | [4B2](#phase-4b2) | D-018 외부 CDN/SDK·키 제거, 자체 SSE/폴링만으로 주방 여정·CSP |
 | [BK-R030 — 수납·거스름돈·취소 환불·순매출 계약 미확정](ANALYSIS_REPORT.md#bk-r030) | High | 7 | [7A](#phase-7a) | 초과현금·과다식권·혼합거스름·취소전후·부분환불·레거시미분류 |
 | [BK-R031 — 과거 삭제·재추가 필드와 카테고리의 복구 원천 미확인](ANALYSIS_REPORT.md#bk-r031) | High | 7 | [7C](#phase-7c) | 정제된과거버전fixture·행수/금액대조·백업복원·정방향완화 |
