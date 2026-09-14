@@ -41,7 +41,7 @@ Django 테스트 클라이언트로 실제 요청을 보내 응답을 분류했�
 | `menus` | `/orders/menus/` | OPEN | 메뉴·가격 |
 | `orders-collection` GET | `/orders/api/orders/` | OPEN | 주문 전체(필터·최대200건) |
 | `order-detail` | `/orders/api/orders/<id>/detail` | OPEN | 단건 주문 상세 |
-| `kitchen-menu-summary` | `/orders/api/kitchen/menu-summary` | OPEN | 주방 집계 |
+| `kitchen-menu-summary` | `/orders/api/kitchen/menu-summary` | OPEN | 주방 집계 (단계3에서 경로 제거) |
 | `stats-menu-counts` | `/orders/api/stats/menu-counts` | OPEN | 메뉴별 수량 |
 | `stats-dashboard` | `/orders/api/stats/dashboard` | OPEN | **매출·결제수단·시간대 집계** |
 

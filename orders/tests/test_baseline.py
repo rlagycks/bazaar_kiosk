@@ -264,12 +264,6 @@ class OrderBaselineTests(OrderFixtureMixin, TestCase):
                     "prepared_qty", flat=True
                 )), prepared,
             )
-            summary = self.client.get(reverse("orders:kitchen-menu-summary"))
-            self.assertEqual(summary.status_code, 200)
-            self.assertEqual(
-                {row["menu_item_id"]: row["pending"] for row in summary.json()["items"]},
-                {mid: qty for mid, qty in zip((self.meal.pk, self.side.pk), remaining) if qty},
-            )
 
         def progress(item, payload):
             response = self.client.patch(

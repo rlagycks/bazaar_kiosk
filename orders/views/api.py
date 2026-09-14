@@ -461,31 +461,6 @@ def stats_menu_counts(request: HttpRequest):
     return JsonResponse({"items": data}, status=200)
 
 
-@require_api_roles()
-@require_http_methods(["GET"])
-def kitchen_menu_summary(request: HttpRequest):
-    floor = (request.GET.get("floor") or FloorChoices.B1).upper()
-    if floor != FloorChoices.B1:
-        return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
-
-    today = timezone.localdate()
-    qs = OrderItem.objects.filter(
-        order__status=OrderStatus.PREPARING,
-        order__floor=floor,
-        order__order_date=today,
-    ).values("menu_item_id", "menu_item__name")
-
-    qs = qs.annotate(
-        pending=Sum(F("qty") - F("prepared_qty"), output_field=IntegerField()),
-    ).filter(pending__gt=0).order_by("-pending", "menu_item__name")
-
-    data = [
-        {"menu_item_id": r["menu_item_id"], "name": r["menu_item__name"], "pending": r["pending"]}
-        for r in qs
-    ]
-    return JsonResponse({"items": data}, status=200)
-
-
 @require_api_roles(*ORDER_READ_ROLES)
 @require_http_methods(["GET"])
 def order_detail(request: HttpRequest, order_id: int):

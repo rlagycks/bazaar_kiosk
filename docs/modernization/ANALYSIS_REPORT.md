@@ -185,7 +185,7 @@ O/C/K/H/T는 ORDER/B1_COUNTER/KITCHEN/KITCHEN_HALL/KITCHEN_TAKEOUT이다.
 | `/orders/api/orders/<id>/detail` | GET | 전체 | 조회200 | [api480](../../orders/views/api.py#L480) |
 | `/orders/api/orders/<id>/status` | PATCH | 전체 | **CSRF 면제**,200 | [api346](../../orders/views/api.py#L346) |
 | `/orders/api/orders/items/<id>/progress` | PATCH | 전체 | **CSRF 면제**,200 | [api379](../../orders/views/api.py#L379) |
-| `/orders/api/kitchen/menu-summary` | GET | 전체 | 조회200 | [api456](../../orders/views/api.py#L456) |
+| `/orders/api/kitchen/menu-summary` | GET | 전체 | 조회200 | 단계3에서 경로 제거 |
 | `/orders/api/stats/menu-counts` | GET | 전체 | 조회200 | [api428](../../orders/views/api.py#L428) |
 | `/orders/api/stats/dashboard` | GET | 전체 | 인가 없음; 별도 FieldError500 | [api489](../../orders/views/api.py#L489) |
 

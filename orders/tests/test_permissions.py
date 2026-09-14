@@ -11,7 +11,8 @@ Approved matrix, D-040 as revised 2026-09-13:
     order-status, order-item-progress     주방        (KITCHEN_ROLES)
     stats-dashboard, stats-menu-counts    주방 카운터  (COUNTER_ROLES)
     orders-collection GET, order-detail   주방+카운터  (ORDER_READ_ROLES)
-    everything else                       인증된 계정 전체
+    everything else                       인증된 계정 전체  (tables, menus,
+                                          orders-collection POST)
 
 Reading an order carries its money -- total_price, payment_method, the cash and
 ticket split, change, per-item unit_price -- so leaving it open would undo the
@@ -128,9 +129,6 @@ class AuthorizationMatrixTests(TestCase):
             "order-detail": (
                 "get", reverse("orders:order-detail", args=[self.order.id]), {},
                 APPROVED_ORDER_READ,
-            ),
-            "kitchen-menu-summary": (
-                "get", reverse("orders:kitchen-menu-summary"), {}, (),
             ),
             "orders-collection-create": ("post", reverse("orders:orders-collection"), {
                 "data": {
@@ -411,8 +409,8 @@ class AuthorizationMatrixTests(TestCase):
         # orders-collection carries GET and POST, so the route count and the
         # check count differ by one. Pin both: a duplicate key would shrink
         # the table while leaving the route set intact.
-        self.assertEqual(len(routed), 9)
-        self.assertEqual(len(self.endpoints()), 10)
+        self.assertEqual(len(routed), 8)
+        self.assertEqual(len(self.endpoints()), 9)
         self.assertEqual(len(self.write_specs()), 3)
 
     def test_reading_an_order_is_refused_to_the_ordering_account(self):
