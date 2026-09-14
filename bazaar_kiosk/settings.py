@@ -180,7 +180,7 @@ ROOT_URLCONF = "bazaar_kiosk.urls"
 # HTML, which a JSON client reports as a parse error rather than a permission
 # problem. This view returns JSON for API paths and keeps the HTML page for
 # browser navigations.
-CSRF_FAILURE_VIEW = "orders.views.auth.csrf_failure"
+CSRF_FAILURE_VIEW = "orders.views.guards.csrf_failure"
 
 # --- 템플릿 ---
 TEMPLATES = [

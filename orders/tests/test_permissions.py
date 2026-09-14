@@ -39,7 +39,7 @@ from django.urls import reverse
 
 from orders.models import MenuItem, Order, OrderItem, Table
 from orders.views import api
-from orders.views.auth import (
+from orders.roles import (
     COUNTER_ROLES,
     KITCHEN_ROLES,
     ORDER_READ_ROLES,
@@ -500,7 +500,7 @@ class AuthorizationMatrixTests(TestCase):
         has to enforce that itself: require_http_methods would also refuse HEAD
         today, but that decorator sits inside this one, so relying on it makes
         the restriction a side effect of an unrelated list."""
-        from orders.views.auth import require_api_roles
+        from orders.views.guards import require_api_roles
 
         @require_api_roles(by_method={"GET": APPROVED_COUNTER})
         def view(request):
@@ -518,7 +518,7 @@ class AuthorizationMatrixTests(TestCase):
         default, which for orders-collection is the open sentinel. The narrower
         mistake -- a mistyped role -- already raises; this is the one that
         actually grants access."""
-        from orders.views.auth import require_api_roles
+        from orders.views.guards import require_api_roles
 
         for bad in ({"GTE": APPROVED_COUNTER}, {"GET": "B1_COUNTER"}, {"GET": ()}):
             with self.subTest(by_method=bad):

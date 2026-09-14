@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
-from .auth import require_roles
+from .guards import require_roles
 
 
 def _supabase_context() -> dict[str, str]:
