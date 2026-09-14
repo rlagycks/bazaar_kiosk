@@ -265,10 +265,95 @@ class AuthorizationMatrixTests(TestCase):
         client = self.client_as("B1_COUNTER")
         before = client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
         self.assertEqual(before.status_code, 200)
-        client.get(reverse("orders:logout"))
+        self.assertEqual(client.post(reverse("orders:logout")).status_code, 302)
         self.assertNotIn("role", client.session)
         after = client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
         self.assertEqual(after.status_code, 403)
+
+    def test_logout_is_not_reachable_by_a_safe_method(self):
+        """A GET logout is triggerable cross-site.
+
+        `<img src=".../orders/logout/">` on any other page is enough, and Django
+        exempts safe methods from CSRF, so nothing would stop it. On a kiosk that
+        means a staff screen logged out mid-service by a request the operator
+        never made. The session must survive every safe method (BK-R019).
+
+        All three safe methods are checked, not just GET, because each is a
+        separate way to reach the view and CSRF exempts all of them. A guard
+        written as "refuse GET" rather than "require POST" would pass the GET
+        case and still end the session on HEAD.
+        """
+        for method in ("get", "head", "options"):
+            with self.subTest(method=method):
+                client = self.client_as("B1_COUNTER")
+                response = getattr(client, method)(reverse("orders:logout"))
+                self.assertEqual(response.status_code, 405)
+                self.assertEqual(client.session.get("role"), "B1_COUNTER")
+                self.assertEqual(
+                    client.get(
+                        reverse("orders:stats-dashboard"), {"floor": "B1"}
+                    ).status_code,
+                    200,
+                )
+
+    # --- 자격증명 회수 ----------------------------------------------------
+
+    def test_withdrawing_a_credential_ends_the_sessions_already_holding_it(self):
+        """Revocation has to reach devices that are already signed in.
+
+        Before this, the guards asked the static role table whether a session's
+        role existed, and that table never changes at runtime. So removing a
+        role's PIN stopped the login form and nothing else: every screen already
+        open kept full access until someone logged it out. On shared kiosk
+        accounts that is the whole point of revoking (BK-R019).
+
+        Both surfaces are checked. They refuse differently -- a page redirects, an
+        API answers JSON -- so a fix applied to only one of them would leave the
+        revoked account still reading orders through the API.
+        """
+        counter = self.client_as("B1_COUNTER")
+        kitchen = self.client_as("KITCHEN")
+        dashboard = (reverse("orders:stats-dashboard"), {"floor": "B1"})
+        self.assertEqual(counter.get(*dashboard).status_code, 200)
+
+        remaining = {r: p for r, p in ROLE_PINS.items() if r != "B1_COUNTER"}
+        with override_settings(ROLE_PINS=remaining):
+            self.assertEqual(counter.get(*dashboard).status_code, 403)
+            page = counter.get(reverse("orders:b1-counter"))
+            self.assertEqual(page.status_code, 302)
+            self.assertEqual(page.headers["Location"], reverse("orders:login"))
+            # The withdrawal is aimed at one role. Everyone else keeps working:
+            # a fix that simply refused every session would also pass the
+            # assertions above.
+            self.assertEqual(
+                kitchen.get(reverse("orders:kitchen")).status_code, 200
+            )
+            self.assertEqual(
+                kitchen.get(
+                    reverse("orders:order-detail", args=[self.order.id])
+                ).status_code,
+                200,
+            )
+
+        # Restoring the credential is not what this test is about, but if the
+        # session had been destroyed rather than refused the caller would have
+        # to log in again, and that is a different product behaviour. Pin which
+        # one this is: the session survives, only the answer changes.
+        self.assertEqual(counter.get(*dashboard).status_code, 200)
+
+    def test_a_blank_credential_does_not_provision_a_role(self):
+        """An empty value is a role with no way to sign in, not a role with an
+        empty password. Treating it as provisioned would keep its existing
+        sessions alive while the operator believes the account is closed."""
+        blanked = {**ROLE_PINS, "B1_COUNTER": ""}
+        counter = self.client_as("B1_COUNTER")
+        with override_settings(ROLE_PINS=blanked):
+            self.assertEqual(
+                counter.get(
+                    reverse("orders:stats-dashboard"), {"floor": "B1"}
+                ).status_code,
+                403,
+            )
 
     # --- CSRF ------------------------------------------------------------
 

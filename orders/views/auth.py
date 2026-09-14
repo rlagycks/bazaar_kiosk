@@ -16,6 +16,7 @@ from django.views.decorators.debug import (
     sensitive_post_parameters,
     sensitive_variables,
 )
+from django.views.decorators.http import require_POST
 
 from orders.roles import ROLE_DEFINITIONS, ROLE_LABELS, ROLE_TO_URLNAME
 
@@ -64,7 +65,16 @@ def login_view(request):
         "role_cards": role_cards,
     })
 
+@require_POST
 def logout_view(request):
+    """End the session. POST only, so that it cannot be triggered cross-site.
+
+    A GET logout is reachable from any other page: `<img src=".../logout/">` is
+    enough, and Django exempts safe methods from CSRF, so nothing stops it. On a
+    kiosk that means a staff screen can be logged out mid-service by a request
+    the operator never made. Requiring POST puts it behind the CSRF token, which
+    is the same bar every other state change on this app clears (BK-R019).
+    """
     request.session.flush()
     rotate_token(request)
     return redirect(reverse("orders:login"))

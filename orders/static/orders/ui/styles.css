@@ -128,6 +128,9 @@ body {
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
 }
 
+/* 로그아웃은 POST 라서 form 이다. 브라우저 기본 form 여백이 flex 정렬을 흔든다. */
+.logout-form { margin: 0; }
+
 .header h2 {
     color: #333;
     font-size: 1.8rem;

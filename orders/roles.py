@@ -32,3 +32,35 @@ COUNTER_ROLES = ("B1_COUNTER",)
 # restriction rather than stay neutral on it. Creating an order stays open to
 # every account -- the ordering screen posts, it never reads back.
 ORDER_READ_ROLES = KITCHEN_ROLES + COUNTER_ROLES
+
+
+def provisioned_roles() -> frozenset[str]:
+    """The roles that currently have a credential configured.
+
+    The guards consult this on every request instead of the static table above,
+    so that withdrawing a role's credential ends the sessions already holding
+    it. Without it, revocation only stops new logins: every device already
+    signed in keeps its access until someone logs it out, and the only way to
+    reach those devices is to restart with a new SECRET_KEY, which signs out
+    every role at once (BK-R019).
+
+    Names not in ROLE_DEFINITIONS are dropped rather than honoured: a typo in
+    the deployment's credential list must not mint a role.
+
+    Today the credential store is `settings.ROLE_PINS`. When D-035's
+    id/password store replaces it, this is the one place that has to change.
+
+    **This covers withdrawal, not rotation.** Changing a role's PIN to a new
+    value leaves the role provisioned, so sessions opened with the old PIN
+    survive. Making rotation end them too needs the session to carry something
+    derived from the credential, and that mechanism is part of the revocation
+    procedure that is still undecided. Do not assume rotation logs anyone out.
+    """
+    from django.conf import settings
+
+    configured = {
+        str(role).upper()
+        for role, secret in getattr(settings, "ROLE_PINS", {}).items()
+        if secret
+    }
+    return frozenset(configured & set(ROLE_TO_URLNAME))

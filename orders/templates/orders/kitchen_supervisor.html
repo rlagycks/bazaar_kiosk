@@ -13,6 +13,7 @@
     .hdr h2{margin:0;font-size:22px;}
     .hdr .muted{margin-top:4px;}
     .hdr-actions{display:flex;gap:8px;flex-wrap:wrap;}
+    .logout-form{margin:0;}
     .btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:10px;border:1px solid #d1d5db;background:#fff;font-weight:600;cursor:pointer;transition:all .15s ease;}
     .btn.secondary{background:#2563eb;border-color:#2563eb;color:#fff;}
     .btn.ghost{background:#fff;}
@@ -66,7 +67,9 @@
       </div>
       <div class="hdr-actions">
         <button class="btn secondary" id="btnReload">새로고침</button>
-        <a class="btn logout" href="{% url 'orders:logout' %}">로그아웃</a>
+        <form method="post" action="{% url 'orders:logout' %}" class="logout-form">{% csrf_token %}
+          <button class="btn logout" type="submit">로그아웃</button>
+        </form>
       </div>
     </div>
 

@@ -19,7 +19,7 @@ from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
 
-from orders.roles import ROLE_TO_URLNAME
+from orders.roles import ROLE_TO_URLNAME, provisioned_roles
 
 _HTTP_METHODS = frozenset(
     ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE")
@@ -74,7 +74,12 @@ def require_roles(*allowed_roles: str):
         @wraps(viewfunc)
         def _wrapped(request, *args, **kwargs):
             role = request.session.get("role")
-            if not role or (allowed and role.upper() not in allowed):
+            # provisioned_roles() is read per request, not captured at import:
+            # that is what makes withdrawing a credential reach the sessions
+            # already holding it. See orders.roles.provisioned_roles.
+            if not role or role.upper() not in provisioned_roles():
+                return redirect(reverse("orders:login"))
+            if allowed and role.upper() not in allowed:
                 return redirect(reverse("orders:login"))
             return viewfunc(request, *args, **kwargs)
         return _wrapped
@@ -156,7 +161,10 @@ def require_api_roles(*allowed_roles: str, by_method: dict[str, tuple[str, ...]]
         @wraps(viewfunc)
         def _wrapped(request, *args, **kwargs):
             role = request.session.get("role")
-            if not role or role.upper() not in ROLE_TO_URLNAME:
+            # Read per request rather than against the static table: a role
+            # whose credential has been withdrawn must stop being accepted on
+            # the sessions that already hold it, not merely at the login form.
+            if not role or role.upper() not in provisioned_roles():
                 return JsonResponse({"detail": "로그인이 필요합니다."}, status=403)
             required = per_method.get(request.method.upper(), allowed)
             if required and role.upper() not in required:
