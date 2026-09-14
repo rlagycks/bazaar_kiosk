@@ -355,6 +355,123 @@ class AuthorizationMatrixTests(TestCase):
                 403,
             )
 
+    def test_an_unknown_name_in_the_credential_list_does_not_mint_a_role(self):
+        """provisioned_roles() intersects with the app's own role table.
+
+        Without that intersection a deployment could name anything in its
+        credential list and have the guards honour it. GHOST does not cover
+        this: GHOST is never in ROLE_PINS, so it is refused by the membership
+        check whether or not the intersection exists. The name has to be
+        *present in the credential list* and absent from the app.
+        """
+        from orders.roles import provisioned_roles
+
+        with override_settings(ROLE_PINS={**ROLE_PINS, "ADMIN": "pw"}):
+            self.assertEqual(
+                sorted(provisioned_roles()),
+                [
+                    "B1_COUNTER", "KITCHEN", "KITCHEN_HALL",
+                    "KITCHEN_TAKEOUT", "ORDER",
+                ],
+            )
+            minted = Client()
+            session = minted.session
+            session["role"] = "ADMIN"
+            session.save()
+            self.assertEqual(
+                minted.get(
+                    reverse("orders:stats-dashboard"), {"floor": "B1"}
+                ).status_code,
+                403,
+            )
+            self.assertEqual(
+                minted.get(reverse("orders:kitchen")).status_code, 302
+            )
+
+    def test_a_session_role_is_matched_case_insensitively_on_purpose(self):
+        """The guards upper-case the session's role before comparing it.
+
+        login_view only ever writes the canonical upper-case name, so this only
+        matters for a value that got there some other way. Accepting it costs
+        nothing -- anyone able to write the session could write the canonical
+        spelling just as easily, so refusing the lower-case form protects
+        nothing -- but leaving it untested makes it an accident rather than a
+        choice, and a later reader cannot tell which. Pinned so that removing
+        the normalisation is a visible decision.
+        """
+        variant = Client()
+        session = variant.session
+        session["role"] = "b1_counter"
+        session.save()
+        self.assertEqual(
+            variant.get(
+                reverse("orders:stats-dashboard"), {"floor": "B1"}
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            variant.get(reverse("orders:b1-counter")).status_code, 200
+        )
+
+    def test_the_credential_list_is_normalised_before_it_is_believed(self):
+        """settings.parse_role_pins strips and upper-cases what comes from the
+        environment, but it is not the only way ROLE_PINS is set -- a settings
+        module can assign the dict directly. A role that failed to match on a
+        stray space would read as withdrawn and lock that terminal out."""
+        from orders.roles import provisioned_roles
+
+        messy = {" b1_counter ": " p2 ", "KITCHEN": "p3"}
+        with override_settings(ROLE_PINS=messy):
+            self.assertEqual(sorted(provisioned_roles()), ["B1_COUNTER", "KITCHEN"])
+
+        # Whitespace is not a credential, even though it is truthy.
+        with override_settings(ROLE_PINS={"B1_COUNTER": "   ", "KITCHEN": "p3"}):
+            self.assertEqual(sorted(provisioned_roles()), ["KITCHEN"])
+
+    def test_rotating_a_credential_does_not_end_existing_sessions(self):
+        """The documented boundary of the withdrawal feature, pinned.
+
+        roles.py, API_AUTHORIZATION and SESSION_SETUP all state that changing a
+        PIN's *value* leaves existing sessions alone, because provisioned_roles
+        checks presence and not the secret. That is a claim about what does NOT
+        happen, so without a test a future change could quietly cross it while
+        the suite stayed green -- and the docs would then be wrong in the
+        direction that matters, telling an operator rotation is not a revocation
+        when it had silently become one, or the reverse.
+        """
+        counter = self.client_as("B1_COUNTER")
+        rotated = {**ROLE_PINS, "B1_COUNTER": "a-new-counter-pin"}
+        with override_settings(ROLE_PINS=rotated):
+            self.assertEqual(
+                counter.get(
+                    reverse("orders:stats-dashboard"), {"floor": "B1"}
+                ).status_code,
+                200,
+                "rotation ended the session; the documented boundary moved",
+            )
+
+    def test_withdrawal_reaches_the_cached_endpoints_too(self):
+        """tables and menus wear @require_api_roles OUTSIDE @cache_page, so the
+        guard runs before the cache lookup. The anonymous case is covered
+        elsewhere; this covers the revoked-but-still-has-a-session case against
+        the same endpoints, because D-036 plans to split those two branches
+        apart and the cache invariant has to hold for both afterwards."""
+        counter = self.client_as("B1_COUNTER")
+        for name in ("orders:tables", "orders:menus"):
+            with self.subTest(endpoint=name):
+                # Warm the cache as an authorized caller.
+                self.assertEqual(counter.get(reverse(name)).status_code, 200)
+
+        remaining = {r: p for r, p in ROLE_PINS.items() if r != "B1_COUNTER"}
+        with override_settings(ROLE_PINS=remaining):
+            for name in ("orders:tables", "orders:menus"):
+                with self.subTest(endpoint=name):
+                    response = counter.get(reverse(name))
+                    self.assertEqual(response.status_code, 403)
+                    self.assertEqual(
+                        response.json(), {"detail": "로그인이 필요합니다."}
+                    )
+
     # --- CSRF ------------------------------------------------------------
 
     def write_specs(self):
@@ -566,6 +683,44 @@ class AuthorizationMatrixTests(TestCase):
         self.assertNotIn("planted", client.session)
         self.assertNotEqual(client.cookies[settings.CSRF_COOKIE_NAME].value, planted_csrf)
 
+    def test_logout_rotates_the_csrf_token_as_well_as_the_session(self):
+        """Logout's counterpart to the login rotation above.
+
+        The session key and the CSRF secret are one credential pair. Tearing
+        down the session while leaving the old CSRF secret in the cookie hands
+        the next person at that terminal a token minted for the previous
+        occupant's session. Checking only that `role` left the session would
+        pass with rotate_token deleted.
+        """
+        client = self.client_as("KITCHEN")
+        before = client.cookies[settings.CSRF_COOKIE_NAME].value
+        self.assertTrue(before, "no token before logout; the test proves nothing")
+
+        self.assertEqual(client.post(reverse("orders:logout")).status_code, 302)
+        self.assertNotIn("role", client.session)
+        self.assertNotEqual(client.cookies[settings.CSRF_COOKIE_NAME].value, before)
+
+    def test_the_logout_control_on_a_live_screen_is_a_post_form(self):
+        """The server refuses GET logout; this pins that the UI stopped asking.
+
+        A template still linking to it with <a href> would 405 every logout
+        button in the app, and no server-side assertion notices -- the guard is
+        working exactly as intended in that scenario. Only the rendered page
+        shows it.
+
+        kitchen_supervisor.html is the live screen: pages.py renders it for all
+        three kitchen routes. serve.html carries the same control but no view
+        renders it, so it is not asserted here.
+        """
+        page = self.client_as("KITCHEN").get(reverse("orders:kitchen"))
+        self.assertEqual(page.status_code, 200)
+        html = page.content.decode()
+        logout_url = reverse("orders:logout")
+
+        self.assertIn(f'<form method="post" action="{logout_url}"', html)
+        self.assertIn("csrfmiddlewaretoken", html)
+        self.assertNotIn(f'href="{logout_url}"', html)
+
     def test_a_failed_login_leaves_the_session_alone(self):
         """Rotation belongs to the privilege transition. If a wrong PIN also
         cycled the key, an unauthenticated caller could churn session rows."""
@@ -632,6 +787,29 @@ class AuthorizationMatrixTests(TestCase):
         for leak in ("CSRF", "Referer", "origin", *ROLES):
             self.assertNotIn(leak, body)
 
+    @override_settings(ROOT_URLCONF="orders.tests.urls_outside_api")
+    def test_the_json_refusal_follows_the_guard_and_not_the_path(self):
+        """_targets_the_api resolves the URLconf and looks for the marker the
+        guard sets, instead of testing the path against "/orders/api/".
+
+        With every API view under one prefix the two rules agree on every
+        request, so the resolver version is indistinguishable from the cheap
+        string check -- and the reasoning in its docstring is unverifiable.
+        This mounts a require_api_roles view somewhere else entirely. A prefix
+        check answers it with Django's HTML page; the marker answers in JSON.
+        """
+        client = Client(enforce_csrf_checks=True)
+        client.post(
+            reverse("orders:login"), {"role": "KITCHEN", "pin": ROLE_PINS["KITCHEN"]}
+        )
+        response = client.post(reverse("outside-api-ping"))
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(
+            response["Content-Type"].startswith("application/json"),
+            f"refused as {response['Content-Type']}, so the path decided it",
+        )
+        self.assertIn("detail", response.json())
+
     def test_a_csrf_rejection_on_a_page_is_still_the_html_page(self):
         """A browser navigation should see a page, not a JSON blob. This keeps
         the JSON answer scoped to the API instead of applying it everywhere."""
@@ -646,4 +824,6 @@ class AuthorizationMatrixTests(TestCase):
         This keeps the two rejection styles from drifting into each other."""
         response = self.client_as("ORDER").get(reverse("orders:kitchen"))
         self.assertEqual(response.status_code, 302)
-        self.assertIn("/login", response["Location"])
+        # Equality, not a substring. "/login" is also satisfied by a hardcoded
+        # "/login", which is a 404 here -- the real screen is /orders/login/.
+        self.assertEqual(response["Location"], reverse("orders:login"))

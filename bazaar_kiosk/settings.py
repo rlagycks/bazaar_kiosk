@@ -86,9 +86,23 @@ def _bad_role_pins() -> bool:
     # adds a new role still hands that role's screen to a published credential.
     if set(ROLE_PINS.items()) & set(_LEGACY_ROLE_PINS.items()):
         return True
-    # Every role needs one, or those terminals cannot log in and the failure
-    # only shows up on the floor. A blank PIN is a configured non-credential.
-    if set(ROLE_PINS) != set(_LEGACY_ROLE_PINS) or not all(ROLE_PINS.values()):
+    # A name that is not one of the app's roles is a typo, and a typo is how a
+    # role silently loses its credential: the intended role falls out of the
+    # set and nobody finds out until that terminal tries to log in on the floor.
+    # Refusing unknown names is what makes the subset rule below safe -- without
+    # it, "KITCHN:1234" would read as a deliberate withdrawal of KITCHEN.
+    if set(ROLE_PINS) - set(_LEGACY_ROLE_PINS):
+        return True
+    # A subset is allowed, because withdrawing a role's credential is how a
+    # shared account is revoked, and demanding all five would make revocation
+    # undeployable: the app would refuse to start on exactly the configuration
+    # the operator needs. Roles left out simply cannot log in, and any session
+    # already holding one stops being accepted once the process restarts
+    # (orders.roles.provisioned_roles). Withdraw by removing the entry.
+    #
+    # A blank value is still refused. It is indistinguishable from a half-edited
+    # line, and unlike a removed entry it does not read as a deliberate act.
+    if not all(ROLE_PINS.values()):
         return True
     # Shared PINs collapse the role separation phase 3 exists to enforce:
     # holding one role's PIN would authenticate as any role sharing it.

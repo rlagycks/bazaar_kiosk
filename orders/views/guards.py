@@ -74,9 +74,10 @@ def require_roles(*allowed_roles: str):
         @wraps(viewfunc)
         def _wrapped(request, *args, **kwargs):
             role = request.session.get("role")
-            # provisioned_roles() is read per request, not captured at import:
-            # that is what makes withdrawing a credential reach the sessions
-            # already holding it. See orders.roles.provisioned_roles.
+            # Read through provisioned_roles() rather than the static table:
+            # that is what makes a withdrawn credential reach the sessions
+            # already holding it, on the first request after the restart that
+            # applies the withdrawal. See orders.roles.provisioned_roles.
             if not role or role.upper() not in provisioned_roles():
                 return redirect(reverse("orders:login"))
             if allowed and role.upper() not in allowed:
@@ -161,9 +162,9 @@ def require_api_roles(*allowed_roles: str, by_method: dict[str, tuple[str, ...]]
         @wraps(viewfunc)
         def _wrapped(request, *args, **kwargs):
             role = request.session.get("role")
-            # Read per request rather than against the static table: a role
-            # whose credential has been withdrawn must stop being accepted on
-            # the sessions that already hold it, not merely at the login form.
+            # Read through provisioned_roles() rather than the static table: a
+            # role whose credential has been withdrawn must stop being accepted
+            # on the sessions that already hold it, not merely at the login form.
             if not role or role.upper() not in provisioned_roles():
                 return JsonResponse({"detail": "로그인이 필요합니다."}, status=403)
             required = per_method.get(request.method.upper(), allowed)
