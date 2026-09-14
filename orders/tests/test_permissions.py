@@ -30,8 +30,10 @@ Run with bazaar_kiosk.settings_test_pg and the dedicated Compose test database.
 
 from importlib import import_module
 
+from django.conf import settings
 from django.core.cache import cache
-from django.test import Client, TestCase, override_settings
+from django.http import JsonResponse
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from orders.models import MenuItem, Order, OrderItem, Table
@@ -456,20 +458,76 @@ class AuthorizationMatrixTests(TestCase):
 
     # --- session and CSRF boundaries -------------------------------------
 
-    def test_login_issues_a_new_session_key(self):
-        """The session is now the only authorization credential the API has,
-        so a key planted before login must not survive it."""
+    def test_login_starts_a_clean_session_and_rotates_the_csrf_token(self):
+        """The session is now the only authorization credential the API has, so
+        a key planted before login must not survive it -- and neither should the
+        contents, nor the CSRF secret bound to the old key. The session key is
+        only half the pair; Django's own login rotates both."""
         client = Client()
         client.get(reverse("orders:login"))
-        planted = client.session.session_key
-        self.assertIsNotNone(planted, "no pre-login session to plant; test is vacuous")
+        session = client.session
+        session["planted"] = "attacker"
+        session.save()
+        client.cookies[settings.SESSION_COOKIE_NAME] = session.session_key
+        planted_key = session.session_key
+        planted_csrf = client.cookies[settings.CSRF_COOKIE_NAME].value
+        self.assertTrue(planted_key, "no pre-login session; the test proves nothing")
+        self.assertTrue(planted_csrf, "no pre-login token; the test proves nothing")
 
         response = client.post(
             reverse("orders:login"), {"role": "KITCHEN", "pin": ROLE_PINS["KITCHEN"]}
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(client.session["role"], "KITCHEN")
-        self.assertNotEqual(client.session.session_key, planted)
+        self.assertNotEqual(client.session.session_key, planted_key)
+        self.assertNotIn("planted", client.session)
+        self.assertNotEqual(client.cookies[settings.CSRF_COOKIE_NAME].value, planted_csrf)
+
+    def test_a_failed_login_leaves_the_session_alone(self):
+        """Rotation belongs to the privilege transition. If a wrong PIN also
+        cycled the key, an unauthenticated caller could churn session rows."""
+        client = Client()
+        client.get(reverse("orders:login"))
+        before = client.session.session_key
+
+        response = client.post(
+            reverse("orders:login"), {"role": "KITCHEN", "pin": "wrong-pin"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("role", client.session)
+        self.assertEqual(client.session.session_key, before)
+
+    def test_head_is_authorized_as_the_get_it_is(self):
+        """HEAD is GET without a body, so it must clear GET's bar. The guard
+        has to enforce that itself: require_http_methods would also refuse HEAD
+        today, but that decorator sits inside this one, so relying on it makes
+        the restriction a side effect of an unrelated list."""
+        from orders.views.auth import require_api_roles
+
+        @require_api_roles(by_method={"GET": APPROVED_COUNTER})
+        def view(request):
+            return JsonResponse({"money": 1})
+
+        factory = RequestFactory()
+        for method in ("get", "head"):
+            with self.subTest(method=method):
+                request = getattr(factory, method)("/probe")
+                request.session = {"role": "ORDER"}
+                self.assertEqual(view(request).status_code, 403)
+
+    def test_a_mistyped_method_key_is_refused_at_decoration(self):
+        """A key that never matches would leave that method on the endpoint
+        default, which for orders-collection is the open sentinel. The narrower
+        mistake -- a mistyped role -- already raises; this is the one that
+        actually grants access."""
+        from orders.views.auth import require_api_roles
+
+        for bad in ({"GTE": APPROVED_COUNTER}, {"GET": "B1_COUNTER"}, {"GET": ()}):
+            with self.subTest(by_method=bad):
+                with self.assertRaises(ValueError):
+                    require_api_roles(by_method=bad)
+        with self.assertRaises(ValueError):
+            require_api_roles("NOT_A_ROLE")
 
     def test_a_csrf_rejection_on_the_api_is_json_not_html(self):
         """CsrfViewMiddleware runs outside every view decorator, so a tokenless

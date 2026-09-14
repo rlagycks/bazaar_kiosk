@@ -73,14 +73,19 @@ D-034~039 후속(2026-09-12): 인증·배포·데이터 전제가 확정됐다. 
 [구현과 증거](API_AUTHORIZATION.md). 인증 방식은 바꾸지 않았으므로 공용 PIN 약점(BK-R002)은 그대로다.
 브라우저 실제 여정과 401/403 구분은 미검증이며 외부 노출·배포는 미실행이다.
 
-**세 항목이 저장소에서 닫혔다.**
+**세 항목 중 둘이 닫혔고 매출 기밀성은 부분적으로 남았다.**
 - 익명 접근 차단: 수정됨. 전 API에서 403이다.
 - 변경 API의 CSRF 면제: 수정됨. 쓰기3개가 토큰을 요구한다.
-- 매출 기밀성: 수정됨. 다만 **1차 구현에서는 닫히지 않았다.** `stats-dashboard`를 카운터로
-  제한했으나 같은 숫자가 `orders-collection` GET과 `order-detail`로 나갔다. `_serialize_order`가
-  주문마다 `total_price`·`payment_method`·현금/식권 구성·거스름돈을 담는데 두 엔드포인트가
+- 매출 기밀성: **주문별 결제 구성은 닫혔고 메뉴별 집계는 남았다.**
+  1차 구현은 닫지 못했다. `stats-dashboard`를 카운터로 제한했으나 같은 숫자가
+  `orders-collection` GET과 `order-detail`로 나갔다. `_serialize_order`가 주문마다
+  `total_price`·`payment_method`·현금/식권 구성·거스름돈을 담는데 두 엔드포인트가
   인증만 요구했기 때문이다. 독립 리뷰가 찾았고 D-040 2차 개정으로 조회를 주방·카운터로 좁혔다.
   **주체 미정이 중립인 경우와 이미 내린 제한을 무효로 만드는 경우는 다르다**는 것이 교훈이다.
+  3차 리뷰가 같은 종류를 하나 더 찾았다. `kitchen-menu-summary`(인증만)의 메뉴별 미조리 수량과
+  `menus`(인증만)의 단가를 합치면 카운터 전용인 `stats-menu-counts`의 메뉴별 금액이 재구성된다.
+  `kitchen-menu-summary`는 호출하는 화면이 없어 닫는 비용이 0이지만 D-040이 주체를 정하지 않아
+  **결정 없이 좁히지 않았다.** 4A2에서 답해야 한다.
 
 D-041로 세션 고정(로그인 시 `cycle_key()`)과 CSRF 거부의 JSON 응답도 함께 닫았다.
 세션이 이제 9개 API의 유일한 인가 자격증명이라 전보다 무겁기 때문이다.
@@ -101,7 +106,7 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 
 | 순위 | ID / 발견 | 심각도 | 증거 상태 | 해결 상태 | 선행 결정·의존성 | 담당 역할 | 주 단계 | 종료에 필요한 증거 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | [BK-R001 — API 역할 인가 부재와 변경 API CSRF 면제](ANALYSIS_REPORT.md#bk-r001) | Critical | Repo-fixed | Open (운영 인수 대기) | D-036,D-040,D-041; 단계 2 | 보안 담당 | 3 | 모든 역할/익명/만료 세션, CSRF 없음·오류·유효, GET/POST/PATCH/HEAD 경계. **브라우저 여정·401/403 미검증. 인증 방식 미변경(BK-R002)** |
+| 1 | [BK-R001 — API 역할 인가 부재와 변경 API CSRF 면제](ANALYSIS_REPORT.md#bk-r001) | Critical | Repo-fixed(인가·CSRF·주문별 매출) | Open (메뉴별 집계 우회, 운영 인수 대기) | D-036,D-040,D-041; 단계 2 | 보안 담당 | 3 | 모든 역할/익명/만료 세션, CSRF 없음·오류·유효, GET/POST/PATCH/HEAD 경계. **`kitchen-menu-summary`+`menus` 우회. 브라우저 여정·401/403 미검증. 인증 방식 미변경(BK-R002)** |
 | 2 | [BK-R005 — 빈 PostgreSQL에서 0020 마이그레이션 중단](ANALYSIS_REPORT.md#bk-r005) | High | Repo-fixed | Open (운영 확인 대기) | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | PG 빈 DB 전체 체인, null/빈 번호, 기존 양수번호 DB, 이미0020 적용 경로·롤백 |
 | 2 | [BK-R017 — 과거 스키마 축소와 신규 제약의 데이터 호환성 미검증](ANALYSIS_REPORT.md#bk-r017) | High | Reproduced | Open | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | 0018 시점 F1/BOOTH/포장null fixture→0019, 정제복사본 dry-run·백업복원·구앱 호환 |
 | 2 | [BK-R004 — 동작 테스트 0개와 실행을 강제하지 않는 CI](ANALYSIS_REPORT.md#bk-r004) | High | Reproduced | Open | D-006,D-008; 단계 1 | 테스트 담당 | 2B | 2A 로컬 특성화·가격/atomic 변이 검출 완료; PG CI 및 회귀 감지 강제 필요 |
