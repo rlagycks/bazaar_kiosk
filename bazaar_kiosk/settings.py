@@ -49,6 +49,13 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "bazaar_kiosk.urls"
 
+# CSRF middleware sits outside every view decorator, so a tokenless write to the
+# JSON API is rejected before the API guard can answer. Django's default answers
+# HTML, which a JSON client reports as a parse error rather than a permission
+# problem. This view returns JSON for API paths and keeps the HTML page for
+# browser navigations.
+CSRF_FAILURE_VIEW = "orders.views.auth.csrf_failure"
+
 # --- 템플릿 ---
 TEMPLATES = [
     {

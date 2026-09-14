@@ -2,6 +2,7 @@
 from __future__ import annotations
 from django.conf import settings
 from django.shortcuts import render
+from django.views.decorators.csrf import ensure_csrf_cookie
 from .auth import require_roles
 
 
@@ -11,6 +12,7 @@ def _supabase_context() -> dict[str, str]:
         "supabase_anon_key": settings.SUPABASE_ANON_KEY,
     }
 
+@ensure_csrf_cookie
 @require_roles("ORDER")
 def order_page(request):
     return render(request, "orders/order.html", _supabase_context())
@@ -20,6 +22,7 @@ def b1_counter_page(request):
     return render(request, "orders/b1_counter.html", _supabase_context())
 
 
+@ensure_csrf_cookie
 @require_roles("KITCHEN", "KITCHEN_HALL", "KITCHEN_TAKEOUT")
 def kitchen_overview_page(request):
     context = _supabase_context() | {
@@ -30,6 +33,7 @@ def kitchen_overview_page(request):
     return render(request, "orders/kitchen_supervisor.html", context)
 
 
+@ensure_csrf_cookie
 @require_roles("KITCHEN_HALL")
 def kitchen_hall_page(request):
     context = _supabase_context() | {
@@ -40,6 +44,7 @@ def kitchen_hall_page(request):
     return render(request, "orders/kitchen_supervisor.html", context)
 
 
+@ensure_csrf_cookie
 @require_roles("KITCHEN_TAKEOUT")
 def kitchen_takeout_page(request):
     context = _supabase_context() | {
