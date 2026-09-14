@@ -54,6 +54,12 @@ _test_config = test_database_config(os.environ.get("BK_TEST_DATABASE_URL", ""))
 with patch.dict(os.environ, {
     "DATABASE_URL": "postgresql://bk_test_runner:synthetic-local-runner-only@127.0.0.1:"
                     + _test_config["PORT"] + "/bk_test_control?sslmode=disable",
+    # Base settings refuse an unstated DEBUG (D-039), and the env is cleared
+    # here. "1" only skips the deployment gate during the import; this profile
+    # pins DEBUG=False below and never runs as a deployment. The gate itself is
+    # exercised by orders/tests/test_required_settings.py, which boots the real
+    # settings module in a fresh interpreter rather than importing it here.
+    "DEBUG": "1",
 }, clear=True):
     from .settings import *  # noqa: F403
 
