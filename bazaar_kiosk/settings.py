@@ -7,8 +7,31 @@ from urllib.parse import urlparse, parse_qs, unquote
 # --- 기본 경로/디버그 ---
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-not-for-prod")
-DEBUG = os.environ.get("DEBUG", "1") == "1"
+# The published default PINs. Named here so the startup check can refuse them
+# without the check itself becoming the place they are written down twice.
+LEGACY_DEMO_ROLE_PINS = "ORDER:1001,B1_COUNTER:2001,KITCHEN:3001,KITCHEN_HALL:4001,KITCHEN_TAKEOUT:5001"
+_DEV_SECRET_KEY = "dev-only-not-for-prod"
+
+
+def _require_explicit_debug() -> bool:
+    """DEBUG has to be stated, not defaulted.
+
+    A default of "on" would mean a deployment that sets nothing runs with the
+    development secret, ALLOWED_HOSTS=['*'] and the published PINs -- and never
+    reaches the deployment checks below, because those only run when DEBUG is
+    off. The refusal would be decorative. Stating it is one line in .env.
+    """
+    raw = os.environ.get("DEBUG")
+    if raw not in ("0", "1"):
+        raise ImproperlyConfigured(
+            "DEBUG must be set to 0 (deployment) or 1 (development). "
+            "It has no default: see .env.example."
+        )
+    return raw == "1"
+
+
+SECRET_KEY = os.environ.get("SECRET_KEY", _DEV_SECRET_KEY)
+DEBUG = _require_explicit_debug()
 DEFAULT_EXCEPTION_REPORTER_FILTER = "bazaar_kiosk.error_reporting.CredentialExceptionReporterFilter"
 
 # 공백 안전 콤마 파서
@@ -135,7 +158,42 @@ def parse_role_pins(raw: str) -> dict[str, str]:
             result[role.strip().upper()] = pin.strip()
     return result
 
-ROLE_PINS = parse_role_pins(os.environ.get(
-    "ROLE_PINS",
-    "ORDER:1001,B1_COUNTER:2001,KITCHEN:3001,KITCHEN_HALL:4001,KITCHEN_TAKEOUT:5001"
-))
+_ROLE_PINS_RAW = os.environ.get("ROLE_PINS", LEGACY_DEMO_ROLE_PINS)
+ROLE_PINS = parse_role_pins(_ROLE_PINS_RAW)
+
+
+# --- 운영 필수 설정 검증 (D-039) ---
+def _refuse_deployment_defaults() -> None:
+    """Refuse to start a deployment that is still wearing development values.
+
+    Silently falling back to a default is how the published PINs and the
+    development secret reach a public host. Every check below names the
+    environment variable and never the value it found: this exception can reach
+    an error report, and the values are exactly what must not appear there.
+
+    Development is untouched. This runs only when DEBUG is off.
+    """
+    missing = []
+    if not os.environ.get("SECRET_KEY") or SECRET_KEY == _DEV_SECRET_KEY:
+        missing.append("SECRET_KEY")
+    if not ALLOWED_HOSTS:
+        missing.append("ALLOWED_HOSTS")
+    if not CSRF_TRUSTED_ORIGINS:
+        missing.append("CSRF_TRUSTED_ORIGINS")
+    # The PINs are a credential, so "unset" and "still the published demo set"
+    # are the same failure. D-035 replaces this mechanism in 4A2; until then it
+    # is the only thing standing between the internet and the kitchen screens.
+    if "ROLE_PINS" not in os.environ or _ROLE_PINS_RAW.strip() == LEGACY_DEMO_ROLE_PINS:
+        missing.append("ROLE_PINS")
+    elif not ROLE_PINS:
+        missing.append("ROLE_PINS")
+    if missing:
+        raise ImproperlyConfigured(
+            "Deployment (DEBUG=0) requires these environment variables to be set "
+            "to non-default values: " + ", ".join(sorted(missing)) + ". "
+            "See .env.example. Values are never logged."
+        )
+
+
+if not DEBUG:
+    _refuse_deployment_defaults()
