@@ -17,12 +17,8 @@ from orders.models import (
     Table, MenuItem, Order, OrderItem,
 )
 from orders.services import allocate_floor_order_no
-from orders.views.auth import (
-    COUNTER_ROLES,
-    KITCHEN_ROLES,
-    ORDER_READ_ROLES,
-    require_api_roles,
-)
+from orders.roles import COUNTER_ROLES, KITCHEN_ROLES, ORDER_READ_ROLES
+from orders.views.guards import require_api_roles
 
 
 # ---------- 공용 ----------

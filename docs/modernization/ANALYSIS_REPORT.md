@@ -1176,7 +1176,11 @@ DB URL2개는 USER/PASS/HOST 기호형 예시로 확인되어 실제 DB 자격�
 <a id="bk-r019"></a>
 ### BK-R019 — 역할 로그인 세션 교체·만료 정책 부재와 GET 로그아웃
 
-- 심각도/상태: **Medium / Code-supported**. 확신: 높음.
+- 심각도/상태: **Medium / Repo-fixed(GET 로그아웃·역할 회수만)**. 아래는 수정 이전 관찰이다.
+  세션 고정은 D-041로, GET 로그아웃과 역할 회수는 4A2 착수분으로 닫았다.
+  **PIN 교체 후 거부는 미구현이고** 인증 방식도 그대로여서 해결 상태는 Open이다.
+  현재 동작·남은 경계는 [등록부](RISK_REGISTER.md)와 [구현과 증거](API_AUTHORIZATION.md)를 따른다.
+  확신: 높음.
 - 근거: [orders/views/auth.py:31-37](../../orders/views/auth.py#L31),51-53; [bazaar_kiosk/settings.py:108-111](../../bazaar_kiosk/settings.py#L108).
 - 영향 불변조건: 세션 수명·공유 기기 식별. 시나리오: 기존 세션에 role만 덧씀(cycle_key/login 없음), 역할 변경/공유기기 인계 정책 없음. PIN 교체·삭제만으로 기존 역할 세션이 회수되지 않음. 안전 메서드 로그아웃은 CSRF 검사 밖이며 POST 등에는 검사 적용.
 - 최소 개선: 식별모델에 맞춘 세션교체/만료/로그아웃POST 및 사용자·기기 감사.

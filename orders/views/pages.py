@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
-from .auth import require_roles
+from .guards import require_roles
 
 
 def _supabase_context() -> dict[str, str]:
@@ -23,7 +23,7 @@ def b1_counter_page(request):
 
 
 @ensure_csrf_cookie
-@require_roles("KITCHEN", "KITCHEN_HALL", "KITCHEN_TAKEOUT")
+@require_roles("KITCHEN")
 def kitchen_overview_page(request):
     context = _supabase_context() | {
         "page_title": "주방 총괄",
@@ -34,7 +34,7 @@ def kitchen_overview_page(request):
 
 
 @ensure_csrf_cookie
-@require_roles("KITCHEN_HALL")
+@require_roles("KITCHEN")
 def kitchen_hall_page(request):
     context = _supabase_context() | {
         "page_title": "홀 총괄",
@@ -45,7 +45,7 @@ def kitchen_hall_page(request):
 
 
 @ensure_csrf_cookie
-@require_roles("KITCHEN_TAKEOUT")
+@require_roles("KITCHEN")
 def kitchen_takeout_page(request):
     context = _supabase_context() | {
         "page_title": "포장 총괄",

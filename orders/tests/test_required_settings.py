@@ -27,8 +27,7 @@ DEPLOYMENT = {
     "ALLOWED_HOSTS": "deployment.invalid",
     "CSRF_TRUSTED_ORIGINS": "https://deployment.invalid",
     "ROLE_PINS": (
-        "ORDER:synthetic-order,B1_COUNTER:synthetic-counter,KITCHEN:synthetic-kitchen,"
-        "KITCHEN_HALL:synthetic-hall,KITCHEN_TAKEOUT:synthetic-takeout"
+        "ORDER:synthetic-order,B1_COUNTER:synthetic-counter,KITCHEN:synthetic-kitchen"
     ),
     "DATABASE_URL": "postgresql://runner:synthetic-probe-password@127.0.0.1:5432/synthetic",
 }
@@ -163,8 +162,7 @@ class RequiredSettingsTests(SimpleTestCase):
             # Keeping even one published PIN hands that role's screen to a
             # credential anyone can read in this repository.
             "one published pin kept": (
-                "ORDER:1001,B1_COUNTER:8882,KITCHEN:8883,"
-                "KITCHEN_HALL:8884,KITCHEN_TAKEOUT:8885"
+                "ORDER:1001,B1_COUNTER:8882,KITCHEN:8883"
             ),
         }
         for label, value in variants.items():
@@ -176,23 +174,64 @@ class RequiredSettingsTests(SimpleTestCase):
     def test_a_role_pins_set_that_would_not_work_is_refused(self):
         """Starting cleanly with an unusable credential set moves the failure to
         the floor on event day, where it looks like a broken app."""
-        good = "B1_COUNTER:p2,KITCHEN:p3,KITCHEN_HALL:p4,KITCHEN_TAKEOUT:p5"
+        good = "B1_COUNTER:p2,KITCHEN:p3"
         cases = {
             # Nothing parses at all.
             "no colons": "no-colons-here",
-            # Four of five terminals cannot log in.
-            "missing roles": "ORDER:p1",
-            # A configured non-credential.
+            # A configured non-credential. Unlike a removed entry it does not
+            # read as a deliberate act -- it is what a half-edited line looks
+            # like -- so it is refused rather than treated as a withdrawal.
             "blank pin": "ORDER:," + good,
             # Sharing a PIN collapses the role separation phase 3 enforces:
             # one role's PIN authenticates as the other.
             "duplicate pins": "ORDER:p2," + good,
+            # A name the app does not have. This is how a role silently loses
+            # its credential: KITCHEN falls out of the set and nobody finds out
+            # until that terminal tries to log in. It is also what makes the
+            # subset rule safe -- see the withdrawal test below.
+            "typo in a role name": "ORDER:p1,KITCHN:p3," + (
+                "B1_COUNTER:p2"
+            ),
         }
         for label, value in cases.items():
             with self.subTest(case=label):
                 result = self.boot(ROLE_PINS=value)
                 self.assertIn("refused", result, f"{label} was accepted")
                 self.assertIn("ROLE_PINS", result["refused"])
+
+    def test_retired_kitchen_roles_are_refused_at_startup(self):
+        for role in ("KITCHEN_HALL", "KITCHEN_TAKEOUT"):
+            with self.subTest(role=role):
+                result = self.boot(ROLE_PINS=DEPLOYMENT["ROLE_PINS"] + f",{role}:retired-pin")
+                self.assertIn("ROLE_PINS", result.get("refused", ""))
+
+    def test_a_deployment_with_a_withdrawn_role_still_starts(self):
+        """Withdrawing a role's credential has to be a deployable configuration.
+
+        Removing the entry is how a shared account is revoked, and the guards
+        only stop honouring it once the process restarts -- ROLE_PINS is read
+        from the environment at import, so nothing changes inside a running
+        process. If the gate demanded all five roles, that restart would fail
+        and revocation would be unreachable in production: the app would refuse
+        to start on exactly the configuration the operator needs.
+
+        This is the positive control for the withdrawal behaviour asserted in
+        test_permissions. That test reaches the guards through override_settings
+        and so never touches this gate; without this case, the feature could be
+        green there and undeployable here.
+        """
+        remaining = "ORDER:p1,KITCHEN:p3"
+        result = self.boot(ROLE_PINS=remaining)
+        self.assertTrue(result.get("started"), result)
+        self.assertEqual(
+            result["roles"],
+            ["KITCHEN", "ORDER"],
+        )
+        # Down to a single role: an event running one terminal is a real
+        # configuration, and the rule is "known names", not "most of them".
+        single = self.boot(ROLE_PINS="B1_COUNTER:p2")
+        self.assertTrue(single.get("started"), single)
+        self.assertEqual(single["roles"], ["B1_COUNTER"])
 
     def test_a_short_or_blank_secret_key_is_refused(self):
         """Set-but-worthless is not configured. Django's own check --deploy

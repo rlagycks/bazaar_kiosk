@@ -18,15 +18,11 @@ ROLE_PINS = {
     "ORDER": "test-order-pin",
     "B1_COUNTER": "test-counter-pin",
     "KITCHEN": "test-kitchen-pin",
-    "KITCHEN_HALL": "test-hall-pin",
-    "KITCHEN_TAKEOUT": "test-takeout-pin",
 }
 ROLE_PAGES = (
     ("ORDER", "order", "orders/order.html", None),
     ("B1_COUNTER", "b1-counter", "orders/b1_counter.html", None),
     ("KITCHEN", "kitchen", "orders/kitchen_supervisor.html", "ALL"),
-    ("KITCHEN_HALL", "kitchen-hall", "orders/kitchen_supervisor.html", "HALL"),
-    ("KITCHEN_TAKEOUT", "kitchen-takeout", "orders/kitchen_supervisor.html", "TAKEOUT"),
 )
 
 
@@ -62,6 +58,57 @@ class LoginBaselineTests(BaselineMixin, TestCase):
                 self.assertTemplateUsed(page_response, template)
                 if scope is not None:
                     self.assertEqual(page_response.context["mode_scope"], scope)
+
+    def test_login_offers_exactly_the_three_approved_accounts(self):
+        response = self.client.get(reverse("orders:login"))
+        self.assertEqual(response.context["roles"], ["ORDER", "B1_COUNTER", "KITCHEN"])
+        self.assertContains(response, 'class="role-card"', count=3)
+        self.assertNotContains(response, 'data-role="KITCHEN_HALL"')
+        self.assertNotContains(response, 'data-role="KITCHEN_TAKEOUT"')
+
+    def test_one_kitchen_login_opens_all_three_filter_pages(self):
+        self.login_role("KITCHEN")
+        for page, scope in (("kitchen", "ALL"), ("kitchen-hall", "HALL"),
+                            ("kitchen-takeout", "TAKEOUT")):
+            with self.subTest(page=page):
+                response = self.client.get(reverse(f"orders:{page}"))
+                self.assertEqual(response.status_code, 200)
+                self.assertTemplateUsed(response, "orders/kitchen_supervisor.html")
+                self.assertEqual(response.context["mode_scope"], scope)
+                self.assertContains(response, 'aria-label="주방 주문 필터"')
+                for target in ("kitchen", "kitchen-hall", "kitchen-takeout"):
+                    self.assertContains(response, f'href="{reverse(f"orders:{target}")}"')
+                self.assertContains(response, ' aria-current="page"', count=1)
+                self.assertContains(
+                    response, f'href="{reverse(f"orders:{page}")}" aria-current="page"'
+                )
+
+    def test_other_accounts_cannot_open_kitchen_filter_pages(self):
+        for role in ("ORDER", "B1_COUNTER"):
+            self.login_role(role)
+            for page in ("kitchen", "kitchen-hall", "kitchen-takeout"):
+                with self.subTest(role=role, page=page):
+                    self.assertRedirects(self.client.get(reverse(f"orders:{page}")),
+                                         reverse("orders:login"))
+
+    def test_retired_roles_cannot_login_or_reuse_existing_sessions(self):
+        # Even stale credentials cannot turn retired roles into KITCHEN.
+        for role in ("KITCHEN_HALL", "KITCHEN_TAKEOUT"):
+            with self.subTest(role=role), override_settings(
+                ROLE_PINS={**ROLE_PINS, role: "retired-test-pin"}
+            ):
+                client = Client()
+                response = client.post(reverse("orders:login"),
+                                       {"role": role, "pin": "retired-test-pin"})
+                self.assertEqual(response.status_code, 200)
+                self.assertNotIn("role", client.session)
+                session = client.session
+                session["role"] = role
+                session.save()
+                for page in ("kitchen", "kitchen-hall", "kitchen-takeout"):
+                    self.assertRedirects(client.get(reverse(f"orders:{page}")),
+                                         reverse("orders:login"))
+                self.assertEqual(client.get(reverse("orders:menus")).status_code, 403)
 
     def test_wrong_pin_does_not_establish_a_role(self):
         for role in ROLE_PINS:

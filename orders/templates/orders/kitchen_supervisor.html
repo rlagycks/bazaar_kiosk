@@ -13,6 +13,10 @@
     .hdr h2{margin:0;font-size:22px;}
     .hdr .muted{margin-top:4px;}
     .hdr-actions{display:flex;gap:8px;flex-wrap:wrap;}
+    .logout-form{margin:0;}
+    .scope-nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
+    .scope-nav a{text-decoration:none;color:inherit;}
+    .scope-nav a[aria-current="page"]{background:#2563eb;border-color:#2563eb;color:#fff;}
     .btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:10px;border:1px solid #d1d5db;background:#fff;font-weight:600;cursor:pointer;transition:all .15s ease;}
     .btn.secondary{background:#2563eb;border-color:#2563eb;color:#fff;}
     .btn.ghost{background:#fff;}
@@ -66,9 +70,17 @@
       </div>
       <div class="hdr-actions">
         <button class="btn secondary" id="btnReload">새로고침</button>
-        <a class="btn logout" href="{% url 'orders:logout' %}">로그아웃</a>
+        <form method="post" action="{% url 'orders:logout' %}" class="logout-form">{% csrf_token %}
+          <button class="btn logout" type="submit">로그아웃</button>
+        </form>
       </div>
     </div>
+
+    <nav class="scope-nav" aria-label="주방 주문 필터">
+      <a class="btn" href="{% url 'orders:kitchen' %}"{% if mode_scope == "ALL" %} aria-current="page"{% endif %}>전체</a>
+      <a class="btn" href="{% url 'orders:kitchen-hall' %}"{% if mode_scope == "HALL" %} aria-current="page"{% endif %}>홀</a>
+      <a class="btn" href="{% url 'orders:kitchen-takeout' %}"{% if mode_scope == "TAKEOUT" %} aria-current="page"{% endif %}>포장</a>
+    </nav>
 
     <section class="panel">
       <header class="panel-head">

@@ -4,6 +4,8 @@ import os
 from django.core.exceptions import ImproperlyConfigured
 from urllib.parse import urlparse, parse_qs, unquote
 
+from orders.roles import ROLE_TO_URLNAME
+
 # --- 기본 경로/디버그 ---
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -65,7 +67,11 @@ def parse_role_pins(raw: str) -> dict[str, str]:
     return result
 
 
-_ROLE_PINS_RAW = os.environ.get("ROLE_PINS", LEGACY_DEMO_ROLE_PINS)
+_DEVELOPMENT_ROLE_PINS = ",".join(
+    f"{role}:{pin}" for role, pin in parse_role_pins(LEGACY_DEMO_ROLE_PINS).items()
+    if role in ROLE_TO_URLNAME
+)
+_ROLE_PINS_RAW = os.environ.get("ROLE_PINS", _DEVELOPMENT_ROLE_PINS)
 ROLE_PINS = parse_role_pins(_ROLE_PINS_RAW)
 _LEGACY_ROLE_PINS = parse_role_pins(LEGACY_DEMO_ROLE_PINS)
 
@@ -86,9 +92,23 @@ def _bad_role_pins() -> bool:
     # adds a new role still hands that role's screen to a published credential.
     if set(ROLE_PINS.items()) & set(_LEGACY_ROLE_PINS.items()):
         return True
-    # Every role needs one, or those terminals cannot log in and the failure
-    # only shows up on the floor. A blank PIN is a configured non-credential.
-    if set(ROLE_PINS) != set(_LEGACY_ROLE_PINS) or not all(ROLE_PINS.values()):
+    # A name that is not one of the app's roles is a typo, and a typo is how a
+    # role silently loses its credential: the intended role falls out of the
+    # set and nobody finds out until that terminal tries to log in on the floor.
+    # Refusing unknown names is what makes the subset rule below safe -- without
+    # it, "KITCHN:1234" would read as a deliberate withdrawal of KITCHEN.
+    if set(ROLE_PINS) - set(ROLE_TO_URLNAME):
+        return True
+    # A subset is allowed, because withdrawing a role's credential is how a
+    # shared account is revoked, and demanding every role would make revocation
+    # undeployable: the app would refuse to start on exactly the configuration
+    # the operator needs. Roles left out simply cannot log in, and any session
+    # already holding one stops being accepted once the process restarts
+    # (orders.roles.provisioned_roles). Withdraw by removing the entry.
+    #
+    # A blank value is still refused. It is indistinguishable from a half-edited
+    # line, and unlike a removed entry it does not read as a deliberate act.
+    if not all(ROLE_PINS.values()):
         return True
     # Shared PINs collapse the role separation phase 3 exists to enforce:
     # holding one role's PIN would authenticate as any role sharing it.
@@ -180,7 +200,7 @@ ROOT_URLCONF = "bazaar_kiosk.urls"
 # HTML, which a JSON client reports as a parse error rather than a permission
 # problem. This view returns JSON for API paths and keeps the HTML page for
 # browser navigations.
-CSRF_FAILURE_VIEW = "orders.views.auth.csrf_failure"
+CSRF_FAILURE_VIEW = "orders.views.guards.csrf_failure"
 
 # --- 템플릿 ---
 TEMPLATES = [
