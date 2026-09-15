@@ -4,6 +4,8 @@ import os
 from django.core.exceptions import ImproperlyConfigured
 from urllib.parse import urlparse, parse_qs, unquote
 
+from orders.roles import ROLE_TO_URLNAME
+
 # --- 기본 경로/디버그 ---
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -65,7 +67,11 @@ def parse_role_pins(raw: str) -> dict[str, str]:
     return result
 
 
-_ROLE_PINS_RAW = os.environ.get("ROLE_PINS", LEGACY_DEMO_ROLE_PINS)
+_DEVELOPMENT_ROLE_PINS = ",".join(
+    f"{role}:{pin}" for role, pin in parse_role_pins(LEGACY_DEMO_ROLE_PINS).items()
+    if role in ROLE_TO_URLNAME
+)
+_ROLE_PINS_RAW = os.environ.get("ROLE_PINS", _DEVELOPMENT_ROLE_PINS)
 ROLE_PINS = parse_role_pins(_ROLE_PINS_RAW)
 _LEGACY_ROLE_PINS = parse_role_pins(LEGACY_DEMO_ROLE_PINS)
 
@@ -91,10 +97,10 @@ def _bad_role_pins() -> bool:
     # set and nobody finds out until that terminal tries to log in on the floor.
     # Refusing unknown names is what makes the subset rule below safe -- without
     # it, "KITCHN:1234" would read as a deliberate withdrawal of KITCHEN.
-    if set(ROLE_PINS) - set(_LEGACY_ROLE_PINS):
+    if set(ROLE_PINS) - set(ROLE_TO_URLNAME):
         return True
     # A subset is allowed, because withdrawing a role's credential is how a
-    # shared account is revoked, and demanding all five would make revocation
+    # shared account is revoked, and demanding every role would make revocation
     # undeployable: the app would refuse to start on exactly the configuration
     # the operator needs. Roles left out simply cannot log in, and any session
     # already holding one stops being accepted once the process restarts

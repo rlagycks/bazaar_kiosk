@@ -91,8 +91,6 @@ ROLE_PINS = {
     "ORDER": "test-order",
     "B1_COUNTER": "test-counter",
     "KITCHEN": "test-kitchen",
-    "KITCHEN_HALL": "test-hall",
-    "KITCHEN_TAKEOUT": "test-takeout",
 }
 
 # Template tests need static URLs, not a deployment's collectstatic manifest.

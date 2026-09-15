@@ -52,7 +52,7 @@ from orders.roles import (
 # would pass unnoticed -- exactly the escalation this file exists to catch.
 # test_the_role_constants_still_match_the_approved_matrix pins the constants
 # themselves, so a deliberate change has to be made here too.
-APPROVED_KITCHEN = ("KITCHEN", "KITCHEN_HALL", "KITCHEN_TAKEOUT")
+APPROVED_KITCHEN = ("KITCHEN",)
 APPROVED_COUNTER = ("B1_COUNTER",)
 APPROVED_ORDER_READ = APPROVED_KITCHEN + APPROVED_COUNTER
 
@@ -60,16 +60,15 @@ ROLE_PINS = {
     "ORDER": "test-order-pin",
     "B1_COUNTER": "test-counter-pin",
     "KITCHEN": "test-kitchen-pin",
-    "KITCHEN_HALL": "test-hall-pin",
-    "KITCHEN_TAKEOUT": "test-takeout-pin",
 }
 
 ROLES = tuple(ROLE_PINS)
 # "GHOST" holds a session whose role the server never issued. It separates
 # "has a session" from "has a role the server recognises"; without it, a guard
 # that only checked for session presence would still pass every case here.
-ACTORS = ("anonymous", *ROLES, "GHOST")
-UNAUTHENTICATED = ("anonymous", "GHOST")
+RETIRED_ROLES = ("KITCHEN_HALL", "KITCHEN_TAKEOUT")
+ACTORS = ("anonymous", *ROLES, "GHOST", *RETIRED_ROLES)
+UNAUTHENTICATED = ("anonymous", "GHOST", *RETIRED_ROLES)
 
 ALLOWED = "ALLOWED"
 REFUSED = "REFUSED"
@@ -104,9 +103,9 @@ class AuthorizationMatrixTests(TestCase):
         client = Client()
         if actor == "anonymous":
             return client
-        if actor == "GHOST":
+        if actor in ("GHOST", *RETIRED_ROLES):
             session = client.session
-            session["role"] = "GHOST"
+            session["role"] = actor
             session.save()
             return client
         response = client.post(
@@ -370,8 +369,7 @@ class AuthorizationMatrixTests(TestCase):
             self.assertEqual(
                 sorted(provisioned_roles()),
                 [
-                    "B1_COUNTER", "KITCHEN", "KITCHEN_HALL",
-                    "KITCHEN_TAKEOUT", "ORDER",
+                    "B1_COUNTER", "KITCHEN", "ORDER",
                 ],
             )
             minted = Client()
@@ -542,8 +540,8 @@ class AuthorizationMatrixTests(TestCase):
         for role, page in (
             ("ORDER", "order"),
             ("KITCHEN", "kitchen"),
-            ("KITCHEN_HALL", "kitchen-hall"),
-            ("KITCHEN_TAKEOUT", "kitchen-takeout"),
+            ("KITCHEN", "kitchen-hall"),
+            ("KITCHEN", "kitchen-takeout"),
         ):
             with self.subTest(page=page):
                 client = self.client_as(role)

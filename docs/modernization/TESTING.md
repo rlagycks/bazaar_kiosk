@@ -15,7 +15,7 @@ SQLite 테스트 설정은 제거됐다. 2A 당시 SQLite 결과는 [WORKLOG](WO
 .venv/bin/python scripts/test_postgres.py
 ```
 
-프로젝트 전체80개를 발견해 migration15개와 앱/guard65개를 분리 실행하며 skip0이다.
+프로젝트 전체를 발견해 migration과 앱/guard를 분리 실행한다. 최신 수치와 결과는 [WORKLOG](WORKLOG.md)를 따른다.
 [settings_test_pg.py](../../bazaar_kiosk/settings_test_pg.py)는 운영 환경 설정을 격리하고
 합성 역할 PIN·비밀값·메모리 cache/storage와 명시적 전용 PostgreSQL 연결을 사용한다.
 설정 import/check에는 실제 연결이 필요 없지만 데이터 테스트는 실제 PG에서 실행한다.
@@ -23,7 +23,7 @@ SQLite 테스트 설정은 제거됐다. 2A 당시 SQLite 결과는 [WORKLOG](WO
 
 ## 보존하는 정상 경로
 
-- 역할5개의 로그인 리다이렉트·현재 페이지와 주방 범위, 잘못된 PIN의 세션 미생성,
+- 역할3개의 로그인 리다이렉트와 동일 주방 계정의 전체·홀·포장 필터 접근, 잘못된 PIN의 세션 미생성,
   익명 사용자의 화면 접근 시 로그인 이동.
 - 로그인한 주문 담당의 홀/포장 생성과 상세·목록 조회, 합성 메뉴에 기반한 서버 합계.
 - 현금·티켓·혼합 결제를 주문 합계에 정확히 맞춰 지급한 정상 사례의 저장·응답 분할 금액.
