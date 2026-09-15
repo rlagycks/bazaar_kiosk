@@ -331,6 +331,8 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 ### 4A2 — 인증·세션 수명과 회수
 
 - **맥락·목적:** 로그인 역할 변경·기존 세션 회수·GET 로그아웃 정책이 불명확하다.
+  **GET 로그아웃과 역할 회수는 2026-09-15 착수분으로 닫았다**(POST 전용, `provisioned_roles()`).
+  회수는 재시작이 필요하고 **PIN 교체는 여전히 기존 세션을 끊지 않는다.**
 - **선행 조건:** 3, 4A1. **결정 관문:** D-003/010과 D-002의 잔여분.
   **D-042(2026-09-14)가 설계를 확정했다.** `httpOnly` 쿠키 리프레시 토큰, 기기별 토큰 분리로
   회전 경합 해소, 액세스15분·리프레시12시간, 401(미인증·만료)/403(역할 거부) 분리다.
@@ -738,7 +740,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 | [BK-R016 — 통계 aggregate alias 충돌로 SQLite·PG 모두 500](ANALYSIS_REPORT.md#bk-r016) | High | 8 | [8A](#phase-8a) | 빈DB/한행/동명메뉴/기간/취소/레거시 데이터의 endpoint200와 정확한 합계 |
 | [BK-R017 — 과거 스키마 축소와 신규 제약의 데이터 호환성 미검증](ANALYSIS_REPORT.md#bk-r017) | High | 1 | [1B](#phase-1b) | 0018 시점 F1/BOOTH/포장null fixture→0019, 정제복사본 dry-run·백업복원·구앱 호환 |
 | [BK-R018 — Supabase 익명 구독의 RLS·이벤트 노출 경계 미확인](ANALYSIS_REPORT.md#bk-r018) | High | 4B | [4B2](#phase-4b2) | 전환 전 외부 권한 검증, D-018 전환 후 외부 요청/키0·외부 노출 정리·자체 SSE 인가 |
-| [BK-R019 — 역할 로그인 세션 교체·만료 정책 부재와 GET 로그아웃](ANALYSIS_REPORT.md#bk-r019) | Medium | 4A | [4A2](#phase-4a2) | 로그인 전후 session id, PIN 회수·교체 후 기존 세션 거부, 역할변경·만료·공유기기·logout method |
+| [BK-R019 — 역할 로그인 세션 교체·만료 정책 부재와 GET 로그아웃](ANALYSIS_REPORT.md#bk-r019) | Medium | 4A | [4A2](#phase-4a2) | 로그인 전후 session id(구현됨), PIN **회수** 후 거부(구현됨·재시작 필요), PIN **교체** 후 거부(미구현), logout method(구현됨), 역할변경·만료·공유기기는 JWT 대기 |
 | [BK-R020 — Realtime 연결 상실 후 폴링 복귀·재동기화 부재](ANALYSIS_REPORT.md#bk-r020) | High | 10 | [10D2](#phase-10d2) | SUBSCRIBED이후 CLOSED/ERROR/TIMEOUT, duplicate/out-of-order/drop, 느린응답·재접속 |
 | [BK-R021 — 재현되지 않는 의존성 범위와 지원 종료 버전 허용](ANALYSIS_REPORT.md#bk-r021) | Medium | 2 | [2B](#phase-2b) | 빈환경 재현·pip check·지원버전/보안패치 확인·PG CI |
 | [BK-R022 — 배포·상태확인·복원·롤백 증거와 운영 계측 부재](ANALYSIS_REPORT.md#bk-r022) | High | 12A | [12A1](#phase-12a1) | 정제 복사본 복원시간·schema/oldapp rehearsal·PG불가/잘못된 env·release smoke |
