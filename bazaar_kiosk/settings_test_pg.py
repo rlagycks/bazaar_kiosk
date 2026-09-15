@@ -87,11 +87,19 @@ CACHES = {
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 SUPABASE_URL = ""
 SUPABASE_ANON_KEY = ""
-ROLE_PINS = {
-    "ORDER": "test-order",
-    "B1_COUNTER": "test-counter",
-    "KITCHEN": "test-kitchen",
+from django.contrib.auth.hashers import PBKDF2PasswordHasher
+
+ROLE_ACCOUNTS = {
+    role: {"id": role.lower(), "password_hash": PBKDF2PasswordHasher().encode(password, "synthetic-tests-only", iterations=1)}
+    for role, password in {
+        "ORDER": "test-order-password", "B1_COUNTER": "test-counter-password",
+        "KITCHEN": "test-kitchen-password",
+    }.items()
 }
+JWT_SIGNING_KEY = "synthetic-jwt-signing-key-test-only-at-least-fifty-characters"
+JWT_COOKIE_SECURE = False
+LOGIN_MAX_FAILURES = 5
+
 
 # Template tests need static URLs, not a deployment's collectstatic manifest.
 STATIC_ROOT = None

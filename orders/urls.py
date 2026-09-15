@@ -12,6 +12,8 @@ urlpatterns = [
     path("login/",  auth.login_view,  name="login"),
     path("logout/", auth.logout_view, name="logout"),
 
+    path("auth/refresh/", auth.refresh_view, name="refresh"),
+
     # 화면
     path("order/",             pages.order_page,          name="order"),
     path("b1-counter/",        pages.b1_counter_page,     name="b1-counter"),

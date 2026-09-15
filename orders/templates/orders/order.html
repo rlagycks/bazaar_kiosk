@@ -114,6 +114,7 @@
     </div>
   </div>
 
+  <script src="{% static 'orders/ui/auth.js' %}" data-auth-role="{{ request.auth_role }}" data-auth-session="{{ request.auth_session_id }}"></script>
   <script>
     // ---------- 유틸 ----------
     const KRW = (n)=> (Number(n)||0).toLocaleString('ko-KR');
@@ -122,12 +123,12 @@
       return m ? m.pop() : '';
     }
     async function getJSON(url){
-      const r = await fetch(url,{credentials:'same-origin'});
+      const r = await window.BazaarAuth.fetch(url,{credentials:'same-origin'});
       if(!r.ok) throw new Error('HTTP '+r.status);
       return r.json();
     }
     async function postJSON(url, data){
-      const r = await fetch(url,{
+      const r = await window.BazaarAuth.fetch(url,{
         method:'POST',credentials:'same-origin',
         headers:{
           'Content-Type':'application/json',

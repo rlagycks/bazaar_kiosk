@@ -1,80 +1,107 @@
-# FILE: orders/views/auth.py
-"""The identification flow: proving who the caller is.
-
-What an identified caller may then do lives in `guards.py`. This file owns the
-login and logout requests and, per BLUEPRINT 4A2, is the file that D-035's
-id/password + JWT replacement edits; keeping enforcement out of it is what lets
-that work proceed without touching the authorization matrix phase 3 settled.
-"""
-from __future__ import annotations
-
+"""Shared-account login and device-scoped JWT refresh/logout endpoints."""
 from django.conf import settings
 from django.middleware.csrf import rotate_token
+from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.views.decorators.debug import (
-    sensitive_post_parameters,
-    sensitive_variables,
+from django.utils import timezone
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
+from django.views.decorators.http import require_http_methods, require_POST
+
+from orders.authentication import (
+    AuthError, RefreshInProgress, issue_tokens, rotate_refresh, revoke_refresh,
 )
-from django.views.decorators.http import require_POST
+from orders.login_security import attempt_login
+from orders.roles import ROLE_TO_URLNAME
 
-from orders.roles import ROLE_DEFINITIONS, ROLE_LABELS, ROLE_TO_URLNAME
+
+@sensitive_variables()
+def _set_refresh_cookie(response, pair):
+    if pair.refresh_token is None:
+        return
+    response.set_cookie(
+        settings.JWT_REFRESH_COOKIE_NAME, pair.refresh_token,
+        max_age=max(0, int((pair.expires_at - timezone.now()).total_seconds())),
+        httponly=True, secure=settings.JWT_COOKIE_SECURE, samesite='Strict',
+        path=settings.JWT_REFRESH_COOKIE_PATH,
+    )
 
 
-@sensitive_variables("pin", "expected")
-@sensitive_post_parameters("pin")
+def _refresh_cookie(request):
+    return request.COOKIES.get(settings.JWT_REFRESH_COOKIE_NAME, '')
+
+
+@never_cache
+@ensure_csrf_cookie
+@require_http_methods(['GET', 'POST'])
+@sensitive_variables()
+@sensitive_post_parameters('password', 'pin')
 def login_view(request):
-    role_codes = [code for code, *_ in ROLE_DEFINITIONS]
-    role_choices = [(code, ROLE_LABELS.get(code, code)) for code in role_codes]
-    role_cards = [
-        {
-            "code": code,
-            "label": label,
-            "desc": desc,
-            "next": reverse(urlname),
-        }
-        for code, label, desc, urlname in ROLE_DEFINITIONS
-    ]
-    if request.method == "POST":
-        role = (request.POST.get("role") or "").upper()
-        pin  = (request.POST.get("pin") or "").strip()
-        expected = settings.ROLE_PINS.get(role)
-        if expected and pin == expected and role in ROLE_TO_URLNAME:
-            # Start a clean session at the privilege transition. `flush` rather
-            # than `cycle_key` because the latter carries the old contents into
-            # the new key: only `role` lives here today, but anything an
-            # anonymous caller could plant would otherwise ride across the
-            # boundary. This also matches what logout does.
-            request.session.flush()
-            # The session key is only half the credential pair. Django's own
-            # login rotates the CSRF token alongside it; without this the secret
-            # bound to the fresh session is still the pre-login one.
-            rotate_token(request)
-            request.session["role"] = role
-            return redirect(reverse(ROLE_TO_URLNAME[role]))
-        return render(request, "orders/login.html", {
-            "roles": role_codes,
-            "role_choices": role_choices,
-            "role_cards": role_cards,
-            "error": "역할 또는 PIN이 올바르지 않습니다.",
-            "last_role": role,
-        }, status=200)
-    return render(request, "orders/login.html", {
-        "roles": role_codes,
-        "role_choices": role_choices,
-        "role_cards": role_cards,
-    })
+    if request.method == 'GET':
+        return render(request, 'orders/login.html')
+    account_id = request.POST.get('account_id', '').strip()
+    password = request.POST.get('password', '')
+    if not settings.ROLE_ACCOUNTS or settings.LOGIN_MAX_FAILURES < 1:
+        return render(request, 'orders/login.html', {'error': '로그인 설정을 확인해 주세요.'}, status=503)
+    if not account_id or len(account_id) > 128 or len(password) > 1024:
+        return render(request, 'orders/login.html', {'error': '계정 또는 비밀번호가 올바르지 않습니다.'}, status=200)
+    # REMOTE_ADDR is the directly connected peer. Never trust arbitrary X-Forwarded-For.
+    role, retry = attempt_login(account_id, password, request.META.get('REMOTE_ADDR', ''))
+    if role:
+        # Switching accounts in a browser retires its previous device credential.
+        try:
+            revoke_refresh(_refresh_cookie(request))
+        except AuthError:
+            pass
+        request.session.flush()
+        rotate_token(request)
+        pair = issue_tokens(role)
+        response = redirect(reverse(ROLE_TO_URLNAME[role]))
+        _set_refresh_cookie(response, pair)
+        return response
+    response = render(request, 'orders/login.html', {
+        'error': ('로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.' if retry
+                  else '계정 또는 비밀번호가 올바르지 않습니다.'),
+    }, status=429 if retry else 200)
+    if retry:
+        response['Retry-After'] = str(retry)
+    return response
 
+
+@never_cache
 @require_POST
-def logout_view(request):
-    """End the session. POST only, so that it cannot be triggered cross-site.
+@sensitive_variables()
+def refresh_view(request):
+    try:
+        pair = rotate_refresh(_refresh_cookie(request))
+    except RefreshInProgress:
+        return JsonResponse({'detail': '인증 갱신 중입니다. 다시 시도해 주세요.'}, status=409)
+    except AuthError:
+        response = JsonResponse({'detail': '로그인이 필요합니다.'}, status=401)
+        response['WWW-Authenticate'] = 'Bearer'
+        return response
+    response = JsonResponse({'access_token': pair.access_token, 'role': pair.role, 'session_id': pair.session_id,
+                             'expires_in': min(900, max(0, int((pair.expires_at - timezone.now()).total_seconds())))})
+    _set_refresh_cookie(response, pair)
+    return response
 
-    A GET logout is reachable from any other page: `<img src=".../logout/">` is
-    enough, and Django exempts safe methods from CSRF, so nothing stops it. On a
-    kiosk that means a staff screen can be logged out mid-service by a request
-    the operator never made. Requiring POST puts it behind the CSRF token, which
-    is the same bar every other state change on this app clears (BK-R019).
-    """
+
+refresh_view.answers_in_json = True
+
+
+@never_cache
+@require_POST
+@sensitive_variables()
+def logout_view(request):
+    try:
+        revoke_refresh(_refresh_cookie(request))
+    except AuthError:
+        pass
     request.session.flush()
     rotate_token(request)
-    return redirect(reverse("orders:login"))
+    response = redirect(reverse('orders:login'))
+    response.delete_cookie(settings.JWT_REFRESH_COOKIE_NAME,
+                           path=settings.JWT_REFRESH_COOKIE_PATH, samesite='Strict')
+    return response

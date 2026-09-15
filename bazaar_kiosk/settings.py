@@ -4,14 +4,10 @@ import os
 from django.core.exceptions import ImproperlyConfigured
 from urllib.parse import urlparse, parse_qs, unquote
 
-from orders.roles import ROLE_TO_URLNAME
+from .auth_config import parse_role_accounts
 
 # --- 기본 경로/디버그 ---
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-# The published default PINs. Named here so the startup check can refuse them
-# without the check itself becoming the place they are written down twice.
-LEGACY_DEMO_ROLE_PINS = "ORDER:1001,B1_COUNTER:2001,KITCHEN:3001,KITCHEN_HALL:4001,KITCHEN_TAKEOUT:5001"
 
 # Every SECRET_KEY this repository publishes. A deployment must not wear any of
 # them. The second one is what .env.example ships, so it is the value most
@@ -55,64 +51,20 @@ ALLOWED_HOSTS = ["*"] if DEBUG else _split_csv("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = [] if DEBUG else _split_csv("CSRF_TRUSTED_ORIGINS")
 
 
-def parse_role_pins(raw: str) -> dict[str, str]:
-    result: dict[str, str] = {}
-    if not raw:
-        return result
-    for pair in raw.split(","):
-        pair = pair.strip()
-        if ":" in pair:
-            role, pin = pair.split(":", 1)
-            result[role.strip().upper()] = pin.strip()
-    return result
-
-
-_DEVELOPMENT_ROLE_PINS = ",".join(
-    f"{role}:{pin}" for role, pin in parse_role_pins(LEGACY_DEMO_ROLE_PINS).items()
-    if role in ROLE_TO_URLNAME
-)
-_ROLE_PINS_RAW = os.environ.get("ROLE_PINS", _DEVELOPMENT_ROLE_PINS)
-ROLE_PINS = parse_role_pins(_ROLE_PINS_RAW)
-_LEGACY_ROLE_PINS = parse_role_pins(LEGACY_DEMO_ROLE_PINS)
-
-
-# --- 운영 필수 설정 검증 (D-039) ---
-def _bad_role_pins() -> bool:
-    """True when ROLE_PINS is unset, still published, or not a usable set.
-
-    Compared **after parsing**, never as a raw string. The parser strips each
-    pair, strips around the colon and uppercases the role, so every one of those
-    normalisations is a way to write the published PINs in a form a string
-    comparison would not recognise -- a trailing comma is enough. What has to be
-    refused is the credential, not one particular way of spelling it.
-    """
-    if "ROLE_PINS" not in os.environ or not ROLE_PINS:
-        return True
-    # Any overlap, not just equality: a set that keeps one published PIN and
-    # adds a new role still hands that role's screen to a published credential.
-    if set(ROLE_PINS.items()) & set(_LEGACY_ROLE_PINS.items()):
-        return True
-    # A name that is not one of the app's roles is a typo, and a typo is how a
-    # role silently loses its credential: the intended role falls out of the
-    # set and nobody finds out until that terminal tries to log in on the floor.
-    # Refusing unknown names is what makes the subset rule below safe -- without
-    # it, "KITCHN:1234" would read as a deliberate withdrawal of KITCHEN.
-    if set(ROLE_PINS) - set(ROLE_TO_URLNAME):
-        return True
-    # A subset is allowed, because withdrawing a role's credential is how a
-    # shared account is revoked, and demanding every role would make revocation
-    # undeployable: the app would refuse to start on exactly the configuration
-    # the operator needs. Roles left out simply cannot log in, and any session
-    # already holding one stops being accepted once the process restarts
-    # (orders.roles.provisioned_roles). Withdraw by removing the entry.
-    #
-    # A blank value is still refused. It is indistinguishable from a half-edited
-    # line, and unlike a removed entry it does not read as a deliberate act.
-    if not all(ROLE_PINS.values()):
-        return True
-    # Shared PINs collapse the role separation phase 3 exists to enforce:
-    # holding one role's PIN would authenticate as any role sharing it.
-    return len(set(ROLE_PINS.values())) != len(ROLE_PINS)
+ROLE_ACCOUNTS = parse_role_accounts(os.environ.get("ROLE_ACCOUNTS", "{}"))
+JWT_SIGNING_KEY = os.environ.get("JWT_SIGNING_KEY", "")
+JWT_ACCESS_MINUTES = 15
+JWT_REFRESH_HOURS = 12
+JWT_COOKIE_SECURE = True
+JWT_REFRESH_COOKIE_NAME = "bk_refresh"
+JWT_REFRESH_COOKIE_PATH = "/orders/"
+# Policy must be supplied explicitly in deployment; tests use synthetic values.
+LOGIN_WINDOW_SECONDS = 300
+LOGIN_BLOCK_SECONDS = 300
+try:
+    LOGIN_MAX_FAILURES = int(os.environ.get("LOGIN_MAX_FAILURES", "0"))
+except ValueError:
+    raise ImproperlyConfigured("LOGIN_MAX_FAILURES must be a positive integer.") from None
 
 
 def _bad_secret_key() -> bool:
@@ -147,8 +99,13 @@ def _refuse_deployment_defaults() -> None:
     # and silently rejects the origins it was configured to trust.
     if not CSRF_TRUSTED_ORIGINS or not all("://" in o for o in CSRF_TRUSTED_ORIGINS):
         missing.append("CSRF_TRUSTED_ORIGINS")
-    if _bad_role_pins():
-        missing.append("ROLE_PINS")
+    if not ROLE_ACCOUNTS:
+        missing.append("ROLE_ACCOUNTS")
+    if (len(JWT_SIGNING_KEY.strip()) < 50 or JWT_SIGNING_KEY == SECRET_KEY
+            or JWT_SIGNING_KEY.lower() in {k.lower() for k in _PUBLISHED_SECRET_KEYS}):
+        missing.append("JWT_SIGNING_KEY")
+    if LOGIN_MAX_FAILURES < 1:
+        missing.append("LOGIN_MAX_FAILURES")
     # DATABASE_URL is required in every mode, but it is parsed further down.
     # Naming it here means one refusal lists everything instead of a deployment
     # discovering the requirements one restart at a time.
@@ -164,6 +121,8 @@ def _refuse_deployment_defaults() -> None:
 
 if not DEBUG:
     _refuse_deployment_defaults()
+elif ROLE_ACCOUNTS and (len(JWT_SIGNING_KEY.strip()) < 50 or JWT_SIGNING_KEY == SECRET_KEY):
+    raise ImproperlyConfigured("JWT_SIGNING_KEY must be configured separately before enabling ROLE_ACCOUNTS.")
 
 LANGUAGE_CODE = "ko-kr"
 TIME_ZONE = "Asia/Seoul"

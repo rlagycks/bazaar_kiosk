@@ -15,11 +15,15 @@ from __future__ import annotations
 
 from functools import wraps
 
+from django.conf import settings
 from django.http import JsonResponse
+from django.utils.cache import patch_cache_control
+from django.views.decorators.debug import sensitive_variables
 from django.shortcuts import redirect
 from django.urls import reverse
 
-from orders.roles import ROLE_TO_URLNAME, provisioned_roles
+from orders.roles import ROLE_TO_URLNAME
+from orders.authentication import AuthError, validate_access, refresh_identity
 
 _HTTP_METHODS = frozenset(
     ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE")
@@ -72,17 +76,19 @@ def require_roles(*allowed_roles: str):
     allowed = {r.upper() for r in allowed_roles if r}
     def deco(viewfunc):
         @wraps(viewfunc)
+        @sensitive_variables()
         def _wrapped(request, *args, **kwargs):
-            role = request.session.get("role")
-            # Read through provisioned_roles() rather than the static table:
-            # that is what makes a withdrawn credential reach the sessions
-            # already holding it, on the first request after the restart that
-            # applies the withdrawal. See orders.roles.provisioned_roles.
-            if not role or role.upper() not in provisioned_roles():
+            try:
+                role, session_id = refresh_identity(request.COOKIES.get(settings.JWT_REFRESH_COOKIE_NAME, ""))
+                request.auth_role = role
+                request.auth_session_id = session_id
+            except AuthError:
                 return redirect(reverse("orders:login"))
             if allowed and role.upper() not in allowed:
                 return redirect(reverse("orders:login"))
-            return viewfunc(request, *args, **kwargs)
+            response = viewfunc(request, *args, **kwargs)
+            patch_cache_control(response, private=True, no_store=True)
+            return response
         return _wrapped
     return deco
 
@@ -91,15 +97,16 @@ def require_role(role: str):
 
 
 def require_api_roles(*allowed_roles: str, by_method: dict[str, tuple[str, ...]] | None = None):
-    """Authorize an API endpoint from the session role, answering in JSON.
+    """Authorize an API endpoint using only the access Bearer JWT, answering in JSON.
 
     Pages redirect to the login screen. An API must not: the caller parses JSON
     and a redirect arrives as an HTML login page, so the browser reports a parse
     error instead of a permission problem.
 
-    Both "no session" and "wrong role" answer 403 while identification is
-    session-based. Splitting them into 401/403 only becomes meaningful once
-    D-035's token refresh exists, so that choice belongs to 4A2 (D-036 미결).
+    Missing/invalid credentials answer 401; valid credentials with a denied
+    role answer 403. Legacy Django session roles and refresh cookies never
+    authenticate API calls. HTML guards separately validate refresh cookies
+    without rotating them, allowing ordinary server-rendered navigation.
 
     `by_method` narrows individual HTTP methods, for a route whose methods have
     different subjects. `orders-collection` is the case: reading orders exposes
@@ -160,19 +167,27 @@ def require_api_roles(*allowed_roles: str, by_method: dict[str, tuple[str, ...]]
 
     def deco(viewfunc):
         @wraps(viewfunc)
+        @sensitive_variables()
         def _wrapped(request, *args, **kwargs):
-            role = request.session.get("role")
-            # Read through provisioned_roles() rather than the static table: a
-            # role whose credential has been withdrawn must stop being accepted
-            # on the sessions that already hold it, not merely at the login form.
-            if not role or role.upper() not in provisioned_roles():
-                return JsonResponse({"detail": "로그인이 필요합니다."}, status=403)
+            try:
+                authorization = request.headers.get("Authorization", "")
+                scheme, token = authorization.split(" ", 1)
+                if scheme.lower() != "bearer" or not token or " " in token:
+                    raise AuthError()
+                role = validate_access(token)
+            except (AuthError, ValueError):
+                response = JsonResponse({"detail": "로그인이 필요합니다."}, status=401)
+                response["WWW-Authenticate"] = "Bearer"
+                patch_cache_control(response, private=True, no_store=True)
+                return response
             required = per_method.get(request.method.upper(), allowed)
             if required and role.upper() not in required:
                 # Name neither the caller's role nor the allowed set: a rejected
                 # client has no use for it and it maps the permission model.
                 return JsonResponse({"detail": "권한이 없습니다."}, status=403)
-            return viewfunc(request, *args, **kwargs)
+            response = viewfunc(request, *args, **kwargs)
+            patch_cache_control(response, private=True, no_store=True)
+            return response
 
         # Marks this view as one that answers in JSON, so csrf_failure refuses
         # it in JSON too. See _targets_the_api.

@@ -33,45 +33,7 @@ ORDER_READ_ROLES = KITCHEN_ROLES + COUNTER_ROLES
 
 
 def provisioned_roles() -> frozenset[str]:
-    """The roles that currently have a credential configured.
-
-    The guards consult this instead of the static table above, so that
-    withdrawing a role's credential ends the sessions already holding it.
-    Without it, revocation only stopped new logins: every device already signed
-    in kept its access, and the sessions are database-backed, so they survive a
-    restart too (BK-R019).
-
-    **A restart is still required.** ROLE_PINS is read from the environment at
-    import, so it cannot change inside a running process and "per request" buys
-    nothing on its own. What it buys is *which* sessions the restart ends: with
-    the entry removed, only that role stops being accepted. The alternative was
-    rotating SECRET_KEY, which invalidates every session of every role at once.
-    Reading per request rather than capturing at import is what makes the new
-    value take effect on the first request after the restart.
-
-    Names not in ROLE_DEFINITIONS are dropped rather than honoured: a typo in
-    the deployment's credential list must not mint a role. Names and secrets are
-    stripped and upper-cased here rather than trusted to arrive normalised.
-    `settings.parse_role_pins` already does this for the environment, but it is
-    not the only way ROLE_PINS gets set -- a settings module can assign it
-    directly, and a role that failed to match because of a stray space would
-    silently read as withdrawn.
-
-    Today the credential store is `settings.ROLE_PINS`. When D-035's
-    id/password store replaces it, this is the one place that has to change.
-
-    **This covers withdrawal, not rotation.** Changing a role's PIN to a new
-    value leaves the role provisioned, so sessions opened with the old PIN
-    survive. Making rotation end them too needs the session to carry something
-    derived from the credential, and that mechanism is part of the revocation
-    procedure that is still undecided. Do not assume rotation logs anyone out.
-    """
+    """Current configured roles; configuration changes require worker restart."""
     from django.conf import settings
 
-    configured = {
-        str(role).strip().upper()
-        for role, secret in getattr(settings, "ROLE_PINS", {}).items()
-        # A whitespace-only secret is truthy but is not a credential.
-        if str(secret).strip()
-    }
-    return frozenset(configured & set(ROLE_TO_URLNAME))
+    return frozenset(set(getattr(settings, "ROLE_ACCOUNTS", {})) & set(ROLE_TO_URLNAME))

@@ -4,3 +4,4 @@ psycopg[binary]>=3.1
 tzdata>=2024.1
 whitenoise==6.10.0
 gunicorn>=22.0
+PyJWT==2.14.0
