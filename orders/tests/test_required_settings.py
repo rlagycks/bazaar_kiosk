@@ -16,6 +16,7 @@ import subprocess
 import sys
 
 from django.test import SimpleTestCase
+from orders.tests.auth_support import ROLE_ACCOUNTS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -26,9 +27,9 @@ DEPLOYMENT = {
     "SECRET_KEY": "synthetic-deployment-secret-long-enough-to-clear-the-length-floor",
     "ALLOWED_HOSTS": "deployment.invalid",
     "CSRF_TRUSTED_ORIGINS": "https://deployment.invalid",
-    "ROLE_PINS": (
-        "ORDER:synthetic-order,B1_COUNTER:synthetic-counter,KITCHEN:synthetic-kitchen"
-    ),
+    "ROLE_ACCOUNTS": json.dumps(ROLE_ACCOUNTS),
+    "JWT_SIGNING_KEY": "synthetic-jwt-signing-key-distinct-and-at-least-fifty-characters",
+    "LOGIN_MAX_FAILURES": "5",
     "DATABASE_URL": "postgresql://runner:synthetic-probe-password@127.0.0.1:5432/synthetic",
 }
 
@@ -51,7 +52,7 @@ else:
     print(json.dumps({
         "started": True,
         "debug": s.DEBUG,
-        "roles": sorted(s.ROLE_PINS),
+        "roles": sorted(s.ROLE_ACCOUNTS),
         # The deployment-only security block. Reporting it here is what lets a
         # test assert those cookies are actually hardened; nothing else in the
         # repository boots real settings with DEBUG off.
@@ -130,7 +131,7 @@ class RequiredSettingsTests(SimpleTestCase):
         """One at a time, with everything else valid. Checking them only in
         combination would not show which ones are actually enforced."""
         for name in ("SECRET_KEY", "ALLOWED_HOSTS", "CSRF_TRUSTED_ORIGINS",
-                     "ROLE_PINS", "DATABASE_URL"):
+                     "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "LOGIN_MAX_FAILURES", "DATABASE_URL"):
             for value in (None, ""):
                 with self.subTest(setting=name, value=value):
                     result = self.boot(**{name: value})
@@ -140,98 +141,74 @@ class RequiredSettingsTests(SimpleTestCase):
     def test_the_published_demo_credentials_are_refused_even_when_set(self):
         """Unset and "still the value printed in this repository" are the same
         failure. Requiring only presence would accept a copied .env.example."""
-        for name, value in (("ROLE_PINS", PUBLISHED_DEMO_PINS),
-                            ("SECRET_KEY", DEV_SECRET_KEY),
+        for name, value in (("SECRET_KEY", DEV_SECRET_KEY),
                             ("SECRET_KEY", EXAMPLE_FILE_SECRET_KEY)):
             with self.subTest(setting=name, value=value):
                 result = self.boot(**{name: value})
                 self.assertIn("refused", result, f"{name}={value!r} was accepted")
                 self.assertIn(name, result["refused"])
 
-    def test_the_published_pins_are_refused_however_they_are_written(self):
-        """The parser strips each pair, strips around the colon and uppercases
-        the role, so a raw-string comparison has a hole for every one of those.
-        A trailing comma is enough. What has to be refused is the credential,
-        not one particular spelling of it."""
-        variants = {
-            "trailing comma": PUBLISHED_DEMO_PINS + ",",
-            "space after comma": PUBLISHED_DEMO_PINS.replace(",", ", "),
-            "lowercase roles": PUBLISHED_DEMO_PINS.lower(),
-            "reordered": ",".join(reversed(PUBLISHED_DEMO_PINS.split(","))),
-            "surrounding whitespace": "  " + PUBLISHED_DEMO_PINS + "  ",
-            # Keeping even one published PIN hands that role's screen to a
-            # credential anyone can read in this repository.
-            "one published pin kept": (
-                "ORDER:1001,B1_COUNTER:8882,KITCHEN:8883"
-            ),
-        }
-        for label, value in variants.items():
-            with self.subTest(variant=label):
-                result = self.boot(ROLE_PINS=value)
-                self.assertIn("refused", result, f"{label} was accepted")
-                self.assertIn("ROLE_PINS", result["refused"])
-
-    def test_a_role_pins_set_that_would_not_work_is_refused(self):
-        """Starting cleanly with an unusable credential set moves the failure to
-        the floor on event day, where it looks like a broken app."""
-        good = "B1_COUNTER:p2,KITCHEN:p3"
+    def test_invalid_account_configuration_is_refused(self):
+        good = ROLE_ACCOUNTS["ORDER"]
         cases = {
-            # Nothing parses at all.
-            "no colons": "no-colons-here",
-            # A configured non-credential. Unlike a removed entry it does not
-            # read as a deliberate act -- it is what a half-edited line looks
-            # like -- so it is refused rather than treated as a withdrawal.
-            "blank pin": "ORDER:," + good,
-            # Sharing a PIN collapses the role separation phase 3 enforces:
-            # one role's PIN authenticates as the other.
-            "duplicate pins": "ORDER:p2," + good,
-            # A name the app does not have. This is how a role silently loses
-            # its credential: KITCHEN falls out of the set and nobody finds out
-            # until that terminal tries to log in. It is also what makes the
-            # subset rule safe -- see the withdrawal test below.
-            "typo in a role name": "ORDER:p1,KITCHN:p3," + (
-                "B1_COUNTER:p2"
-            ),
+            "invalid JSON": "not-json",
+            "empty mapping": "{}",
+            "non mapping": "[]",
+            "blank id": json.dumps({"ORDER": {**good, "id": ""}}),
+            "blank hash": json.dumps({"ORDER": {**good, "password_hash": ""}}),
+            "plaintext": json.dumps({"ORDER": {**good, "password_hash": "synthetic-password"}}),
+            "unusable": json.dumps({"ORDER": {**good, "password_hash": "!unusable"}}),
+            "unknown role": json.dumps({"ADMIN": good}),
+            "duplicate ids": json.dumps({"ORDER": good, "KITCHEN": good}),
         }
         for label, value in cases.items():
             with self.subTest(case=label):
-                result = self.boot(ROLE_PINS=value)
-                self.assertIn("refused", result, f"{label} was accepted")
-                self.assertIn("ROLE_PINS", result["refused"])
+                self.assertIn("ROLE_ACCOUNTS", self.boot(ROLE_ACCOUNTS=value).get("refused", ""))
+
+    def test_malformed_pbkdf2_digest_is_refused_without_leaking_it(self):
+        # A recognizable algorithm label does not make the digest usable.
+        for digest in ("%%%synthetic-invalid-base64%%%", "YQ==", "A" * 48):
+            encoded = "pbkdf2_sha256$1$synthetic-salt$" + digest
+            raw = json.dumps({"ORDER": {"id": "synthetic-order", "password_hash": encoded}})
+            with self.subTest(digest=digest):
+                result = self.boot(ROLE_ACCOUNTS=raw)
+                self.assertIn("ROLE_ACCOUNTS", result.get("refused", ""))
+                self.assertNotIn(encoded, result["refused"])
+
+    def test_duplicate_json_keys_are_refused(self):
+        account = json.dumps(ROLE_ACCOUNTS["ORDER"])
+        encoded = json.dumps(ROLE_ACCOUNTS["ORDER"]["password_hash"])
+        cases = (
+            '{"ORDER":' + account + ',"ORDER":' + account + '}',
+            '{"ORDER":{"id":"first","id":"second","password_hash":' + encoded + '}}',
+        )
+        for raw in cases:
+            with self.subTest(raw=raw):
+                result = self.boot(ROLE_ACCOUNTS=raw)
+                self.assertIn("ROLE_ACCOUNTS", result.get("refused", ""))
 
     def test_retired_kitchen_roles_are_refused_at_startup(self):
         for role in ("KITCHEN_HALL", "KITCHEN_TAKEOUT"):
             with self.subTest(role=role):
-                result = self.boot(ROLE_PINS=DEPLOYMENT["ROLE_PINS"] + f",{role}:retired-pin")
-                self.assertIn("ROLE_PINS", result.get("refused", ""))
+                result = self.boot(ROLE_ACCOUNTS=json.dumps({role: ROLE_ACCOUNTS["KITCHEN"]}))
+                self.assertIn("ROLE_ACCOUNTS", result.get("refused", ""))
 
     def test_a_deployment_with_a_withdrawn_role_still_starts(self):
-        """Withdrawing a role's credential has to be a deployable configuration.
+        for roles in (("ORDER", "KITCHEN"), ("B1_COUNTER",)):
+            result = self.boot(ROLE_ACCOUNTS=json.dumps({role: ROLE_ACCOUNTS[role] for role in roles}))
+            self.assertTrue(result.get("started"), result)
+            self.assertEqual(result["roles"], sorted(roles))
 
-        Removing the entry is how a shared account is revoked, and the guards
-        only stop honouring it once the process restarts -- ROLE_PINS is read
-        from the environment at import, so nothing changes inside a running
-        process. If the gate demanded all five roles, that restart would fail
-        and revocation would be unreachable in production: the app would refuse
-        to start on exactly the configuration the operator needs.
+    def test_jwt_key_must_be_strong_and_distinct(self):
+        for value in (" ", "x" * 49, DEPLOYMENT["SECRET_KEY"]):
+            with self.subTest(value=value):
+                self.assertIn("JWT_SIGNING_KEY", self.boot(JWT_SIGNING_KEY=value).get("refused", ""))
+        self.assertTrue(self.boot(JWT_SIGNING_KEY="b" * 50).get("started"))
 
-        This is the positive control for the withdrawal behaviour asserted in
-        test_permissions. That test reaches the guards through override_settings
-        and so never touches this gate; without this case, the feature could be
-        green there and undeployable here.
-        """
-        remaining = "ORDER:p1,KITCHEN:p3"
-        result = self.boot(ROLE_PINS=remaining)
-        self.assertTrue(result.get("started"), result)
-        self.assertEqual(
-            result["roles"],
-            ["KITCHEN", "ORDER"],
-        )
-        # Down to a single role: an event running one terminal is a real
-        # configuration, and the rule is "known names", not "most of them".
-        single = self.boot(ROLE_PINS="B1_COUNTER:p2")
-        self.assertTrue(single.get("started"), single)
-        self.assertEqual(single["roles"], ["B1_COUNTER"])
+    def test_login_limit_must_be_a_positive_integer(self):
+        for value in ("0", "-1", "1.5", "nonnumeric"):
+            with self.subTest(value=value):
+                self.assertIn("LOGIN_MAX_FAILURES", self.boot(LOGIN_MAX_FAILURES=value).get("refused", ""))
 
     def test_a_short_or_blank_secret_key_is_refused(self):
         """Set-but-worthless is not configured. Django's own check --deploy
@@ -279,10 +256,10 @@ class RequiredSettingsTests(SimpleTestCase):
         # printed exactly what it rejected would pass. These two are the
         # credentials BK-R028 is about, and both are non-empty.
         offenders = self.boot(
-            ROLE_PINS=PUBLISHED_DEMO_PINS, SECRET_KEY=DEV_SECRET_KEY,
+            ROLE_ACCOUNTS="synthetic-invalid-credential-config", SECRET_KEY=DEV_SECRET_KEY,
         )
         self.assertIn("refused", offenders)
-        for value in (PUBLISHED_DEMO_PINS, DEV_SECRET_KEY, "1001", "5001"):
+        for value in ("synthetic-invalid-credential-config", DEV_SECRET_KEY):
             with self.subTest(offending=value):
                 self.assertNotIn(value, offenders["refused"])
 
@@ -294,7 +271,7 @@ class RequiredSettingsTests(SimpleTestCase):
         # DEBUG is excluded: the message states the mode on purpose and "0"
         # is not a credential.
         for name, value in DEPLOYMENT.items():
-            if name == "DEBUG":
+            if name in ("DEBUG", "LOGIN_MAX_FAILURES"):
                 continue
             with self.subTest(setting=name):
                 self.assertNotIn(value, message)
@@ -304,6 +281,8 @@ class RequiredSettingsTests(SimpleTestCase):
                          "deployment.invalid"):
             with self.subTest(fragment=fragment):
                 self.assertNotIn(fragment, message)
+        for account in ROLE_ACCOUNTS.values():
+            self.assertNotIn(account["password_hash"], message)
         self.assertIn("ALLOWED_HOSTS", message)
 
     def test_the_refusal_lists_every_missing_setting_at_once(self):
@@ -312,11 +291,11 @@ class RequiredSettingsTests(SimpleTestCase):
         though it is parsed later, so the very first refusal is complete."""
         result = self.boot(
             SECRET_KEY=None, ALLOWED_HOSTS=None, CSRF_TRUSTED_ORIGINS=None,
-            ROLE_PINS=None, DATABASE_URL=None,
+            ROLE_ACCOUNTS=None, JWT_SIGNING_KEY=None, LOGIN_MAX_FAILURES=None, DATABASE_URL=None,
         )
         self.assertIn("refused", result)
         for name in ("SECRET_KEY", "ALLOWED_HOSTS", "CSRF_TRUSTED_ORIGINS",
-                     "ROLE_PINS", "DATABASE_URL"):
+                     "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "LOGIN_MAX_FAILURES", "DATABASE_URL"):
             with self.subTest(setting=name):
                 self.assertIn(name, result["refused"])
 
@@ -336,7 +315,7 @@ class RequiredSettingsTests(SimpleTestCase):
             if "=" in line and not line.lstrip().startswith("#")
         }
         for name in ("DEBUG", "SECRET_KEY", "ALLOWED_HOSTS",
-                     "CSRF_TRUSTED_ORIGINS", "ROLE_PINS", "DATABASE_URL"):
+                     "CSRF_TRUSTED_ORIGINS", "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "LOGIN_MAX_FAILURES", "DATABASE_URL"):
             with self.subTest(setting=name):
                 self.assertIn(name, assignments)
         self.assertIn("[필수]", text)

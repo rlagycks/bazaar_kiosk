@@ -94,10 +94,11 @@
     </div>
   </div>
 
+  <script src="{% static 'orders/ui/auth.js' %}" data-auth-role="{{ request.auth_role }}" data-auth-session="{{ request.auth_session_id }}"></script>
   <script>
     const KRW = n => (Number(n)||0).toLocaleString('ko-KR');
     async function getJSON(url){
-      const r = await fetch(url,{credentials:'same-origin'});
+      const r = await window.BazaarAuth.fetch(url,{credentials:'same-origin'});
       if(!r.ok){
         const text = await r.text().catch(()=> '');
         throw new Error(text || ('HTTP '+r.status));

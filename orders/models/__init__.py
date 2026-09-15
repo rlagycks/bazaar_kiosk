@@ -3,3 +3,4 @@ from .core import (
     Table, MenuItem, Order, OrderItem,
 )
 from .counters import FloorOrderCounter
+from .authentication import AuthDevice, LoginAttempt
