@@ -41,7 +41,7 @@ class SettingsIsolationTests(SimpleTestCase):
                 assert 'synthetic-deployment' not in str(settings.ROLE_ACCOUNTS)
                 assert settings.JWT_SIGNING_KEY != 'synthetic-deployment-jwt-key'
                 assert settings.JWT_COOKIE_SECURE is False
-                assert settings.LOGIN_MAX_FAILURES == 5
+                assert settings.LOGIN_MAX_FAILURES == 10
                 assert settings.DEBUG is False
                 assert settings.ALLOWED_HOSTS == ['testserver', 'localhost', '127.0.0.1']
                 assert settings.CSRF_TRUSTED_ORIGINS == []

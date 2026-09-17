@@ -98,7 +98,6 @@ ROLE_ACCOUNTS = {
 }
 JWT_SIGNING_KEY = "synthetic-jwt-signing-key-test-only-at-least-fifty-characters"
 JWT_COOKIE_SECURE = False
-LOGIN_MAX_FAILURES = 5
 
 
 # Template tests need static URLs, not a deployment's collectstatic manifest.

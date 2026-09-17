@@ -113,11 +113,14 @@ class JWTHTTPTests(TestCase):
         self.assertEqual(validate_access(other.access_token), 'ORDER')
         self.assertEqual(self.client.get(reverse('orders:order')).status_code, 302)
 
-    @override_settings(LOGIN_MAX_FAILURES=5)
     def test_failed_login_limit_is_shared_and_scoped_by_id_and_direct_ip(self):
-        for _ in range(5):
+        # D-045: the tenth failure within the window blocks, the ninth does not.
+        for _ in range(9):
             response = self.login(Client(), password='wrong')
+        self.assertEqual(response.status_code, 200)
+        response = self.login(Client(), password='wrong')
         self.assertEqual(response.status_code, 429)
+        self.assertEqual(response['Retry-After'], '300')
         blocked = self.login(Client())
         self.assertEqual(blocked.status_code, 429)
         self.assertIn('Retry-After', blocked)

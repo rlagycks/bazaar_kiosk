@@ -58,13 +58,11 @@ JWT_REFRESH_HOURS = 12
 JWT_COOKIE_SECURE = True
 JWT_REFRESH_COOKIE_NAME = "bk_refresh"
 JWT_REFRESH_COOKIE_PATH = "/orders/"
-# Policy must be supplied explicitly in deployment; tests use synthetic values.
+# D-045: 10 failures per account ID + direct peer IP within 5 minutes block for
+# 5 minutes. Approved policy, fixed in code like the token lifetimes.
+LOGIN_MAX_FAILURES = 10
 LOGIN_WINDOW_SECONDS = 300
 LOGIN_BLOCK_SECONDS = 300
-try:
-    LOGIN_MAX_FAILURES = int(os.environ.get("LOGIN_MAX_FAILURES", "0"))
-except ValueError:
-    raise ImproperlyConfigured("LOGIN_MAX_FAILURES must be a positive integer.") from None
 
 
 def _bad_secret_key() -> bool:
@@ -104,8 +102,6 @@ def _refuse_deployment_defaults() -> None:
     if (len(JWT_SIGNING_KEY.strip()) < 50 or JWT_SIGNING_KEY == SECRET_KEY
             or JWT_SIGNING_KEY.lower() in {k.lower() for k in _PUBLISHED_SECRET_KEYS}):
         missing.append("JWT_SIGNING_KEY")
-    if LOGIN_MAX_FAILURES < 1:
-        missing.append("LOGIN_MAX_FAILURES")
     # DATABASE_URL is required in every mode, but it is parsed further down.
     # Naming it here means one refusal lists everything instead of a deployment
     # discovering the requirements one restart at a time.

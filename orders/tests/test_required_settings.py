@@ -29,7 +29,6 @@ DEPLOYMENT = {
     "CSRF_TRUSTED_ORIGINS": "https://deployment.invalid",
     "ROLE_ACCOUNTS": json.dumps(ROLE_ACCOUNTS),
     "JWT_SIGNING_KEY": "synthetic-jwt-signing-key-distinct-and-at-least-fifty-characters",
-    "LOGIN_MAX_FAILURES": "5",
     "DATABASE_URL": "postgresql://runner:synthetic-probe-password@127.0.0.1:5432/synthetic",
 }
 
@@ -59,6 +58,7 @@ else:
         "session_cookie_secure": getattr(s, "SESSION_COOKIE_SECURE", None),
         "csrf_cookie_secure": getattr(s, "CSRF_COOKIE_SECURE", None),
         "proxy_ssl_header": getattr(s, "SECURE_PROXY_SSL_HEADER", None),
+        "login_policy": [s.LOGIN_MAX_FAILURES, s.LOGIN_WINDOW_SECONDS, s.LOGIN_BLOCK_SECONDS],
     }))
 """
 
@@ -131,7 +131,7 @@ class RequiredSettingsTests(SimpleTestCase):
         """One at a time, with everything else valid. Checking them only in
         combination would not show which ones are actually enforced."""
         for name in ("SECRET_KEY", "ALLOWED_HOSTS", "CSRF_TRUSTED_ORIGINS",
-                     "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "LOGIN_MAX_FAILURES", "DATABASE_URL"):
+                     "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "DATABASE_URL"):
             for value in (None, ""):
                 with self.subTest(setting=name, value=value):
                     result = self.boot(**{name: value})
@@ -205,10 +205,15 @@ class RequiredSettingsTests(SimpleTestCase):
                 self.assertIn("JWT_SIGNING_KEY", self.boot(JWT_SIGNING_KEY=value).get("refused", ""))
         self.assertTrue(self.boot(JWT_SIGNING_KEY="b" * 50).get("started"))
 
-    def test_login_limit_must_be_a_positive_integer(self):
-        for value in ("0", "-1", "1.5", "nonnumeric"):
+    def test_login_limit_is_the_approved_policy_and_not_an_environment_setting(self):
+        """D-045: 10 failures within 5 minutes block for 5 minutes. The number
+        was an operator input only while the policy was undecided; a deployment
+        must neither need it nor be able to weaken it through the environment."""
+        for value in (None, "0", "-1", "nonnumeric", "99999"):
             with self.subTest(value=value):
-                self.assertIn("LOGIN_MAX_FAILURES", self.boot(LOGIN_MAX_FAILURES=value).get("refused", ""))
+                result = self.boot(LOGIN_MAX_FAILURES=value)
+                self.assertTrue(result.get("started"), result)
+                self.assertEqual(result["login_policy"], [10, 300, 300])
 
     def test_a_short_or_blank_secret_key_is_refused(self):
         """Set-but-worthless is not configured. Django's own check --deploy
@@ -271,7 +276,7 @@ class RequiredSettingsTests(SimpleTestCase):
         # DEBUG is excluded: the message states the mode on purpose and "0"
         # is not a credential.
         for name, value in DEPLOYMENT.items():
-            if name in ("DEBUG", "LOGIN_MAX_FAILURES"):
+            if name == "DEBUG":
                 continue
             with self.subTest(setting=name):
                 self.assertNotIn(value, message)
@@ -291,11 +296,11 @@ class RequiredSettingsTests(SimpleTestCase):
         though it is parsed later, so the very first refusal is complete."""
         result = self.boot(
             SECRET_KEY=None, ALLOWED_HOSTS=None, CSRF_TRUSTED_ORIGINS=None,
-            ROLE_ACCOUNTS=None, JWT_SIGNING_KEY=None, LOGIN_MAX_FAILURES=None, DATABASE_URL=None,
+            ROLE_ACCOUNTS=None, JWT_SIGNING_KEY=None, DATABASE_URL=None,
         )
         self.assertIn("refused", result)
         for name in ("SECRET_KEY", "ALLOWED_HOSTS", "CSRF_TRUSTED_ORIGINS",
-                     "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "LOGIN_MAX_FAILURES", "DATABASE_URL"):
+                     "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "DATABASE_URL"):
             with self.subTest(setting=name):
                 self.assertIn(name, result["refused"])
 
@@ -315,7 +320,7 @@ class RequiredSettingsTests(SimpleTestCase):
             if "=" in line and not line.lstrip().startswith("#")
         }
         for name in ("DEBUG", "SECRET_KEY", "ALLOWED_HOSTS",
-                     "CSRF_TRUSTED_ORIGINS", "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "LOGIN_MAX_FAILURES", "DATABASE_URL"):
+                     "CSRF_TRUSTED_ORIGINS", "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "DATABASE_URL"):
             with self.subTest(setting=name):
                 self.assertIn(name, assignments)
         self.assertIn("[필수]", text)

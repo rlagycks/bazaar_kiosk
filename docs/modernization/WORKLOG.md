@@ -3,6 +3,29 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-17 — 4A2 남은 인증 정책 확정(D-045)과 PR60 반영
+
+- 사용자 지시: “docs 하위 문서 읽고 다음으로 진행해야할 작업 진행하자”. 시작 브랜치 `phase-4a2-jwt-auth`,
+  HEAD `917fff1`, 작업 트리 깨끗, 열린 PR은 Draft PR60(CI 통과)뿐이었다.
+- 문서상 다음 작업은 PR60의 정책 관문 세 가지였다. 선택지와 사실(`menus`는 주문 화면만,
+  `tables`는 미사용 `serve.html`만 호출)을 제시하고 답을 받았다. [D-045](DECISIONS.md).
+  비밀번호 교체 시 전 기기 로그아웃(권장·현행), 5분 10회/5분 잠금(권장 5회와 다름),
+  메뉴·테이블 조회 인증된 세 계정(현행 유지, 권장과 다름).
+- 구현: 실패 횟수를 환경 변수에서 코드 상수 `LOGIN_MAX_FAILURES = 10`으로 옮기고 운영 필수 설정·
+  `.env.example`·테스트 프로필의 합성 값 5를 제거했다. 로그인 503은 계정 미설정일 때만 남는다.
+  이 이동은 에이전트 판단이며 D-045에 근거를 적었다. 회수·조회 정책은 코드 변경이 없다.
+- TDD: 부팅 probe가 환경 값(미설정·0·-1·비숫자·99999)과 무관하게 `[10, 300, 300]`으로 시작하는지,
+  HTTP에서 9회 실패는 200·10회째 429와 `Retry-After: 300`인지 먼저 작성해 실패 12건(예상 원인)을 확인했다.
+- 검증: 전용 Compose `bk4a2-policy-*`, localhost55452에서 `scripts/test_postgres.py`
+  **124개(마이그레이션16+앱108), skip0 통과**, check 문제0, migration drift 없음.
+  Node 클라이언트12개 통과, `git diff --check` 통과. 변경 Python의 Ruff는 기존
+  `settings_test_pg.py` E402 한 건만 남았다(PR60 HEAD에도 존재, 이번 변경 아님).
+- 문서: DECISIONS(D-045, D-002·D-003 해소, D-040/042/044 후속 표기), JWT_AUTHENTICATION,
+  README, SESSION_SETUP, BLUEPRINT 4A2, API_AUTHORIZATION·REQUIRED_SETTINGS 배너, RISK_REGISTER.
+- 남은 것: 운영 자격증명 공급·HTTPS·프록시 뒤 peer IP 묶임 검토(4A3/12A1). BK-R001/002/019는
+  운영 인수 전까지 Open. 배포·실제 자격증명 변경은 하지 않았다.
+- 다음: PR60 머지 후 BLUEPRINT 순서의 다음 독립 단계(4A3 또는 4B1 등)를 문서 관문 기준으로 고른다.
+
 ## 2026-09-15 — 4A2 JWT 인증 구현 후보
 
 - 사용자 지시: PR59를 “머지했고 다음”. GitHub에서 PR59 MERGED와 develop

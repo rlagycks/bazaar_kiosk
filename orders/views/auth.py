@@ -43,7 +43,7 @@ def login_view(request):
         return render(request, 'orders/login.html')
     account_id = request.POST.get('account_id', '').strip()
     password = request.POST.get('password', '')
-    if not settings.ROLE_ACCOUNTS or settings.LOGIN_MAX_FAILURES < 1:
+    if not settings.ROLE_ACCOUNTS:
         return render(request, 'orders/login.html', {'error': '로그인 설정을 확인해 주세요.'}, status=503)
     if not account_id or len(account_id) > 128 or len(password) > 1024:
         return render(request, 'orders/login.html', {'error': '계정 또는 비밀번호가 올바르지 않습니다.'}, status=200)

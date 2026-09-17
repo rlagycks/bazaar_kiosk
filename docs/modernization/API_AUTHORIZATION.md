@@ -4,9 +4,9 @@
 > 기록이며, PIN 세션/ROLE_PINS/JWT 미구현 표현은 현재 상태가 아니다.
 > [JWT_AUTHENTICATION.md](JWT_AUTHENTICATION.md)의 설정·API·회전 계약을 우선한다.
 > 현재 API는 access Bearer와 DB 디바이스를 검증하며 legacy 세션을 인증 수단으로 받지 않는다.
-> 운영은 ROLE_ACCOUNTS, 별도 JWT_SIGNING_KEY, 명시적인 양수 LOGIN_MAX_FAILURES가 필요하다.
-> 운영 배포·4A2 완료를 뜻하지 않는다. 비밀번호 교체 시 전체 디바이스 종료,
-> 5분 5회/5분 잠금 제안, menus 쓰기 전 계정 허용 범위의 사용자 답변은 아직 대기 중이다.
+> 운영은 ROLE_ACCOUNTS와 별도 JWT_SIGNING_KEY가 필요하다. 운영 배포를 뜻하지 않는다.
+> 2026-09-17 D-045로 비밀번호 교체 시 전체 디바이스 종료, 5분 10회/5분 잠금(코드 고정),
+> menus·tables의 인증된 세 계정 허용이 확정됐다.
 
 2026-09-13 · [이슈 #55](https://github.com/rlagycks/bazaar_kiosk/issues/55) ·
 [BK-R001](ANALYSIS_REPORT.md#bk-r001)(Critical) · 단계 [3](BLUEPRINT.md#phase-3) ·
@@ -234,7 +234,7 @@ HEAD는 GET의 주체를 상속한다. HEAD는 본문 없는 GET이므로 같은
 **2026-09-15 후속 상태:** 역할 회수·POST 로그아웃과 명시적 DEBUG 설정은 구현했고
 주방 계정도 D-034에 따라 단일화했다. PIN 교체는 기존 세션을 끊지 않으며 시도 제한과 HTML 404는 남는다.
 401/403 구분·토큰 수명·기기별 분리는 D-042로 설계 확정, JWT 구현은 후속이다.
-메뉴·테이블 조회 주체와 자격증명 회수·교체 절차는 미정이고 주방 집계 경로는 제거했다.
+메뉴·테이블 조회 주체와 자격증명 회수·교체 절차는 당시 미정이었고(2026-09-17 D-045로 확정) 주방 집계 경로는 제거했다.
 Django 관리자(`/admin/`) 권한은 D-011이다.
 
 브라우저 실제 여정은 검증하지 않았다. 서버 응답만 테스트했으므로

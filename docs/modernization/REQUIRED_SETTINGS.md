@@ -4,9 +4,9 @@
 > 기록이며, PIN 세션/ROLE_PINS/JWT 미구현 표현은 현재 상태가 아니다.
 > [JWT_AUTHENTICATION.md](JWT_AUTHENTICATION.md)의 설정·API·회전 계약을 우선한다.
 > 현재 API는 access Bearer와 DB 디바이스를 검증하며 legacy 세션을 인증 수단으로 받지 않는다.
-> 운영은 ROLE_ACCOUNTS, 별도 JWT_SIGNING_KEY, 명시적인 양수 LOGIN_MAX_FAILURES가 필요하다.
-> 운영 배포·4A2 완료를 뜻하지 않는다. 비밀번호 교체 시 전체 디바이스 종료,
-> 5분 5회/5분 잠금 제안, menus 쓰기 전 계정 허용 범위의 사용자 답변은 아직 대기 중이다.
+> 운영은 ROLE_ACCOUNTS와 별도 JWT_SIGNING_KEY가 필요하다. 운영 배포를 뜻하지 않는다.
+> 2026-09-17 D-045로 비밀번호 교체 시 전체 디바이스 종료, 5분 10회/5분 잠금(코드 고정),
+> menus·tables의 인증된 세 계정 허용이 확정됐다.
 
 2026-09-14 · [이슈 #57](https://github.com/rlagycks/bazaar_kiosk/issues/57) ·
 [BK-R028](ANALYSIS_REPORT.md#bk-r028)·[BK-R002](ANALYSIS_REPORT.md#bk-r002) ·
