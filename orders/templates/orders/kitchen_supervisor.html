@@ -92,6 +92,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="{% static 'orders/ui/auth.js' %}" data-auth-role="{{ request.auth_role }}" data-auth-session="{{ request.auth_session_id }}"></script>
   <script>
     const SUPABASE_URL = "{{ supabase_url|default:'' }}";
     const SUPABASE_ANON_KEY = "{{ supabase_anon_key|default:'' }}";
@@ -100,7 +101,6 @@
       const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
       return m?decodeURIComponent(m.pop()):'';
     };
-    const CSRF = getCookie('csrftoken');
     const BOARD = document.getElementById('board');
     const STATUS = document.getElementById('status');
     const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT&limit=80";
@@ -160,7 +160,7 @@
     }
 
     async function fetchJSON(url, options){
-      const r = await fetch(url, Object.assign({credentials:'same-origin'}, options||{}));
+      const r = await window.BazaarAuth.fetch(url, Object.assign({credentials:'same-origin'}, options||{}));
       if (!r.ok){
         const text = await r.text().catch(()=> '');
         throw new Error(text || ('HTTP '+r.status));
@@ -315,7 +315,7 @@
     async function refreshOrder(orderId){
       if (!orderId) return;
       try{
-        const res = await fetch(ORDER_DETAIL_URL.replace('/0/','/'+orderId+'/'), {credentials:'same-origin'});
+        const res = await window.BazaarAuth.fetch(ORDER_DETAIL_URL.replace('/0/','/'+orderId+'/'), {credentials:'same-origin'});
         if (res.status === 404){
           ORDER_STORE.delete(orderId);
           renderFromStore();
@@ -351,7 +351,7 @@
           method:'PATCH',
           headers:{
             'Content-Type':'application/json',
-            'X-CSRFToken': CSRF || ''
+            'X-CSRFToken': getCookie('csrftoken') || ''
           },
           body: JSON.stringify({status:'CANCELLED'})
         });
@@ -371,7 +371,7 @@
           method:'PATCH',
           headers:{
             'Content-Type':'application/json',
-            'X-CSRFToken': CSRF || ''
+            'X-CSRFToken': getCookie('csrftoken') || ''
           },
           body: JSON.stringify({prepared_qty: nextQty})
         });

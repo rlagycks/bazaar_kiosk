@@ -14,11 +14,9 @@ from orders.models import FloorOrderCounter, MenuItem, Order, OrderItem, Table
 from orders.views import api
 
 
-ROLE_PINS = {
-    "ORDER": "test-order-pin",
-    "B1_COUNTER": "test-counter-pin",
-    "KITCHEN": "test-kitchen-pin",
-}
+from orders.tests.auth_support import ROLE_ACCOUNTS, ROLE_PASSWORDS, login_client
+
+
 ROLE_PAGES = (
     ("ORDER", "order", "orders/order.html", None),
     ("B1_COUNTER", "b1-counter", "orders/b1_counter.html", None),
@@ -35,15 +33,12 @@ class BaselineMixin:
         self.addCleanup(api._get_table_by_number.cache_clear)
 
     def login_role(self, role="ORDER"):
-        response = self.client.post(
-            reverse("orders:login"), {"role": role, "pin": ROLE_PINS[role]}
-        )
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(self.client.session["role"], role)
+        response = login_client(self.client, role)
+        self.assertNotIn("role", self.client.session)
         return response
 
 
-@override_settings(ROLE_PINS=ROLE_PINS)
+@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
 class LoginBaselineTests(BaselineMixin, TestCase):
     def test_each_role_redirects_to_its_rendered_page(self):
         for role, page, template, scope in ROLE_PAGES:
@@ -59,12 +54,11 @@ class LoginBaselineTests(BaselineMixin, TestCase):
                 if scope is not None:
                     self.assertEqual(page_response.context["mode_scope"], scope)
 
-    def test_login_offers_exactly_the_three_approved_accounts(self):
+    def test_login_requests_id_and_password_without_a_role_selector(self):
         response = self.client.get(reverse("orders:login"))
-        self.assertEqual(response.context["roles"], ["ORDER", "B1_COUNTER", "KITCHEN"])
-        self.assertContains(response, 'class="role-card"', count=3)
-        self.assertNotContains(response, 'data-role="KITCHEN_HALL"')
-        self.assertNotContains(response, 'data-role="KITCHEN_TAKEOUT"')
+        self.assertContains(response, 'name="account_id"')
+        self.assertContains(response, 'name="password"')
+        self.assertNotContains(response, 'name="role"')
 
     def test_one_kitchen_login_opens_all_three_filter_pages(self):
         self.login_role("KITCHEN")
@@ -95,7 +89,7 @@ class LoginBaselineTests(BaselineMixin, TestCase):
         # Even stale credentials cannot turn retired roles into KITCHEN.
         for role in ("KITCHEN_HALL", "KITCHEN_TAKEOUT"):
             with self.subTest(role=role), override_settings(
-                ROLE_PINS={**ROLE_PINS, role: "retired-test-pin"}
+                ROLE_ACCOUNTS={**ROLE_ACCOUNTS, role: ROLE_ACCOUNTS["KITCHEN"]}
             ):
                 client = Client()
                 response = client.post(reverse("orders:login"),
@@ -108,20 +102,20 @@ class LoginBaselineTests(BaselineMixin, TestCase):
                 for page in ("kitchen", "kitchen-hall", "kitchen-takeout"):
                     self.assertRedirects(client.get(reverse(f"orders:{page}")),
                                          reverse("orders:login"))
-                self.assertEqual(client.get(reverse("orders:menus")).status_code, 403)
+                self.assertEqual(client.get(reverse("orders:menus")).status_code, 401)
 
     def test_wrong_pin_does_not_establish_a_role(self):
-        for role in ROLE_PINS:
+        for role in ROLE_PASSWORDS:
             with self.subTest(role=role):
                 self.client.cookies.clear()
                 response = self.client.post(
-                    reverse("orders:login"), {"role": role, "pin": "wrong-test-pin"}
+                    reverse("orders:login"), {"account_id": role.lower(), "password": "wrong-test-password"}
                 )
                 self.assertEqual(response.status_code, 200)
                 # The current template does not render the error. Check only
                 # the server context; this does not verify visible feedback.
                 self.assertEqual(
-                    response.context["error"], "역할 또는 PIN이 올바르지 않습니다."
+                    response.context["error"], "계정 또는 비밀번호가 올바르지 않습니다."
                 )
                 self.assertTemplateUsed(response, "orders/login.html")
                 self.assertNotIn("role", self.client.session)
@@ -185,10 +179,7 @@ class OrderFixtureMixin(BaselineMixin):
         pins that ORDER really is refused on both read endpoints.
         """
         client = Client()
-        response = client.post(
-            reverse("orders:login"), {"role": "KITCHEN", "pin": ROLE_PINS["KITCHEN"]}
-        )
-        self.assertEqual(response.status_code, 302)
+        login_client(client, "KITCHEN")
         return client
 
     def detail(self, order_id):
@@ -208,7 +199,7 @@ class OrderFixtureMixin(BaselineMixin):
             self.assertEqual(row["line_total"], qty * price)
 
 
-@override_settings(ROLE_PINS=ROLE_PINS)
+@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
 class OrderBaselineTests(OrderFixtureMixin, TestCase):
     def test_hall_and_takeout_creation_and_retrieval(self):
         for order_type, table in (("DINE_IN", self.hall), ("TAKEOUT", self.takeout)):
@@ -329,7 +320,7 @@ class OrderBaselineTests(OrderFixtureMixin, TestCase):
         assert_progress([2, 3], [0, 0], "READY")
 
 
-@override_settings(ROLE_PINS=ROLE_PINS)
+@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
 class OrderAtomicBaselineTests(OrderFixtureMixin, TransactionTestCase):
     """No TestCase outer atomic block may conceal a missing request transaction."""
 

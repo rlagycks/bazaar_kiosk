@@ -161,11 +161,31 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        self.assert_head(M20)
-        apps = MigrationExecutor(self.connection).loader.project_state([M20]).apps
+        leaf = ("orders", "0021_auth_device")
+        self.assert_head(leaf)
+        apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
         self.assert_sequence_state(1, False)
         self.assert_next_number(1)
+
+    def test_auth_tables_upgrade_and_reverse_preserve_existing_orders(self):
+        apps = self.migrate(M20)
+        self.fixture(apps, order_no=7)
+        models = list(apps.get_app_config("orders").get_models())
+        def rows():
+            return {model._meta.label: list(model.objects.order_by("pk").values())
+                    for model in models}
+        before = rows()
+        self.migrate(("orders", "0021_auth_device"))
+        self.assertEqual(rows(), before)
+        self.assertIn("orders_authdevice", self.connection.introspection.table_names())
+        self.assertIn("orders_loginattempt", self.connection.introspection.table_names())
+        # Schema reversibility only: reverting the old auth app is NOT a safe
+        # operational rollback because its legacy sessions may become valid.
+        self.migrate(M20)
+        self.assertEqual(rows(), before)
+        self.assertNotIn("orders_authdevice", self.connection.introspection.table_names())
+        self.assertNotIn("orders_loginattempt", self.connection.introspection.table_names())
 
     def test_original_0020_still_fails_on_an_empty_database(self):
         # Pins why D-P07 changed the SQL: the pre-repair statement is the cause.

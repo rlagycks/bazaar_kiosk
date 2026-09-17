@@ -35,8 +35,13 @@ class SettingsIsolationTests(SimpleTestCase):
                 assert settings.DATABASES['default']['USER'] == 'bk_test_runner'
                 assert settings.DATABASES['default']['PASSWORD'] == 'synthetic-local-runner-only'
                 assert settings.SECRET_KEY == 'synthetic-local-tests-only-not-a-deployment-secret-key'
-                assert settings.ROLE_PINS['ORDER'] == 'test-order'
-                assert set(settings.ROLE_PINS.values()).isdisjoint({'synthetic-deployment-pin'})
+                from django.contrib.auth.hashers import check_password
+                assert settings.ROLE_ACCOUNTS['ORDER']['id'] == 'order'
+                assert check_password('test-order-password', settings.ROLE_ACCOUNTS['ORDER']['password_hash'])
+                assert 'synthetic-deployment' not in str(settings.ROLE_ACCOUNTS)
+                assert settings.JWT_SIGNING_KEY != 'synthetic-deployment-jwt-key'
+                assert settings.JWT_COOKIE_SECURE is False
+                assert settings.LOGIN_MAX_FAILURES == 10
                 assert settings.DEBUG is False
                 assert settings.ALLOWED_HOSTS == ['testserver', 'localhost', '127.0.0.1']
                 assert settings.CSRF_TRUSTED_ORIGINS == []
@@ -54,7 +59,9 @@ class SettingsIsolationTests(SimpleTestCase):
             "DATABASE_URL": "invalid://synthetic-deployment-db.invalid/db",
             "DATABASE_URL_FILE": "/must-not-read-deployment-secret",
             "SECRET_KEY": "synthetic-deployment-secret",
-            "ROLE_PINS": "ORDER:synthetic-deployment-pin",
+            "ROLE_ACCOUNTS": "invalid synthetic-deployment-account-config",
+            "JWT_SIGNING_KEY": "synthetic-deployment-jwt-key",
+            "LOGIN_MAX_FAILURES": "99999",
             "DEBUG": "1",
             "ALLOWED_HOSTS": "deployment.invalid",
             "CSRF_TRUSTED_ORIGINS": "https://deployment.invalid",

@@ -7,22 +7,19 @@ newly approved contracts. D-012/013 and BK-R034 remain separate work.
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from orders.models import MenuItem, Order, OrderItem, Table
+from orders.tests.auth_support import ROLE_ACCOUNTS, login_client
 
 
+@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
 class DashboardExecutionTests(TestCase):
     period = date(2025, 10, 18)
 
     def setUp(self):
-        # Use the existing counter role without locking anonymous API access in
-        # as a supported contract. This setup does not prove authorization;
-        # the endpoint does not check the session yet (phase 3).
-        session = self.client.session
-        session["role"] = "B1_COUNTER"
-        session.save()
+        login_client(self.client, "B1_COUNTER")
         self.table = Table.objects.create(number=7)
 
     def make_order(self, lines, *, status="PREPARING", order_date=None):

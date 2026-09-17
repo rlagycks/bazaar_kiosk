@@ -12,7 +12,7 @@ class CredentialExceptionReporterFilter(SafeExceptionReporterFilter):
     # Django's own NUMBER_GROUPING or an application field named pinned_note.
     hidden_settings = re.compile(
         SafeExceptionReporterFilter.hidden_settings.pattern
-        + r"|(?:^|[^A-Za-z])PINS?(?:$|[^A-Za-z])",
+        + r"|(?:^|[^A-Za-z])PINS?(?:$|[^A-Za-z])|ROLE_ACCOUNTS|password_hash",
         SafeExceptionReporterFilter.hidden_settings.flags,
     )
 
