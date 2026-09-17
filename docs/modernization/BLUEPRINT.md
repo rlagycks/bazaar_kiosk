@@ -640,7 +640,7 @@ Fail/Not run을 숨기지 않는다. 보안 통제를 없애거나 빈 PG에 임
 - **책임·주 위험:** 운영 담당; BK-R022, BK-R039.
 - **승인 대상 범위·파일:** 운영 후보 Compose/proxy/배포 설정; health/readiness; 로그·메트릭·런북. 이 범위의 구현은 해당 단계 실행 지시 이후다.
 - **작업:** EC2 선택 여부를 결정하고 실제 승인된 비운영 환경에서 TLS/SG/IAM·secret·static·SSE flush/idle/HTTP1·2·다중 탭·reload를 검증한다.
-- **인수 기준·기대 결과:** 외부 DB/ASGI 거부·위조 헤더/과권한 거부; readiness는 app-role DB/schema 확인; 인증서·DB단절·disk full 경보, 민감 로그0.4A3의 외부검증을 수신 처리.
+- **인수 기준·기대 결과:** 외부 DB/ASGI 거부·위조 헤더/과권한 거부; 로그인 실패 제한이 실제 클라이언트 IP별로 동작(프록시 IP 뭉침 없음)하고 운영 공용 계정 비밀번호가 무작위 생성값임을 확인([JWT 남은 위험](JWT_AUTHENTICATION.md)); readiness는 app-role DB/schema 확인; 인증서·DB단절·disk full 경보, 민감 로그0.4A3의 외부검증을 수신 처리.
 - **검증 명령·환경:** V-DEPLOY + V-STREAM + V-BROWSER; check --deploy; 실환경 네트워크/권한 검사. 환경 미제공 시 Not run·전체 통과 금지.
 - **마이그레이션·롤백:** 지원된 이미지/설정으로 보안 유지 복귀, DB 장애를 재시작 폭풍으로 처리하지 않음.
 - **관측·보안·인계:** BK-R022/039 주 담당. 운영 담당·연락/수동 처리·호스트 자원/비용 실측·실행 명령 인계.
