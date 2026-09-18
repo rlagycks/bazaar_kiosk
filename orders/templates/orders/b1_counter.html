@@ -95,6 +95,7 @@
   </div>
 
   <script src="{% static 'orders/ui/auth.js' %}" data-auth-role="{{ request.auth_role }}" data-auth-session="{{ request.auth_session_id }}"></script>
+  <script src="{% static 'orders/ui/dom.js' %}"></script>
   <script>
     const KRW = n => (Number(n)||0).toLocaleString('ko-KR');
     async function getJSON(url){
@@ -104,6 +105,12 @@
         throw new Error(text || ('HTTP '+r.status));
       }
       return r.json();
+    }
+
+    const DOM = window.BazaarDom;
+
+    function emptyRow(){
+      return DOM.el('tr', {}, DOM.el('td', {class:'muted', text:'데이터 없음', attrs:{colspan:'3'}}));
     }
 
     function renderSummary(summary){
@@ -118,41 +125,38 @@
       const total = (payment.cash||0) + (payment.ticket||0);
       const cashPercent = total ? Math.round((payment.cash||0)/total*100) : 0;
       const ticketPercent = 100 - cashPercent;
-      chips.innerHTML = `
-        <span class="chip">현금 ₩${KRW(payment.cash||0)} (${cashPercent}%)</span>
-        <span class="chip">티켓 ₩${KRW(payment.ticket||0)} (${ticketPercent}%)</span>
-      `;
+      DOM.render(chips, [
+        DOM.el('span', {class:'chip', text:'현금 ₩' + KRW(payment.cash||0) + ' (' + cashPercent + '%)'}),
+        DOM.el('span', {class:'chip', text:'티켓 ₩' + KRW(payment.ticket||0) + ' (' + ticketPercent + '%)'}),
+      ]);
       ratioFill.style.width = cashPercent + '%';
     }
 
     function renderMenu(menu){
       const body = document.getElementById('menuTableBody');
       if(!menu.length){
-        body.innerHTML = '<tr><td colspan="3" class="muted">데이터 없음</td></tr>';
+        DOM.render(body, emptyRow());
         return;
       }
-      body.innerHTML = menu.map(row=>`
-        <tr>
-          <td>${row.name}</td>
-          <td class="text-right">${KRW(row.qty||0)}</td>
-          <td class="text-right">₩${KRW(row.amount||0)}</td>
-        </tr>
-      `).join('');
+      // The menu name is operator input and lands here as text, never markup.
+      DOM.render(body, menu.map(row => DOM.el('tr', {}, [
+        DOM.el('td', {text: row.name}),
+        DOM.el('td', {class:'text-right', text: KRW(row.qty||0)}),
+        DOM.el('td', {class:'text-right', text: '₩' + KRW(row.amount||0)}),
+      ])));
     }
 
     function renderHourly(hourly){
       const body = document.getElementById('hourlyTableBody');
       if(!hourly.length){
-        body.innerHTML = '<tr><td colspan="3" class="muted">데이터 없음</td></tr>';
+        DOM.render(body, emptyRow());
         return;
       }
-      body.innerHTML = hourly.map(row=>`
-        <tr>
-          <td>${row.hour || '-'}</td>
-          <td class="text-right">${row.orders||0}</td>
-          <td class="text-right">₩${KRW(row.revenue||0)}</td>
-        </tr>
-      `).join('');
+      DOM.render(body, hourly.map(row => DOM.el('tr', {}, [
+        DOM.el('td', {text: row.hour || '-'}),
+        DOM.el('td', {class:'text-right', text: row.orders||0}),
+        DOM.el('td', {class:'text-right', text: '₩' + KRW(row.revenue||0)}),
+      ])));
     }
 
     async function loadDashboard(){
