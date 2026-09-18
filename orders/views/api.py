@@ -13,10 +13,10 @@ from functools import lru_cache
 from datetime import datetime
 
 from orders.models import (
-    FloorChoices, PaymentMethod, OrderType, OrderStatus, OrderSource,
+    FloorChoices, PaymentMethod, OrderType, OrderStatus, OrderSource, NumberSeries,
     Table, MenuItem, Order, OrderItem,
 )
-from orders.services import allocate_floor_order_no
+from orders.services import allocate_floor_order_no, series_for
 from orders.roles import COUNTER_ROLES, KITCHEN_ROLES, ORDER_READ_ROLES
 from orders.views.guards import require_api_roles
 
@@ -46,6 +46,9 @@ def _serialize_order(o: Order) -> Dict[str, Any]:
         "status": o.status,
         "order_no": o.order_no,
         "order_date": o.order_date.isoformat() if o.order_date else None,
+        # D-047: the kitchen shows practice orders, marked; sales leave them out.
+        "number_series": o.number_series,
+        "is_practice": o.number_series == NumberSeries.PRACTICE,
         "table": ({"id": o.table_id, "number": o.table.number, "name": o.table.name} if o.table_id else None),
         "is_takeout": o.is_takeout,
         "payment_method": o.payment_method,
@@ -101,6 +104,7 @@ def _date_limits(request: HttpRequest):
 def _filtered_orders(request: HttpRequest):
     qs = Order.objects.filter(
         status__in=[OrderStatus.PREPARING, OrderStatus.READY],
+        number_series=NumberSeries.REAL,
         order_date=datetime(2025, 10, 18).date(),
     )
     return qs, datetime(2025, 10, 18).date(), datetime(2025, 10, 18).date()
@@ -333,7 +337,7 @@ def orders_collection(request: HttpRequest):
         Order.objects.filter(pk=order.pk).update(total_price=total_price)
         order.total_price = total_price
 
-        allocate_floor_order_no(order)  # 층별 일자 카운터 부여
+        allocate_floor_order_no(order)  # 계열·연도별 번호 부여 (D-047)
 
         created_items = list(
             OrderItem.objects.select_related("menu_item")
@@ -436,11 +440,16 @@ def stats_menu_counts(request: HttpRequest):
         return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
 
     today = timezone.localdate()
+    # D-047: this is the counter's running tally for today, not a sales report,
+    # so it follows today's own series. On an event day it counts event orders;
+    # during a rehearsal it counts the rehearsal. It never mixes the two, and
+    # the sales figures (stats_dashboard) stay event-only either way.
     qs = (
         OrderItem.objects.filter(
             order__floor=floor,
             order__status__in=[OrderStatus.PREPARING, OrderStatus.READY],
             order__order_date=today,
+            order__number_series=series_for(today),
         )
         .values("menu_item__name")
         .annotate(
@@ -479,6 +488,9 @@ def stats_dashboard(request: HttpRequest):
 
     items_filters = {
         "order__status__in": [OrderStatus.PREPARING, OrderStatus.READY],
+        # D-047/D-048: rehearsals and cancelled orders are not revenue. The
+        # status filter above is the cancellation half.
+        "order__number_series": NumberSeries.REAL,
     }
     if start_date:
         items_filters["order__order_date__gte"] = start_date

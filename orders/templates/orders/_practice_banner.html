@@ -1,0 +1,14 @@
+{% comment %}
+D-047: when today is not a registered event day, every order taken here counts
+as a rehearsal -- a separate number series, excluded from sales. That is
+invisible on the order form itself, so the screen says it outright. Forgetting
+to register the day is the one way this design goes quietly wrong.
+{% endcomment %}
+{% if not is_event_day %}
+<div class="practice-banner" role="status">
+  <strong>연습 모드</strong>
+  오늘({{ today|date:"Y-m-d" }})은 행사일로 등록돼 있지 않습니다.
+  주문은 <strong>연습 번호</strong>로 저장되고 매출 통계에서 빠집니다.
+  관리자 페이지 &gt; 행사일에 오늘 날짜를 등록하면 행사 번호로 바뀝니다.
+</div>
+{% endif %}

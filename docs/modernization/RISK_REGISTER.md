@@ -34,7 +34,8 @@ D-018/020의 사용자 방향도 위험 수용이나 해결이 아니다.
 빈/NULL/0/양수40/재적용/이미적용/동명sequence/실패 원자성을 실제 PG에서 확인했고,
 수정 전 SQL이 여전히22003으로 실패함도 같은 suite에 고정했다. 다만 운영 DB의 실제 적용 기록·
 sequence 상태와 운영 적용 리허설은 미확인이므로 종료로 처리하지 않는다.
-BK-R017과0019 정책은 그대로 Open이며 BK-R003의 일일 번호 미초기화도 남아 있다.
+BK-R017과0019 정책은 그대로 Open이다. BK-R003의 번호 미초기화는 2026-09-18 D-047로 계약을 정하고
+저장소에서 고쳤다(행사일 등록·연 단위 초기화·연습 계열 분리, [구현](ORDER_NUMBERING.md)). 운영 인수는 남아 있다.
 근거는 [적용 기록](MIGRATION_REPAIR_REVIEW.md)에 있다.
 
 2A 후속: 정상 특성화8개와 환경 격리1개가 추가되었다. 가격/atomic 변이를 검출했지만
@@ -163,7 +164,7 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 2 | [BK-R044 — 자체 DB의 공인 포트·권한·비밀 전달 경계 구성 누락 가능성](ANALYSIS_REPORT.md#bk-r044) | High | Hypothesis | Open (D-031로 전제 확정, 검증 필수) | D-002,D-003,D-006,D-020,D-021; BK-R001/002/028; 단계 3 | 보안·인프라 담당 | 4A | 외부 DB/ASGI 차단·신뢰 헤더 위조·앱 DDL/superuser 거부·이미지/config/log secret 검사·IAM/SSM/DB 권한 회수·기존 DB 비밀번호 교체 |
 | 2 | [BK-R011 — 저장 문자열이 실행 가능한 HTML·인라인 핸들러에 보간](ANALYSIS_REPORT.md#bk-r011) | High | **Repo-fixed (주문·카운터)** | Open (운영 인수 대기) | 단계 2,3 | 프런트·보안 담당 | 4B | 2026-09-18 브라우저에서 수정 전 실행 재현·수정 후 차단 확인([증거](CONTENT_SECURITY.md)). 주방 화면 문자열 조립과 CSP는 9·11·4B2에 남음 |
 | 2 | [BK-R018 — Supabase 익명 구독의 RLS·이벤트 노출 경계 미확인](ANALYSIS_REPORT.md#bk-r018) | High | Production-dependent | Open | D-010; 단계 3 | 보안·운영 담당 | 4B | 전환 전 외부 권한 검증, D-018 전환 후 외부 요청/키0·외부 노출 정리·자체 SSE 인가 |
-| 2 | [BK-R003 — PostgreSQL 날짜별 번호 계약 차이 및 충돌 재시도 실패](ANALYSIS_REPORT.md#bk-r003) | High | Reproduced | Open | D-004,D-006; 단계 1,2 | 데이터 담당 | 5 | PG 자정/충돌/재시도/실패·동시 생성; 기존 번호·날짜 데이터와 호환 |
+| 2 | [BK-R003 — PostgreSQL 날짜별 번호 계약 차이 및 충돌 재시도 실패](ANALYSIS_REPORT.md#bk-r003) | High | Repo-fixed (D-047, 2026-09-18) | Open (운영 인수 대기) | D-004,D-006; 단계 1,2 | 데이터 담당 | 5 | PG 자정/충돌/재시도/실패·동시 생성; 기존 번호·날짜 데이터와 호환 |
 | 2 | [BK-R012 — 재전송·중복 제출에 멱등성 경계 없음](ANALYSIS_REPORT.md#bk-r012) | High | Reproduced | Open | D-007,D-008; 단계 5 | 주문 담당 | 6 | 더블탭/timeout후 재전송/병렬동일키/다른payload/키만료 |
 | 2 | [BK-R013 — 취소에서 활성으로 전환 가능·상태 명령 간 경합](ANALYSIS_REPORT.md#bk-r013) | High | Reproduced | Open | D-015,D-003; 단계 5 | 주문 담당 | 6 | 취소후 progress/직접상태/관리자, 취소와 완료 경합, stale absolute progress |
 | 2 | [BK-R007 — 레거시 결제 분할 합계와 상세 응답 불일치](ANALYSIS_REPORT.md#bk-r007) | High | Reproduced | Open | D-005,D-008,D-012; 단계 6 | 재무·데이터 담당 | 7 | 0017 이전 CASH/TICKET 행과 0017 이후 혼합 결제·분할 누락 행, 원본/분할/보고 합계 대조·되돌림 |

@@ -2,7 +2,7 @@ from __future__ import annotations
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import Table, MenuItem, Order, OrderItem
+from .models import Table, MenuItem, Order, OrderItem, EventDay
 
 # ---- 공용 유틸: 모델에 실제 존재하는 필드만 골라서 사용 ----
 def _field_names(model):
@@ -85,3 +85,18 @@ class OrderAdmin(admin.ModelAdmin):
                  "created_at", "updated_at")
         or ["id"]  # 안전망
     )
+
+
+# ---- EventDay (D-047) ----
+@admin.register(EventDay)
+class EventDayAdmin(admin.ModelAdmin):
+    """The operator's one control over numbering.
+
+    A day registered here gives real order numbers; every other day is a
+    rehearsal and counts in the practice series. Registering a day after the
+    fact does not renumber orders already taken that day.
+    """
+
+    list_display = ("date", "label", "created_at")
+    search_fields = ("label",)
+    ordering = ("-date",)
