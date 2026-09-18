@@ -12,6 +12,17 @@
 (function () {
   'use strict';
 
+  const URL_ATTRIBUTES = ['href', 'src', 'action', 'formaction', 'xlink:href'];
+
+  function isDangerousUrl(value) {
+    // Leading whitespace and control characters are ignored by browsers when
+    // they read a scheme, so they are stripped before the check rather than
+    // after. Only the scheme matters here; relative and http(s) URLs pass.
+    const scheme = String(value).replace(/[\u0000-\u0020]/g, '').toLowerCase();
+    return scheme.startsWith('javascript:') || scheme.startsWith('data:text/html')
+      || scheme.startsWith('vbscript:');
+  }
+
   /** Remove every child of a node. The safe equivalent of emptying markup. */
   function clear(node) {
     if (!node) return node;
@@ -53,7 +64,18 @@
     Object.keys(settings.attrs || {}).forEach(function (key) {
       const value = settings.attrs[key];
       if (value === false || value === null || value === undefined) return;
-      node.setAttribute(key, value === true ? '' : String(value));
+      // setAttribute('onclick', ...) compiles a live handler just as markup
+      // does, and a javascript: URL runs on navigation. Nothing here needs
+      // either, so the helper refuses rather than trusting every future caller
+      // to remember. Listeners go through `on:`, which uses addEventListener.
+      if (/^on/i.test(key)) {
+        throw new Error('Event attributes are not allowed: use the on option (' + key + ')');
+      }
+      const text = value === true ? '' : String(value);
+      if (URL_ATTRIBUTES.indexOf(key.toLowerCase()) !== -1 && isDangerousUrl(text)) {
+        throw new Error('Refusing an executable URL in ' + key);
+      }
+      node.setAttribute(key, text);
     });
     Object.keys(settings.on || {}).forEach(function (event) {
       node.addEventListener(event, settings.on[event]);

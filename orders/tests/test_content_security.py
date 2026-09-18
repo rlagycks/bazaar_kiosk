@@ -41,10 +41,12 @@ class TemplateSourceTests(TestCase):
         """An inline handler puts data inside a JavaScript string inside an HTML
         attribute. Two escaping contexts, one `\\'` replacement, and a menu name
         with a quote or a backslash is enough to break out of both."""
+        # Every `on*` attribute, not a list of the ones used today: reviving
+        # this with `onmouseover=` would otherwise pass. No legitimate
+        # attribute in these templates starts with "on".
         for name in LIVE_TEMPLATES:
             with self.subTest(template=name):
-                found = re.findall(r"\son(?:click|change|input|submit|error|load)\s*=",
-                                   read(name))
+                found = re.findall(r"\son[a-z]+\s*=", read(name))
                 self.assertEqual(found, [], f"{name} still wires events in markup")
 
     def test_the_converted_templates_never_assign_innerhtml(self):
@@ -74,6 +76,17 @@ class TemplateSourceTests(TestCase):
         for assignment in re.findall(r"innerHTML\s*=\s*([^\n;]+)", source):
             with self.subTest(assignment=assignment.strip()):
                 self.assertNotIn("${", assignment)
+
+    def test_the_shared_helper_refuses_event_and_script_url_attributes(self):
+        """The guarantee belongs in the helper, not in every future call site:
+        setAttribute('onclick', ...) compiles a handler exactly like markup."""
+        from django.conf import settings
+
+        helper = (settings.BASE_DIR / "orders/static/orders/ui/dom.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Event attributes are not allowed", helper)
+        self.assertIn("javascript:", helper)
 
     def test_the_shared_helper_never_touches_innerhtml(self):
         from django.conf import settings

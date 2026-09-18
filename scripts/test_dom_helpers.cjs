@@ -146,6 +146,20 @@ test('delegate dispatches to the matching descendant only', () => {
   assert.deepStrictEqual(seen, ['7']);
 });
 
+test('an event attribute is refused outright', () => {
+  assert.throws(() => DOM.el('button', {attrs: {onclick: 'alert(1)'}}), /Event attributes/);
+  assert.throws(() => DOM.el('button', {attrs: {ONMOUSEOVER: 'alert(1)'}}), /Event attributes/);
+});
+
+test('an executable URL is refused, ordinary ones are kept', () => {
+  assert.throws(() => DOM.el('a', {attrs: {href: 'javascript:alert(1)'}}), /executable URL/);
+  assert.throws(() => DOM.el('a', {attrs: {href: '  JAVA\tSCRIPT:alert(1)'}}), /executable URL/);
+  assert.throws(() => DOM.el('iframe', {attrs: {src: 'data:text/html,<script>'}}), /executable URL/);
+  assert.strictEqual(
+    DOM.el('a', {attrs: {href: '/orders/login/'}}).getAttribute('href'), '/orders/login/'
+  );
+});
+
 test('an event handler is bound through addEventListener, never an attribute', () => {
   let called = 0;
   const node = DOM.el('button', {on: {click: () => { called += 1; }}});
