@@ -161,7 +161,7 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 2 | [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | Repo-fixed (오류 보고 경로·시작 거부) | Open (운영 인수 대기; D-031 외부 접속으로 노출 상향) | D-002,D-006,D-039; 단계 3 | 보안·운영 담당 | 4A | 합성 자격증명으로500 HTML/비HTML(text/plain)·로그에 값이 없는지, env누락 실패. **운영 실제 값·운영 `DEBUG=1` 차단(4A3)은 미확인** |
 | 2 | [BK-R043 — Compose 환경·secret·DB TLS 계약과 현재 settings의 불일치](ANALYSIS_REPORT.md#bk-r043) | High | Code-supported | Open | D-006,D-020,D-021; BK-R002/022; 단계 2,3 | 설정·보안·인프라 담당 | 4A | URL 누락/빈 값·_FILE만·실제 secret 읽기·잘못된 DB·기본 SSL/명시 TLS/CA·재시작 후 동일 DB와 앱 권한 확인 |
 | 2 | [BK-R044 — 자체 DB의 공인 포트·권한·비밀 전달 경계 구성 누락 가능성](ANALYSIS_REPORT.md#bk-r044) | High | Hypothesis | Open (D-031로 전제 확정, 검증 필수) | D-002,D-003,D-006,D-020,D-021; BK-R001/002/028; 단계 3 | 보안·인프라 담당 | 4A | 외부 DB/ASGI 차단·신뢰 헤더 위조·앱 DDL/superuser 거부·이미지/config/log secret 검사·IAM/SSM/DB 권한 회수·기존 DB 비밀번호 교체 |
-| 2 | [BK-R011 — 저장 문자열이 실행 가능한 HTML·인라인 핸들러에 보간](ANALYSIS_REPORT.md#bk-r011) | High | Code-supported | Open | 단계 2,3 | 프런트·보안 담당 | 4B | 메뉴/테이블/메모의 HTML·따옴표·백슬래시·유니코드 payload 브라우저 검증 |
+| 2 | [BK-R011 — 저장 문자열이 실행 가능한 HTML·인라인 핸들러에 보간](ANALYSIS_REPORT.md#bk-r011) | High | **Repo-fixed (주문·카운터)** | Open (운영 인수 대기) | 단계 2,3 | 프런트·보안 담당 | 4B | 2026-09-18 브라우저에서 수정 전 실행 재현·수정 후 차단 확인([증거](CONTENT_SECURITY.md)). 주방 화면 문자열 조립과 CSP는 9·11·4B2에 남음 |
 | 2 | [BK-R018 — Supabase 익명 구독의 RLS·이벤트 노출 경계 미확인](ANALYSIS_REPORT.md#bk-r018) | High | Production-dependent | Open | D-010; 단계 3 | 보안·운영 담당 | 4B | 전환 전 외부 권한 검증, D-018 전환 후 외부 요청/키0·외부 노출 정리·자체 SSE 인가 |
 | 2 | [BK-R003 — PostgreSQL 날짜별 번호 계약 차이 및 충돌 재시도 실패](ANALYSIS_REPORT.md#bk-r003) | High | Reproduced | Open | D-004,D-006; 단계 1,2 | 데이터 담당 | 5 | PG 자정/충돌/재시도/실패·동시 생성; 기존 번호·날짜 데이터와 호환 |
 | 2 | [BK-R012 — 재전송·중복 제출에 멱등성 경계 없음](ANALYSIS_REPORT.md#bk-r012) | High | Reproduced | Open | D-007,D-008; 단계 5 | 주문 담당 | 6 | 더블탭/timeout후 재전송/병렬동일키/다른payload/키만료 |
@@ -206,7 +206,7 @@ BK-R003/005는 PG15.18로 재현해 가설을 해소했다. BK-R003은 최초 �
 정밀화했다(정상16건 번호고유·실패후 부모0행). BK-R006/007은 helper/aggregate 계층에서 재현했고
 당시 정상 dashboard 응답은 BK-R016에 막혔다.8A에서 별칭 오류를 수정해 합성 DB 응답을 복구했다. BK-R008/009/010도 제한된 로컬 fixture 재현으로
 격상했다. BK-R002는 기본값 존재와 운영 사용을 분리하여 High로 분류하고 DEBUG의 재정의된
-PIN 노출을 BK-R028로 별도 등록했다. BK-R011은 브라우저 실행 미재현 상태를 유지한다.
+PIN 노출을 BK-R028로 별도 등록했다. BK-R011의 브라우저 실행은 2026-09-18에 재현·차단했다([증거](CONTENT_SECURITY.md)).
 
 ## 단계 간 경계
 

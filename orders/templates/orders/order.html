@@ -115,6 +115,7 @@
   </div>
 
   <script src="{% static 'orders/ui/auth.js' %}" data-auth-role="{{ request.auth_role }}" data-auth-session="{{ request.auth_session_id }}"></script>
+  <script src="{% static 'orders/ui/dom.js' %}"></script>
   <script>
     // ---------- 유틸 ----------
     const KRW = (n)=> (Number(n)||0).toLocaleString('ko-KR');
@@ -148,8 +149,11 @@
   const TAKEOUT_TABLE_MIN = 101;
   const TAKEOUT_TABLE_MAX = 120;
   const ORDER_MODES = ['DINE_IN', 'TAKEOUT'];
+  const DOM = window.BazaarDom;
+  // Menu rows the tiles refer to by id, so a click never has to carry the name
+  // through markup. The tile only carries the id it was built from.
+  const MENU_BY_ID = new Map();
   let currentMode = 'DINE_IN';
-  window.currentMode = currentMode;
 
   function getPayMethod(){
     return document.querySelector('input[name="pay"]:checked')?.value || 'CASH';
@@ -258,18 +262,25 @@
       try{
         const d = await getJSON("{% url 'orders:menus' %}?scope=KITCHEN");
         const items = d.items||[];
-        els.menu.innerHTML = items.map(m=>`
-          <div class="menu-tile" data-id="${m.id}" data-name="${m.name}" data-price="${m.price}">
-            <div class="name">${m.name}</div>
-            <div class="price">₩${KRW(m.price)}</div>
-            <div class="actions">
-              <button class="btn" onclick="addItem(window.currentMode, ${m.id}, '${m.name.replace(/'/g,"\\'")}', ${m.price}, +1)">+1</button>
-              <button class="btn" onclick="promptQty(window.currentMode, ${m.id}, '${m.name.replace(/'/g,"\\'")}', ${m.price})">수량</button>
-            </div>
-          </div>
-        `).join('') || '<div class="muted">메뉴가 없습니다</div>';
+        MENU_BY_ID.clear();
+        items.forEach(m => MENU_BY_ID.set(String(m.id), {id: m.id, name: m.name, price: m.price}));
+        if(!items.length){
+          DOM.render(els.menu, DOM.el('div', {class:'muted', text:'메뉴가 없습니다'}));
+          return;
+        }
+        DOM.render(els.menu, items.map(m => DOM.el('div', {
+          class: 'menu-tile',
+          data: {id: m.id, name: m.name, price: m.price},
+        }, [
+          DOM.el('div', {class:'name', text: m.name}),
+          DOM.el('div', {class:'price', text: '₩' + KRW(m.price)}),
+          DOM.el('div', {class:'actions'}, [
+            DOM.el('button', {class:'btn', text:'+1', data:{action:'add', id:m.id}}),
+            DOM.el('button', {class:'btn', text:'수량', data:{action:'qty', id:m.id}}),
+          ]),
+        ])));
       }catch(e){
-        els.menu.innerHTML = '<div class="muted">메뉴 로드 실패</div>';
+        DOM.render(els.menu, DOM.el('div', {class:'muted', text:'메뉴 로드 실패'}));
       }
     }
 
@@ -316,21 +327,19 @@
     }
     function renderCart(){
       const arr = Array.from(CART.values());
-      els.cart.innerHTML = arr.map(r=>`
-        <div class="order-item">
-          <div class="left">
-            <span class="badge-mode ${modeClass(r.mode)}">${MODE_LABEL[r.mode]||r.mode}</span>
-            <div><strong>${r.name}</strong></div>
-            <div class="muted">₩${KRW(r.price)} × ${r.qty} = ₩${KRW(r.price*r.qty)}</div>
-          </div>
-          <div class="qty-ctrl">
-            <button class="btn" onclick="addItem('${r.mode}', ${r.id}, '${r.name.replace(/'/g,"\\'")}', ${r.price}, -1)">－</button>
-            <div style="min-width:2em;text-align:center">${r.qty}</div>
-            <button class="btn" onclick="addItem('${r.mode}', ${r.id}, '${r.name.replace(/'/g,"\\'")}', ${r.price}, +1)">＋</button>
-            <button class="btn btn-danger" onclick="setItemQty('${r.mode}', ${r.id}, 0)">삭제</button>
-          </div>
-        </div>
-      `).join('') || '<div class="muted">장바구니 비어 있음</div>';
+      DOM.render(els.cart, arr.length ? arr.map(r => DOM.el('div', {class:'order-item'}, [
+        DOM.el('div', {class:'left'}, [
+          DOM.el('span', {class:'badge-mode ' + modeClass(r.mode), text: MODE_LABEL[r.mode]||r.mode}),
+          DOM.el('div', {}, DOM.el('strong', {text: r.name})),
+          DOM.el('div', {class:'muted', text: '₩' + KRW(r.price) + ' × ' + r.qty + ' = ₩' + KRW(r.price*r.qty)}),
+        ]),
+        DOM.el('div', {class:'qty-ctrl'}, [
+          DOM.el('button', {class:'btn', text:'－', data:{action:'dec', mode:r.mode, id:r.id}}),
+          DOM.el('div', {attrs:{style:'min-width:2em;text-align:center'}, text: r.qty}),
+          DOM.el('button', {class:'btn', text:'＋', data:{action:'inc', mode:r.mode, id:r.id}}),
+          DOM.el('button', {class:'btn btn-danger', text:'삭제', data:{action:'remove', mode:r.mode, id:r.id}}),
+        ]),
+      ])) : DOM.el('div', {class:'muted', text:'장바구니 비어 있음'}));
 
       const {total, perMode} = calcTotals();
       els.total.textContent = KRW(total) + '원';
@@ -491,7 +500,6 @@
   function setMode(mode){
       mode = ensureMode(mode);
       currentMode = mode;
-      window.currentMode = mode;
       els.menuTabs.querySelectorAll('.menu-tab').forEach(btn=>{
         btn.classList.toggle('active', btn.dataset.mode === mode);
       });
@@ -528,9 +536,25 @@
     });
 
     // 전역 헬퍼
-    window.addItem = addItem;
-    window.promptQty = promptQty;
-    window.setItemQty = setItemQty;
+    // One listener per container instead of a handler per row. Nothing the
+    // operator typed into a menu name is ever part of a handler.
+    DOM.delegate(els.menu, 'click', '[data-action]', (event, button)=>{
+      const item = MENU_BY_ID.get(button.dataset.id);
+      if(!item) return;
+      if(button.dataset.action === 'add'){
+        addItem(currentMode, item.id, item.name, item.price, +1);
+      }else{
+        promptQty(currentMode, item.id, item.name, item.price);
+      }
+    });
+    DOM.delegate(els.cart, 'click', '[data-action]', (event, button)=>{
+      const {action, mode, id} = button.dataset;
+      const numericId = Number(id);
+      if(action === 'remove'){ setItemQty(mode, numericId, 0); return; }
+      const row = CART.get(cartKey(mode, numericId));
+      if(!row) return;
+      addItem(mode, numericId, row.name, row.price, action === 'inc' ? +1 : -1);
+    });
   </script>
 </body>
 </html>
