@@ -24,6 +24,8 @@ from orders.tests import original_0020
 M18 = ("orders", "0018_alter_order_floor_alter_order_order_type_and_more")
 M19 = ("orders", "0019_remove_order_orders_table_rule_and_more")
 M20 = ("orders", "0020_create_floor_sequences")
+M21 = ("orders", "0021_auth_device")
+M22 = ("orders", "0022_eventday_ordernumbercounter_and_more")
 
 
 class MigrationPathTests(TestCase):
@@ -153,7 +155,7 @@ class MigrationPathTests(TestCase):
         self.assertEqual(self.snapshot(apps), before)
         self.assert_head(start)
 
-    def test_empty_database_installs_every_app_and_starts_at_one(self):
+    def test_empty_database_installs_every_app_and_ends_without_the_sequence(self):
         # Deliberately migrates every leaf, not just orders: this is the path the
         # Django test runner takes when it builds its own empty PostgreSQL database,
         # which 0020 used to break. assert_head still scopes correctness to orders.
@@ -161,12 +163,80 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = ("orders", "0021_auth_device")
+        leaf = M22
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
+        # D-047 replaced the sequence with a counter row, so a fresh database
+        # must end with no sequence at all. 0020's own paths are asserted above
+        # at their own target and are unaffected.
+        self.assert_sequence_absent()
+
+    def test_the_numbering_change_reverses_back_to_the_sequence(self):
+        """0022 is reversible: stepping back restores the 0020 sequence."""
+        self.migrate(M22)
+        self.assert_sequence_absent()
+        self.migrate(M21)
         self.assert_sequence_state(1, False)
         self.assert_next_number(1)
+
+    def legacy_order(self, apps, *, order_no, order_date, table_number):
+        """An order written under the old per-day numbering contract."""
+        alias = self.connection.alias
+        table = apps.get_model("orders", "Table").objects.using(alias).create(
+            number=table_number, name="legacy fixture"
+        )
+        return apps.get_model("orders", "Order").objects.using(alias).create(
+            floor="B1", order_type="DINE_IN", source="ORDER", table_id=table.pk,
+            order_no=order_no, order_date=order_date, is_takeout=False,
+            total_price=4300, received_amount=4300, payment_method="CASH",
+            received_cash_amount=4300, received_ticket_amount=0,
+        )
+
+    def test_orders_written_before_the_change_stay_in_the_sales_figures(self):
+        """The new column defaults to PRACTICE, and the dashboard counts only
+        REAL. Without a backfill every historical order would silently drop out
+        of the sales totals -- so 0022 classifies them."""
+        apps = self.migrate(M21)
+        self.legacy_order(apps, order_no=7, order_date=date(2025, 10, 18), table_number=1)
+        self.legacy_order(apps, order_no=8, order_date=date(2026, 9, 7), table_number=2)
+        after = self.migrate(M22)
+        series = sorted(
+            after.get_model("orders", "Order").objects.using(self.connection.alias)
+            .values_list("order_no", "number_series")
+        )
+        self.assertEqual(series, [(7, "REAL"), (8, "REAL")])
+
+    def test_numbers_repeated_across_days_of_one_year_stop_the_migration(self):
+        """Numbering used to restart daily, so the same number can appear on two
+        days of one year. The new uniqueness is yearly, and those rows violate
+        it. Renumbering them is out of scope, so the migration refuses with an
+        explanation instead of a bare unique violation."""
+        apps = self.migrate(M21)
+        self.legacy_order(apps, order_no=1, order_date=date(2025, 10, 18), table_number=1)
+        self.legacy_order(apps, order_no=1, order_date=date(2025, 10, 19), table_number=2)
+        with self.assertRaises(RuntimeError) as caught:
+            self.migrate(M22)
+        self.assertIn("floor=B1 series=REAL year=2025 no=1", str(caught.exception))
+        # Nothing half-applied: the head is still the previous migration and the
+        # rows are untouched.
+        self.assert_head(M21)
+        rows = (
+            MigrationExecutor(self.connection).loader.project_state([M21]).apps
+            .get_model("orders", "Order").objects.using(self.connection.alias)
+            .values_list("order_no", "order_date")
+        )
+        self.assertEqual(
+            sorted(rows),
+            [(1, date(2025, 10, 18)), (1, date(2025, 10, 19))],
+        )
+
+    def test_the_same_number_on_two_days_is_fine_in_different_years(self):
+        apps = self.migrate(M21)
+        self.legacy_order(apps, order_no=1, order_date=date(2025, 10, 18), table_number=1)
+        self.legacy_order(apps, order_no=1, order_date=date(2026, 10, 17), table_number=2)
+        self.migrate(M22)
+        self.assert_head(M22)
 
     def test_auth_tables_upgrade_and_reverse_preserve_existing_orders(self):
         apps = self.migrate(M20)

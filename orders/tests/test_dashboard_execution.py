@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from orders.models import MenuItem, Order, OrderItem, Table
+from orders.models import MenuItem, NumberSeries, Order, OrderItem, Table
 from orders.tests.auth_support import ROLE_ACCOUNTS, login_client
 
 
@@ -28,6 +28,9 @@ class DashboardExecutionTests(TestCase):
         order = Order.objects.create(
             table=self.table, floor="B1", order_type="DINE_IN",
             order_date=order_date, status=status,
+            # D-047: sales figures are the event series. Practice orders have
+            # their own coverage in test_order_numbering.
+            number_series=NumberSeries.REAL,
             total_price=total, payment_method="CASH",
             received_amount=total, received_cash_amount=total,
             received_ticket_amount=0,

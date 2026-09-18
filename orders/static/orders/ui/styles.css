@@ -568,3 +568,20 @@ body {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+/* D-047: today is not a registered event day, so orders here are rehearsals. */
+.practice-banner {
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    border: 1px solid #f59e0b;
+    border-left-width: 4px;
+    border-radius: 8px;
+    background: #fffbeb;
+    color: #7c2d12;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.practice-banner strong {
+    color: #92400e;
+}
