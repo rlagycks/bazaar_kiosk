@@ -3,6 +3,38 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-18 — 4A3 배포 후보 구성과 프록시 뒤 클라이언트 주소 경계
+
+- 사용자 지시: “브랜치 지우고 4A3 진행하자 그리고 프록시 뒤 ip 뭉침은 이슈로 달아줘”.
+  PR60 머지 후 `phase-4a2-jwt-auth`를 원격·로컬에서 삭제했고, 프록시 위험을 [이슈 #61]로 등록했다.
+  브랜치 `phase-4a3-runtime-config`, 기준 develop `395fcba`, 시작 트리 깨끗.
+- 결정: D-006의 4A3 실행분을 D-046으로 확정했다(Compose 한 스택, 파일 비밀값,
+  내부 네트워크 전용 DB·TLS 생략, 단일 DB 역할). 단일 역할은 권장과 다른 선택이며
+  앱 장악 시 자기 테이블 변경·삭제가 가능하다는 잔여 위험을 결정과 문서에 적었다.
+- 구현: `<NAME>_FILE` 비밀값 읽기(동시 설정·읽기 실패 거부, 끝 줄바꿈 제거, 내용 미노출),
+  `Dockerfile`(비루트·빌드 시 collectstatic), `compose.prod.yaml`(프록시만 발행,
+  `internal: true` 네트워크, 고정 프록시 IP), `scripts/pg_prod_init.sql`(NOSUPERUSER·
+  NOCREATEDB/ROLE·PUBLIC 권한 회수), `scripts/nginx_prod.conf`.
+- **정정:** gunicorn `--forwarded-allow-ips`는 클라이언트 주소를 복원하지 않는다.
+  `REMOTE_ADDR`은 소켓 peer 그대로이며 그 옵션은 스킴 등 헤더 신뢰만 정한다.
+  후보 스택 로그에서 앱이 항상 프록시 IP를 본다는 것을 실제로 확인했다.
+  따라서 이슈 #61을 앱에서 닫았다: `orders/client_ip.py`가 `TRUSTED_PROXY_IPS`에 있는
+  peer일 때만 `X-Forwarded-For`를 오른쪽부터 읽고, 그 외에는 peer 주소를 쓴다.
+  프록시는 인바운드 헤더를 `$remote_addr`로 덮어쓴다.
+- TDD: 비밀값 파일 5건·배포 후보 노출 6건·클라이언트 주소 12건을 먼저 작성해 실패를 확인했다.
+  PyYAML이 없어 compose 검증이 조용히 건너뛰던 것을 발견해 `requirements-ci.txt`에 고정하고
+  skip을 제거했다.
+- 검증: 전용 PG(포트 55453)에서 `scripts/test_postgres.py` **147개(마이그레이션16+앱131),
+  skip0 통과**, check 문제0, drift 없음. 전용 Compose `bk4a3-candidate`로 실제 기동해
+  config·빌드·앱 역할 migration(0021)·프록시 경유 200·포트 미발행·컨테이너 내부 신뢰 경계·
+  프록시 경유 로그인 9회 200/10회 429를 확인했다. `check --deploy`는 HSTS·HTTPS 리다이렉트
+  경고 2건이 남으며 실제 TLS 종단이 정해지는 12A1에서 처리한다.
+- 정리: 후보 컨테이너·볼륨과 합성 비밀 파일을 제거했다. `secrets/`는 `.gitignore`에 넣었다.
+  호스트의 5432 포트는 이 저장소와 무관한 다른 컨테이너의 것이며 후보 스택은 발행하지 않는다.
+- 남은 것: 실제 EC2·도메인·인증서·SG/IAM, 헬스/레디니스와 로그·메트릭, 백업·복원(12A2),
+  데이터 이전(12A3). BK-R043/044는 Open이다.
+- 다음: BLUEPRINT 순서의 4B1(안전한 DOM 렌더링) 또는 사용자가 지정하는 단계.
+
 ## 2026-09-17 — 4A2 남은 인증 정책 확정(D-045)과 PR60 반영
 
 - 사용자 지시: “docs 하위 문서 읽고 다음으로 진행해야할 작업 진행하자”. 시작 브랜치 `phase-4a2-jwt-auth`,

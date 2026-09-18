@@ -38,7 +38,39 @@ def _require_explicit_debug() -> bool:
     return raw == "1"
 
 
-SECRET_KEY = os.environ.get("SECRET_KEY", _DEV_SECRET_KEY)
+def _secret(name: str, default: str = "") -> str:
+    """Read a deployment secret from `<NAME>_FILE` if present, else `<NAME>`.
+
+    D-046 delivers deployment secrets as mounted files. A value passed in the
+    environment is readable through `docker inspect`, `/proc/<pid>/environ` and
+    any crash report that dumps os.environ; a file is readable only by whoever
+    can read the file.
+
+    Both set is refused rather than resolved by precedence: whichever one lost
+    would be silently ignored, and the one an operator rotated is exactly the
+    one they would expect to win. An unreadable `<NAME>_FILE` is refused too --
+    degrading to "unset" would either start on a default or produce a refusal
+    naming a variable the operator did set. Neither message carries the content.
+    """
+    path = os.environ.get(name + "_FILE", "").strip()
+    if not path:
+        return os.environ.get(name, default)
+    if os.environ.get(name) is not None:
+        raise ImproperlyConfigured(
+            f"Set either {name} or {name}_FILE, not both. Values are never logged."
+        )
+    try:
+        # A secret manager and most editors end a file with a newline. Carrying
+        # it into a signing key or password fails as a wrong credential later.
+        return Path(path).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ImproperlyConfigured(
+            f"{name}_FILE could not be read ({exc.strerror}). "
+            "The path is expected to be a mounted secret file."
+        ) from None
+
+
+SECRET_KEY = _secret("SECRET_KEY", _DEV_SECRET_KEY)
 DEBUG = _require_explicit_debug()
 DEFAULT_EXCEPTION_REPORTER_FILTER = "bazaar_kiosk.error_reporting.CredentialExceptionReporterFilter"
 
@@ -51,8 +83,8 @@ ALLOWED_HOSTS = ["*"] if DEBUG else _split_csv("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = [] if DEBUG else _split_csv("CSRF_TRUSTED_ORIGINS")
 
 
-ROLE_ACCOUNTS = parse_role_accounts(os.environ.get("ROLE_ACCOUNTS", "{}"))
-JWT_SIGNING_KEY = os.environ.get("JWT_SIGNING_KEY", "")
+ROLE_ACCOUNTS = parse_role_accounts(_secret("ROLE_ACCOUNTS", "{}"))
+JWT_SIGNING_KEY = _secret("JWT_SIGNING_KEY")
 JWT_ACCESS_MINUTES = 15
 JWT_REFRESH_HOURS = 12
 JWT_COOKIE_SECURE = True
@@ -63,6 +95,12 @@ JWT_REFRESH_COOKIE_PATH = "/orders/"
 LOGIN_MAX_FAILURES = 10
 LOGIN_WINDOW_SECONDS = 300
 LOGIN_BLOCK_SECONDS = 300
+# Issue #61: addresses (or CIDR ranges) of reverse proxies whose
+# X-Forwarded-For may be believed. Empty means the socket peer is the client,
+# which is correct for a direct deployment and refuses to be talked out of it.
+# A wrong entry here hands anyone the ability to choose their own throttle
+# bucket, so it is configuration and never a default.
+TRUSTED_PROXY_IPS = _split_csv("TRUSTED_PROXY_IPS")
 
 
 def _bad_secret_key() -> bool:
@@ -105,7 +143,7 @@ def _refuse_deployment_defaults() -> None:
     # DATABASE_URL is required in every mode, but it is parsed further down.
     # Naming it here means one refusal lists everything instead of a deployment
     # discovering the requirements one restart at a time.
-    if not os.environ.get("DATABASE_URL", "").strip():
+    if not _secret("DATABASE_URL").strip():
         missing.append("DATABASE_URL")
     if missing:
         raise ImproperlyConfigured(
@@ -199,7 +237,7 @@ def _parse_database_url(db_url: str):
 
 
 # Missing or invalid configuration must never select a local file database.
-DATABASES = {"default": _parse_database_url(os.environ.get("DATABASE_URL", ""))}
+DATABASES = {"default": _parse_database_url(_secret("DATABASE_URL"))}
 
 # --- Supabase realtime ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")

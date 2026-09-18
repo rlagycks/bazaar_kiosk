@@ -11,3 +11,6 @@ typing_extensions==4.16.0
 tzdata==2026.3
 whitenoise==6.10.0
 PyJWT==2.14.0
+# Test-only: orders.tests.test_runtime_config reads the deployment candidate
+# compose file. Not imported by the application.
+PyYAML==6.0.3

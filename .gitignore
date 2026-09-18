@@ -4,6 +4,9 @@
 # 예시 파일은 커밋
 !.env.example
 
+# 배포 후보(compose.prod.yaml)가 마운트하는 비밀값 파일. 절대 커밋하지 않습니다.
+/secrets/
+
 # === Python 기본 ===
 __pycache__/
 *.py[cod]
