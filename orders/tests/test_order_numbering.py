@@ -15,6 +15,7 @@ exactly the row lock that makes allocation safe.
 """
 
 import threading
+import uuid
 from datetime import date
 from unittest.mock import patch
 
@@ -232,6 +233,7 @@ class OrderApiNumberingTests(TestCase):
         response = self.client.post(
             reverse("orders:orders-collection"),
             {
+                "request_id": str(uuid.uuid4()),
                 "floor": "B1", "order_type": "DINE_IN", "table_number": "4",
                 "payment_method": "CASH", "received_cash_amount": 8000,
                 "items": [{"menu_item_id": self.menu.id, "qty": 1}],

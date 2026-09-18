@@ -180,6 +180,9 @@ def require_api_roles(*allowed_roles: str, by_method: dict[str, tuple[str, ...]]
                 response["WWW-Authenticate"] = "Bearer"
                 patch_cache_control(response, private=True, no_store=True)
                 return response
+            # The view may need to know which account is acting (6A records it
+            # with the order attempt). The HTML guard already does this.
+            request.auth_role = role.upper()
             required = per_method.get(request.method.upper(), allowed)
             if required and role.upper() not in required:
                 # Name neither the caller's role nor the allowed set: a rejected

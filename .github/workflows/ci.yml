@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: '24.7.0'
       - name: Test browser authentication client and DOM helper
-        run: node --test scripts/test_auth_client.cjs scripts/test_dom_helpers.cjs
+        run: node --test scripts/test_auth_client.cjs scripts/test_dom_helpers.cjs scripts/test_request_id.cjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

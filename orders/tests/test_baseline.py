@@ -3,6 +3,7 @@
 Run with bazaar_kiosk.settings_test_pg and the dedicated Compose test database.
 """
 
+import uuid
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -143,6 +144,9 @@ class OrderFixtureMixin(BaselineMixin):
 
     def payload(self, order_type="DINE_IN"):
         return {
+            # 6A: a fresh attempt id per payload; these tests create orders,
+            # they never retry one.
+            "request_id": str(uuid.uuid4()),
             "floor": "B1",
             "order_type": order_type,
             "is_takeout": order_type == "TAKEOUT",
