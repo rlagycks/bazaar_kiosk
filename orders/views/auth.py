@@ -13,6 +13,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from orders.authentication import (
     AuthError, RefreshInProgress, issue_tokens, rotate_refresh, revoke_refresh,
 )
+from orders.client_ip import client_ip
 from orders.login_security import attempt_login
 from orders.roles import ROLE_TO_URLNAME
 
@@ -47,8 +48,9 @@ def login_view(request):
         return render(request, 'orders/login.html', {'error': '로그인 설정을 확인해 주세요.'}, status=503)
     if not account_id or len(account_id) > 128 or len(password) > 1024:
         return render(request, 'orders/login.html', {'error': '계정 또는 비밀번호가 올바르지 않습니다.'}, status=200)
-    # REMOTE_ADDR is the directly connected peer. Never trust arbitrary X-Forwarded-For.
-    role, retry = attempt_login(account_id, password, request.META.get('REMOTE_ADDR', ''))
+    # The peer address, or the forwarded client address when the peer is a
+    # configured proxy. Never an arbitrary X-Forwarded-For (issue #61).
+    role, retry = attempt_login(account_id, password, client_ip(request))
     if role:
         # Switching accounts in a browser retires its previous device credential.
         try:
