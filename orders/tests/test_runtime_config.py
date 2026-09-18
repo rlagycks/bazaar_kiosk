@@ -130,6 +130,21 @@ class SecretFileSettingsTests(SimpleTestCase):
         self.assertIn("refused", result)
         self.assertIn("SECRET_KEY_FILE", result["refused"])
 
+    def test_a_malformed_trusted_proxy_entry_refuses_to_start(self):
+        """A typo here would otherwise raise inside the login view -- a 500 on
+        every login attempt for as long as the value is set. It is exactly the
+        kind of value that belongs in the startup refusal."""
+        for value in ("not-an-ip", "10.0.0.0/33", "10.89.0.10x", "proxy.internal"):
+            with self.subTest(value=value):
+                result = self.boot(TRUSTED_PROXY_IPS=value)
+                self.assertIn("refused", result)
+                self.assertIn("TRUSTED_PROXY_IPS", result["refused"])
+
+    def test_a_usable_trusted_proxy_entry_starts(self):
+        for value in ("10.89.0.10", "10.89.0.0/24", "10.89.0.10, 2001:db8::1"):
+            with self.subTest(value=value):
+                self.assertTrue(self.boot(TRUSTED_PROXY_IPS=value).get("started"))
+
     def test_the_refusal_never_prints_the_file_content(self):
         """Same property test_required_settings pins for the environment: the
         message travels to logs, so the secret must not travel with it."""

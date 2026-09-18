@@ -86,6 +86,36 @@ class TrustedProxyTests(SimpleTestCase):
         )
 
 
+@override_settings(TRUSTED_PROXY_IPS=["not-an-ip", "10.89.0.10"])
+class MalformedConfigurationTests(SimpleTestCase):
+    """Settings refuse a malformed entry at startup (see test_runtime_config),
+    so this should be unreachable. It still must not raise: this code runs on
+    the login path, and a 500 on every login is worse than the mis-bucketing
+    issue #61 is about."""
+
+    def test_an_unusable_entry_is_ignored_rather_than_raising(self):
+        self.assertEqual(
+            client_ip(request_meta("10.89.0.10", "203.0.113.9")), "203.0.113.9"
+        )
+
+    def test_a_peer_matching_no_usable_entry_is_the_client(self):
+        self.assertEqual(
+            client_ip(request_meta("192.0.2.50", "203.0.113.9")), "192.0.2.50"
+        )
+
+
+@override_settings(TRUSTED_PROXY_IPS=["10.89.0.10"])
+class MappedAddressTests(SimpleTestCase):
+    def test_an_ipv4_mapped_peer_is_not_matched_against_an_ipv4_proxy(self):
+        """Python compares address versions, so ::ffff:10.89.0.10 does not fall
+        inside 10.89.0.10/32. That fails closed -- the header is ignored -- and
+        this test records it so a later change cannot flip it silently."""
+        self.assertEqual(
+            client_ip(request_meta("::ffff:10.89.0.10", "203.0.113.9")),
+            "::ffff:10.89.0.10",
+        )
+
+
 @override_settings(TRUSTED_PROXY_IPS=["10.89.0.0/24"])
 class TrustedProxyRangeTests(SimpleTestCase):
     def test_a_range_matches_any_address_inside_it(self):

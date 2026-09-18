@@ -2,6 +2,7 @@
 from pathlib import Path
 import os
 from django.core.exceptions import ImproperlyConfigured
+from ipaddress import ip_network
 from urllib.parse import urlparse, parse_qs, unquote
 
 from .auth_config import parse_role_accounts
@@ -101,6 +102,19 @@ LOGIN_BLOCK_SECONDS = 300
 # A wrong entry here hands anyone the ability to choose their own throttle
 # bucket, so it is configuration and never a default.
 TRUSTED_PROXY_IPS = _split_csv("TRUSTED_PROXY_IPS")
+for _entry in TRUSTED_PROXY_IPS:
+    try:
+        ip_network(_entry, strict=False)
+    except ValueError:
+        # Refusing at startup, not at request time: this value is read on the
+        # login path, so an unusable entry would otherwise be a 500 on every
+        # login attempt for as long as it is set. An address is configuration,
+        # not a credential, so naming the offending entry is what makes the
+        # message actionable.
+        raise ImproperlyConfigured(
+            f"TRUSTED_PROXY_IPS contains {_entry!r}, which is not an IP address "
+            "or CIDR range. Leave it empty when no reverse proxy is in front."
+        ) from None
 
 
 def _bad_secret_key() -> bool:

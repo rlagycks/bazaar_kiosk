@@ -10,14 +10,34 @@ attacker would simply rotate it and never hit a limit at all.
 The boundary is `TRUSTED_PROXY_IPS`: the header is read only when the immediate
 peer is one of those addresses, and only back to the first hop that is not.
 """
+from functools import lru_cache
 from ipaddress import ip_address, ip_network
 
 from django.conf import settings
 
 
+@lru_cache(maxsize=8)
+def _parse_networks(entries):
+    """The configured proxies, as networks. A bare address is a /32 or /128.
+
+    Settings refuse an unusable entry at startup, so skipping one here should
+    be unreachable. It still must not raise: this runs on the login path, and a
+    500 on every login attempt is worse than losing the forwarded address.
+
+    Cached because it runs per request and the value changes only at startup
+    (and in tests, which is why the entries are the cache key).
+    """
+    networks = []
+    for entry in entries:
+        try:
+            networks.append(ip_network(entry, strict=False))
+        except ValueError:
+            continue
+    return tuple(networks)
+
+
 def _networks():
-    """The configured proxies, as networks. A bare address is a /32 or /128."""
-    return tuple(ip_network(entry, strict=False) for entry in settings.TRUSTED_PROXY_IPS)
+    return _parse_networks(tuple(settings.TRUSTED_PROXY_IPS))
 
 
 def _parse(value: str):
