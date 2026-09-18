@@ -117,6 +117,7 @@
 
   <script src="{% static 'orders/ui/auth.js' %}" data-auth-role="{{ request.auth_role }}" data-auth-session="{{ request.auth_session_id }}"></script>
   <script src="{% static 'orders/ui/dom.js' %}"></script>
+  <script src="{% static 'orders/ui/request_id.js' %}"></script>
   <script>
     // ---------- 유틸 ----------
     const KRW = (n)=> (Number(n)||0).toLocaleString('ko-KR');
@@ -146,6 +147,16 @@
     }
 
     // ---------- 상태 ----------
+  // 6A: the id of the attempt currently being saved. It survives a failed
+  // save so that pressing 저장 again is a retry, not a second order, and is
+  // dropped once the order is saved or the order itself changes.
+  let pendingRequestId = null;
+  function attemptId(){
+    if(!pendingRequestId){ pendingRequestId = window.BazaarRequestId.create(); }
+    return pendingRequestId;
+  }
+  function startNewAttempt(){ pendingRequestId = null; }
+
   const MODE_LABEL = {DINE_IN: '홀', TAKEOUT: '포장'};
   const TAKEOUT_TABLE_MIN = 101;
   const TAKEOUT_TABLE_MAX = 120;
@@ -464,6 +475,7 @@
       els.btnSubmit.disabled = true;
       try{
         await postJSON("{% url 'orders:orders-collection' %}", {
+          request_id: attemptId(),
           floor: 'B1',
           order_type: orderType,
           is_takeout: isTakeout,
@@ -475,6 +487,7 @@
           note: '',
           items,
         });
+        startNewAttempt();   // saved: the next 저장 is a different order
         resetAll(true);
         alert('주문이 접수되었습니다.');
       }catch(e){
@@ -525,6 +538,15 @@
       els.cashMixed.addEventListener('input', recalcChange);
       els.ticketMixed.addEventListener('input', recalcChange);
       els.paymentRadios.forEach(r => r.addEventListener('change', updatePaymentUI));
+      // 6A: touching the order after a failed save makes it a different order.
+      // Keeping the old id would answer 409 and the correction would look
+      // rejected; dropping it means the next 저장 saves what is on screen.
+      [els.cash, els.cashMixed, els.ticketMixed, els.tableNo].forEach(input => {
+        if(input) input.addEventListener('input', startNewAttempt);
+      });
+      els.paymentRadios.forEach(r => r.addEventListener('change', startNewAttempt));
+      els.menu.addEventListener('click', startNewAttempt);
+      els.cart.addEventListener('click', startNewAttempt);
       updatePaymentUI();
       els.btnSubmit.addEventListener('click', onSubmit);
       els.btnReset.addEventListener('click', ()=> resetAll(true));

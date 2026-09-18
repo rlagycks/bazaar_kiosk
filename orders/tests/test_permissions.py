@@ -33,6 +33,8 @@ from importlib import import_module
 from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
+import uuid
+
 from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
@@ -123,6 +125,7 @@ class AuthorizationMatrixTests(TestCase):
             ),
             "orders-collection-create": ("post", reverse("orders:orders-collection"), {
                 "data": {
+                    "request_id": str(uuid.uuid4()),
                     "floor": "B1", "order_type": "DINE_IN", "table_number": "7",
                     "payment_method": "CASH", "received_cash_amount": 1000,
                     "items": [{"menu_item_id": self.menu.id, "qty": 1}],
@@ -150,6 +153,13 @@ class AuthorizationMatrixTests(TestCase):
 
     def send(self, client, spec):
         method, url, kwargs, _ = spec
+        data = kwargs.get("data")
+        if isinstance(data, dict) and "request_id" in data:
+            # 6A: each send is a separate attempt, not a retry of the last one.
+            # Reusing one id across actors would answer 409 rather than testing
+            # the permission the matrix is about.
+            data = dict(data, request_id=str(uuid.uuid4()))
+            kwargs = dict(kwargs, data=data)
         return getattr(client, method)(url, **kwargs)
 
     def test_every_endpoint_answers_the_approved_matrix_for_every_actor(self):
@@ -589,6 +599,7 @@ class AuthorizationMatrixTests(TestCase):
         created = ordering.post(
             listing,
             data={
+                "request_id": str(uuid.uuid4()),
                 "floor": "B1", "order_type": "DINE_IN", "table_number": "7",
                 "payment_method": "CASH", "received_cash_amount": 1000,
                 "items": [{"menu_item_id": self.menu.id, "qty": 1}],

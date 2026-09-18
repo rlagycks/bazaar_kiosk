@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest, Http404
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.cache import cache_page
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum, F, IntegerField, Count, Max
 from django.db.models.functions import TruncHour
 from django.utils import timezone
@@ -16,7 +16,7 @@ from orders.models import (
     FloorChoices, PaymentMethod, OrderType, OrderStatus, OrderSource, NumberSeries,
     Table, MenuItem, Order, OrderItem,
 )
-from orders.services import allocate_floor_order_no, series_for
+from orders.services import allocate_floor_order_no, series_for, idempotency
 from orders.roles import COUNTER_ROLES, KITCHEN_ROLES, ORDER_READ_ROLES
 from orders.views.guards import require_api_roles
 
@@ -183,6 +183,19 @@ def orders_collection(request: HttpRequest):
     except ValueError as e:
         return HttpResponseBadRequest(str(e))
 
+    # 6A: identify the attempt before anything else. A replay is answered with
+    # the order that attempt already created, even if the menu has changed
+    # since -- the caller is asking what happened, not asking again.
+    try:
+        request_key = idempotency.clean_key(p.get("request_id"))
+    except idempotency.RequestIdError as exc:
+        return HttpResponseBadRequest(str(exc))
+    request_digest = idempotency.fingerprint(p)
+    acting_role = getattr(request, "auth_role", "")
+    replayed = _replay_if_known(request_key, acting_role, request_digest)
+    if replayed is not None:
+        return replayed
+
     floor = (p.get("floor") or FloorChoices.B1).upper()
     order_type = (p.get("order_type") or "").upper()
     items = p.get("items") or []                      # [{menu_item_id, qty}, ...]
@@ -305,48 +318,88 @@ def orders_collection(request: HttpRequest):
     if source_raw not in OrderSource.values:
         source_raw = OrderSource.COUNTER
 
-    with transaction.atomic():
-        order = Order.objects.create(
-            floor=floor,
-            order_type=order_type,
-            status=OrderStatus.PREPARING,
-            source=source_raw,
-            table=table,
-            is_takeout=is_takeout,
-            payment_method=payment_method,
-            received_amount=total_received or None,
-            received_cash_amount=cash_value or None,
-            received_ticket_amount=ticket_value or None,
-            note=note[:200],
-        )
-        item_objects = [
-            OrderItem(
-                order=order,
-                menu_item=mi_map[mid],
-                qty=qty,
-                unit_price=mi_map[mid].price,
-                service_mode=mode,
+    try:
+        with transaction.atomic():
+            order = Order.objects.create(
+                floor=floor,
+                order_type=order_type,
+                status=OrderStatus.PREPARING,
+                source=source_raw,
+                table=table,
+                is_takeout=is_takeout,
+                payment_method=payment_method,
+                received_amount=total_received or None,
+                received_cash_amount=cash_value or None,
+                received_ticket_amount=ticket_value or None,
+                note=note[:200],
             )
-            for mid, qty, mode in parsed
-        ]
-        OrderItem.objects.bulk_create(item_objects, batch_size=len(item_objects) or 1)
+            item_objects = [
+                OrderItem(
+                    order=order,
+                    menu_item=mi_map[mid],
+                    qty=qty,
+                    unit_price=mi_map[mid].price,
+                    service_mode=mode,
+                )
+                for mid, qty, mode in parsed
+            ]
+            OrderItem.objects.bulk_create(item_objects, batch_size=len(item_objects) or 1)
 
-        total_price = sum(
-            (mi_map[mid].price or 0) * qty for mid, qty, _ in parsed
-        )
-        Order.objects.filter(pk=order.pk).update(total_price=total_price)
-        order.total_price = total_price
+            total_price = sum(
+                (mi_map[mid].price or 0) * qty for mid, qty, _ in parsed
+            )
+            Order.objects.filter(pk=order.pk).update(total_price=total_price)
+            order.total_price = total_price
 
-        allocate_floor_order_no(order)  # 계열·연도별 번호 부여 (D-047)
+            allocate_floor_order_no(order)  # 계열·연도별 번호 부여 (D-047)
 
-        created_items = list(
-            OrderItem.objects.select_related("menu_item")
-            .filter(order=order)
-            .order_by("id")
-        )
+            created_items = list(
+                OrderItem.objects.select_related("menu_item")
+                .filter(order=order)
+                .order_by("id")
+            )
+
+            # Last, and inside the same transaction: if another request already
+            # claimed this id, the unique index refuses here and everything above
+            # -- order, items, the allocated number -- rolls back with it.
+            idempotency.remember(
+                request_key, role=acting_role, digest=request_digest, order=order
+            )
+    except IntegrityError as exc:
+        if not idempotency.is_key_conflict(exc):
+            raise
+        # The winner committed while we waited on its insert, so its record is
+        # readable now. This request created nothing.
+        replayed = _replay_if_known(request_key, acting_role, request_digest)
+        if replayed is None:  # pragma: no cover - the row cannot be gone
+            raise
+        return replayed
 
     order._prefetched_objects_cache = {"items": created_items}
     return JsonResponse(_serialize_order(order), status=201)
+
+
+def _replay_if_known(key: str, role: str, digest: str):
+    """The answer for an id that has been seen, or None if it has not."""
+    record = idempotency.find(key)
+    if record is None:
+        return None
+    if not idempotency.matches(record, role=role, digest=digest):
+        # Deliberately says nothing about the stored order: the caller either
+        # changed the order under a used id, or collided with another screen.
+        return JsonResponse(
+            {
+                "detail": "같은 request_id로 다른 주문이 이미 저장돼 있습니다. "
+                "새 주문이라면 화면을 새로고침한 뒤 다시 저장해 주세요."
+            },
+            status=409,
+        )
+    order = (
+        Order.objects.select_related("table")
+        .prefetch_related("items__menu_item")
+        .get(pk=record.order_id)
+    )
+    return JsonResponse(_serialize_order(order), status=200)
 
 
 # ---------- 상태 변경 ----------

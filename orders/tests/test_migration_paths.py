@@ -26,6 +26,7 @@ M19 = ("orders", "0019_remove_order_orders_table_rule_and_more")
 M20 = ("orders", "0020_create_floor_sequences")
 M21 = ("orders", "0021_auth_device")
 M22 = ("orders", "0022_eventday_ordernumbercounter_and_more")
+M23 = ("orders", "0023_orderrequest")
 
 
 class MigrationPathTests(TestCase):
@@ -163,7 +164,7 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = M22
+        leaf = M23
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
