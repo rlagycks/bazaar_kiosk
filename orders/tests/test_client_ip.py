@@ -80,6 +80,14 @@ class TrustedProxyTests(SimpleTestCase):
             client_ip(request_meta("10.89.0.10", "203.0.113.9:51234")), "203.0.113.9"
         )
 
+    def test_a_bracketed_ipv6_client_with_a_port_is_unwrapped(self):
+        """The bracketed form is what a proxy sends when it appends the port to
+        an IPv6 address. Without this branch the whole entry fails to parse and
+        the client silently shares the proxy's bucket."""
+        self.assertEqual(
+            client_ip(request_meta("10.89.0.10", "[2001:db8::1]:51234")), "2001:db8::1"
+        )
+
     def test_an_ipv6_client_is_preserved(self):
         self.assertEqual(
             client_ip(request_meta("10.89.0.10", "2001:db8::1")), "2001:db8::1"

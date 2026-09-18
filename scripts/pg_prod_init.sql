@@ -11,7 +11,20 @@
 --
 -- No password literal appears in this file. The value is read from the file
 -- given by BK_APP_DB_PASSWORD_FILE, mounted as a Docker secret.
+\set ON_ERROR_STOP on
 \set app_password `cat "$BK_APP_DB_PASSWORD_FILE"`
+
+-- An unset or empty secret file would otherwise create a role with an empty
+-- password, which PostgreSQL accepts and which then authenticates nobody --
+-- or everybody, depending on pg_hba. Failing the container's first boot is the
+-- only moment this is cheap to notice.
+SELECT :'app_password' <> '' AS app_password_present \gset
+\if :app_password_present
+\else
+DO $$ BEGIN
+    RAISE EXCEPTION 'BK_APP_DB_PASSWORD_FILE is empty or unset; refusing to create a passwordless role';
+END $$;
+\endif
 
 CREATE ROLE bazaar_app LOGIN PASSWORD :'app_password'
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;

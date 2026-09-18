@@ -223,3 +223,10 @@ class DeploymentCandidateTests(SimpleTestCase):
             with self.subTest(clause=clause):
                 self.assertIn(clause, init)
         self.assertNotIn("PASSWORD '", init)
+
+    def test_the_database_role_is_never_created_without_a_password(self):
+        """An empty secret file would otherwise produce a role with an empty
+        password on the container's first boot, where nothing looks at it."""
+        init = (REPO_ROOT / "scripts" / "pg_prod_init.sql").read_text(encoding="utf-8")
+        self.assertIn("RAISE EXCEPTION", init)
+        self.assertIn("app_password_present", init)
