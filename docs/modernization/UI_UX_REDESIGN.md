@@ -1,5 +1,83 @@
 # Figma UI/UX 개선안
 
+## 현재 개선안 — 2026-09-20 개인 계정·권한 4종 반영
+
+사용자의 UI 수정 요청에 따라 기존 [02 · UI 개선안](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2004-3)을
+직접 수정했다. 01 원본 보존 영역과 사용자가 별도로 만든 초안은 유지했다.
+차분한 업무용 UI, Noto Sans KR, 청록 강조색, 서빙 휴대폰·모니터링/통계 PC 기준을 이어간다.
+
+### 확인한 구현과 PR
+
+- [PR #67](https://github.com/rlagycks/bazaar_kiosk/pull/67): 개인 계정·권한 4종·행위자 기록, 머지 확인.
+- [PR #68](https://github.com/rlagycks/bazaar_kiosk/pull/68): 주문 생성 POST 서빙 한정, 확인 당시 OPEN.
+  서빙 한정이라는 사용자 결정을 디자인에 반영했으며 머지·배포 완료로 표시하지 않는다.
+- 현재 계약은 [ACCOUNTS.md](ACCOUNTS.md), [JWT_AUTHENTICATION.md](JWT_AUTHENTICATION.md),
+  [권한 정의](../../orders/roles.py), [로그인](../../orders/views/auth.py),
+  [인증 클라이언트](../../orders/static/orders/ui/auth.js), [관리자](../../orders/admin.py)를 확인했다.
+
+| 항목 | 개선안에 반영한 동작 |
+| --- | --- |
+| 로그인 | 등록된 이름 + 행사 공용 비밀번호. 로그인 전 역할 선택·PIN 단계 제거 |
+| 권한 | 서빙, 식당 모니터링, 포장 모니터링, 누적·통계의 네 종류. 개인별 복수 권한 가능 |
+| 계정 공급 | 관리자가 이름·권한·활성 여부 등록. 이름을 입력한다고 자동 가입·권한 부여되지 않음 |
+| 로그인 후 이동 | 현재 서버 우선순위로 담당 화면에 직접 이동. 내 업무 메뉴는 로그인 후 허용된 업무 탐색 제안 |
+| 식당/포장 경계 | 매장 항목이 하나라도 있으면 식당(혼합 포함), 모두 포장이면 포장. 통합 화면은 두 모니터링 권한 모두 필요 |
+| 서빙 | 휴대폰 390px 및 390×844 스크롤 프리뷰에 개인 이름 표시. 기존 메뉴·주문·결제 흐름 유지 |
+| 누적·통계 | 전체 주문·매출 조회. Django 관리자 접근과 구분 |
+| 기록 | 주문 생성자와 생성·상태 변경·준비 수량 변경의 작업자 표시. 주문 이력은 관리자에서 읽기 전용 |
+
+### 수정·추가 화면
+
+| 화면 | Figma | 비고 |
+| --- | --- | --- |
+| 개인 로그인 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2008-7) | 기존 역할 선택 프레임 수정 |
+| 로그인 오류 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2008-22) | 기존 PIN 프레임 수정. 미등록·비활성·권한 없음·비밀번호 오류를 같은 문구로 안내 |
+| 내 업무 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2099-436) | 네 권한을 모두 가진 합성 계정 예시. 로그인 전 선택 화면이 아님 |
+| 서빙 휴대폰 프리뷰 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2033-327) | 이름·서빙 권한·로그아웃, 고정 하단 유지 |
+| 식당 모니터링 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2012-155) | 식당·혼합 주문 범위 |
+| 포장 모니터링 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2012-209) | 포장 전용 주문 범위 |
+| 통합 모니터링 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2012-101) | 다섯 번째 권한이 아닌 두 권한 조합의 화면 |
+| 누적·통계 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2013-199) | 개인 이름과 전체 조회 범위 표시 |
+| 재로그인 안내 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2099-437) | 갱신 불가·로그인 정보 변경 |
+| 권한 없음 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2099-438) | 권한 부족·담당 범위 밖 주문 |
+| 연결 오류 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2099-439) | 저장 결과 불명과 인증 만료를 구분 |
+| 로그인 시도 제한 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2099-440) | 재시도 대기 안내 |
+| 개인 계정·권한 관리 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2099-441) | 이름 검색·목록·복수 권한 선택·활성 여부·저장 |
+| 주문 이력 | [열기](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2099-442) | 주문·작업자·시각·행위·변경 내용. 수정/삭제 동작 없음 |
+
+사이트 관리 화면에 개인 계정·주문 이력 링크를 추가하고 주문 상세에 읽기 전용 생성자를 표시했다.
+기존 Django 사용자·그룹 관리 항목은 행사 운영 계정과 별개로 유지한다.
+
+### JWT와 상태 표현
+
+- 기존 access 15분·refresh 절대 12시간 계약을 유지한다. 정상 자동 갱신에는 팝업이나
+  사용자 조작을 요구하지 않는다. 토큰·JWT 구현 용어는 업무 화면에 노출하지 않는다.
+- 현행 클라이언트는 API 401에서 자동 갱신 후 한 번 재요청한다. 주기적 타이머 갱신으로
+  표현하지 않는다. refresh 401 또는 브라우저 계정/session 불일치 시 로그인으로 돌아간다.
+- 403은 로그인 만료가 아닌 권한·범위 부족이다. 네트워크 실패는 별도로 안내하며,
+  응답이 유실된 주문 저장을 무조건 재전송하거나 저장 성공/실패로 단정하지 않는다.
+- 재로그인·권한 없음·연결 오류의 새 안내와 내 업무 탐색은 **UI 제안**이다.
+  현행 앱의 실제 화면 변경·입력 복구·저장 보장을 의미하지 않는다.
+- Figma 로그인 버튼의 서빙 연결은 서빙 계정 예시다. 실제 인증·권한 분기는 서버가 담당한다.
+  다른 계정의 다른 기기 로그인이 그 자체로 현재 기기를 종료한다는 정책을 추가하지 않는다.
+
+### 검증과 범위
+
+- 원본 영역의 2,202개 노드 ID·종류·이름·절대 경계·텍스트에 대한 작업 전후 fingerprint가
+  동일했다(`2849323469`). 원본 11개 화면을 보존했다.
+- 변경 화면 17개의 텍스트를 읽어 Noto Sans KR 사용, 부모 경계 넘침 0건, 끊어진 프로토타입
+  목적지 0건을 확인했다. 휴대폰 프리뷰의 의도적인 스크롤 콘텐츠는 구분했다.
+- 주요 변경 화면을 Figma 렌더링으로 검사하고 통합 모니터링 툴바 넘침을 수정했다.
+  새 상태와 관리자 화면은 기존 버튼·입력·표 컴포넌트 및 색상 변수를 사용하며 편집 가능하다.
+- Present 모드 전체 클릭 E2E, 실제 인증·권한 저장·주문 작업, 실기기 접근성 검증은 수행하지 않았다.
+- 이번 작업은 Figma와 문서 수정이다. 애플리케이션 구현·배포·원격 push/merge는 수행하지 않았다.
+  작업 도중 다른 세션의 결제 검증 브랜치/앱 변경을 확인했고 해당 변경은 보존했다.
+
+## 2026-09-07 1차 작업 이력
+
+아래 역할 5개·PIN·화면 수·검증 수치는 **최초 작업 당시 기록**이다.
+현재 로그인·권한 및 변경 화면은 위의 2026-09-20 개정안을 따른다.
+
 작성일: 2026-09-07. 범위: 기존 업무 흐름을 유지하는 편집 가능한 디자인 초안.
 
 ## 확정한 기준

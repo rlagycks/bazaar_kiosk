@@ -30,6 +30,7 @@ M22 = ("orders", "0022_eventday_ordernumbercounter_and_more")
 M23 = ("orders", "0023_orderrequest")
 M24 = ("orders", "0024_order_uq_active_takeout_slot")
 M25 = ("orders", "0025_account_permissions_audit")
+M26 = ("orders", "0026_order_change_amount")
 
 
 class MigrationPathTests(TestCase):
@@ -167,7 +168,7 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = M25
+        leaf = M26
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
@@ -355,6 +356,33 @@ class MigrationPathTests(TestCase):
         self.assert_head(M24)
         self.assertEqual(
             apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk).order_no, 3
+        )
+
+    def test_0026_adds_the_change_column_without_backfilling_old_rows(self):
+        """7A (D-048): the change is stored from now on. Rows from before keep
+        NULL -- the API computes those -- and nothing about them is rewritten.
+        Rolling the column back leaves the order as it was."""
+        apps = self.migrate(M25)
+        alias = self.connection.alias
+        order = self.fixture(apps, order_no=5)
+        apps.get_model("orders", "Order").objects.using(alias).filter(pk=order.pk).update(
+            received_amount=10000, received_cash_amount=10000, total_price=4300,
+        )
+        after = self.migrate(M26)
+        self.assert_head(M26)
+        kept = after.get_model("orders", "Order").objects.using(alias).get(pk=order.pk)
+        self.assertIsNone(kept.change_amount)
+        self.assertEqual((kept.received_cash_amount, kept.total_price, kept.order_no), (10000, 4300, 5))
+        self.migrate(M25)
+        self.assert_head(M25)
+        columns = {
+            column.name for column in
+            self.connection.introspection.get_table_description(
+                self.connection.cursor().cursor, "orders_order")
+        }
+        self.assertNotIn("change_amount", columns)
+        self.assertEqual(
+            apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk).received_cash_amount, 10000
         )
 
     def test_original_0020_still_fails_on_an_empty_database(self):

@@ -105,6 +105,9 @@ class Order(models.Model):
     received_amount = models.PositiveIntegerField(null=True, blank=True)
     received_cash_amount = models.PositiveIntegerField(null=True, blank=True)
     received_ticket_amount = models.PositiveIntegerField(null=True, blank=True)
+    # 7A (D-048): decided by the server at creation and kept. NULL on rows
+    # older than 0026; the API computes those the old way.
+    change_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name="거스름돈")
 
     # 공통
     total_price = models.PositiveIntegerField(default=0)
