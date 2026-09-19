@@ -3,6 +3,18 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-20 — 주문 생성 POST 서빙 한정 (D-051 판단 5 확정)
+
+- PR #67 머지(develop `6ffafdb`) 뒤 사용자가 “주문생성은 서빙 권한으로”라고 결정했다. 브랜치
+  `fix/order-create-serving-only`.
+- 변경: `orders-collection` POST 가드를 `by_method={"GET": 읽기 권한, "POST": (SERVING,)}`로 좁혔다.
+  `roles.SERVING_PERMISSIONS` 추가. 4A4까지는 인증된 전원이 생성할 수 있었다.
+- TDD: 권한 매트릭스의 생성 행을 `("SERVING",)`으로 바꿔 RED 4건(HALL/TAKEOUT/STATS/BOTH 201≠403)을
+  확인한 뒤 가드를 고쳤다. 6A “다른 계정의 요청 ID 재전송” 테스트는 카운터 계정 대신 두 번째 서빙 계정을 쓴다.
+- 검증: 전용 PG에서 test_permissions·test_idempotency·test_audit·test_scope·test_baseline·test_order_modes·
+  test_order_numbering 112개 통과. 전체 스위트는 CI에서 확인.
+- 문서: ACCOUNTS 매트릭스·남은 것, DECISIONS D-051 구현 메모·D-003 행.
+
 ## 2026-09-20 — 4A4 개인 계정·권한 4종·행위자 기록 (D-051 구현)
 
 - PR #66 머지(develop `61b9412`) 뒤 브랜치 `phase-4a4-personal-accounts`에서 D-051을 구현했다.

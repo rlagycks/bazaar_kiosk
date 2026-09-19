@@ -38,7 +38,7 @@
 | `/orders/kitchen/` (전체) | 불가 | 둘 다 가진 계정만 | 둘 다 가진 계정만 | 불가 |
 | `/orders/b1-counter/` | 불가 | 불가 | 불가 | 허용 |
 | `menus`·`tables` | 인증된 전원 | | | |
-| `orders-collection` POST | 인증된 전원 (현행 유지, D-051 판단 5) | | | |
+| `orders-collection` POST | 허용 | 불가 | 불가 | 불가 |
 | `orders-collection` GET·`order-detail` | 불가 | 식당 분류만 | 포장 분류만 | 전체 |
 | `order-status`·`order-item-progress` | 불가 | 식당 분류만 | 포장 분류만 | 불가 |
 | `stats-dashboard`·`stats-menu-counts` | 불가 | 불가 | 불가 | 허용 |
@@ -116,6 +116,6 @@ node --test scripts/test_auth_client.cjs
 
 ## 남은 것
 
-- 주문 생성 POST를 서빙 권한으로 한정할지(D-051 판단 5). 현행은 인증된 전원이다.
+- ~~주문 생성 POST를 서빙 권한으로 한정할지~~ 2026-09-20 사용자 결정으로 **서빙 한정**(D-051 판단 5 확정).
 - 계정 관리를 Django 관리자 밖의 화면으로 옮길지는 UI 단계의 문제다.
 - 10C 권한 snapshot·10D1 SSE 인가는 `Identity.permissions`를 전제로 한다.

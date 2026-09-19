@@ -18,7 +18,7 @@ from orders.models import (
 )
 from orders.services import allocate_floor_order_no, series_for, idempotency
 from orders.services import status as status_service
-from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, STATS_PERMISSIONS
+from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, SERVING_PERMISSIONS, STATS_PERMISSIONS
 from orders.services import audit, scope
 from orders.views.guards import require_api_permissions
 
@@ -152,7 +152,9 @@ def menus_list(request: HttpRequest):
 
 
 # ---------- 주문 목록/생성 ----------
-@require_api_permissions(by_method={"GET": ORDER_READ_PERMISSIONS})
+# D-051 judgement 5 (settled 2026-09-20): creating an order is the serving
+# screen's job, so POST is SERVING only. Reading exposes money: monitors and STATS.
+@require_api_permissions(by_method={"GET": ORDER_READ_PERMISSIONS, "POST": SERVING_PERMISSIONS})
 @require_http_methods(["GET", "POST"])
 def orders_collection(request: HttpRequest):
     if request.method == "GET":
