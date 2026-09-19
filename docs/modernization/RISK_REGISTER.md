@@ -166,7 +166,7 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 2 | [BK-R018 — Supabase 익명 구독의 RLS·이벤트 노출 경계 미확인](ANALYSIS_REPORT.md#bk-r018) | High | Production-dependent | Open | D-010; 단계 3 | 보안·운영 담당 | 4B | 전환 전 외부 권한 검증, D-018 전환 후 외부 요청/키0·외부 노출 정리·자체 SSE 인가 |
 | 2 | [BK-R003 — PostgreSQL 날짜별 번호 계약 차이 및 충돌 재시도 실패](ANALYSIS_REPORT.md#bk-r003) | High | Repo-fixed (D-047, 2026-09-18) | Open (운영 인수 대기) | D-004,D-006; 단계 1,2 | 데이터 담당 | 5 | PG 자정/충돌/재시도/실패·동시 생성; 기존 번호·날짜 데이터와 호환 |
 | 2 | [BK-R012 — 재전송·중복 제출에 멱등성 경계 없음](ANALYSIS_REPORT.md#bk-r012) | High | Repo-fixed (D-049, 2026-09-18) | Open (운영 인수 대기) | D-007,D-008; 단계 5 | 주문 담당 | 6 | 더블탭/timeout후 재전송/병렬동일키/다른payload/키만료 |
-| 2 | [BK-R013 — 취소에서 활성으로 전환 가능·상태 명령 간 경합](ANALYSIS_REPORT.md#bk-r013) | High | Reproduced | Open | D-015,D-003; 단계 5 | 주문 담당 | 6 | 취소후 progress/직접상태/관리자, 취소와 완료 경합, stale absolute progress |
+| 2 | [BK-R013 — 취소에서 활성으로 전환 가능·상태 명령 간 경합](ANALYSIS_REPORT.md#bk-r013) | High | Repo-fixed (D-050, 2026-09-18) | Open (운영 인수 대기) | D-015,D-003; 단계 5 | 주문 담당 | 6 | 취소후 progress/직접상태/관리자, 취소와 완료 경합, stale absolute progress |
 | 2 | [BK-R007 — 레거시 결제 분할 합계와 상세 응답 불일치](ANALYSIS_REPORT.md#bk-r007) | High | Reproduced | Open | D-005,D-008,D-012; 단계 6 | 재무·데이터 담당 | 7 | 0017 이전 CASH/TICKET 행과 0017 이후 혼합 결제·분할 누락 행, 원본/분할/보고 합계 대조·되돌림 |
 | 2 | [BK-R008 — 관리자 항목 수정으로 저장 합계와 품목 합계 이탈](ANALYSIS_REPORT.md#bk-r008) | High | Reproduced | Open | D-011,D-005; 단계 6 | 재무·백엔드 담당 | 7 | 실제 관리자 form POST 추가·수정·삭제·상태, 가격 스냅샷/합계/번호 |
 | 2 | [BK-R014 — 부족 결제·소수 입력을 정상 주문으로 승인](ANALYSIS_REPORT.md#bk-r014) | High | Reproduced | Open | D-005,D-012; 단계 6 | 재무 담당 | 7 | 0/부족/초과/음수/float/bool/오버플로/복합 필드/메뉴 가격 변경 |

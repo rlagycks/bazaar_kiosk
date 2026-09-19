@@ -165,7 +165,16 @@
       const r = await window.BazaarAuth.fetch(url, Object.assign({credentials:'same-origin'}, options||{}));
       if (!r.ok){
         const text = await r.text().catch(()=> '');
-        throw new Error(text || ('HTTP '+r.status));
+        // Refusals about the order's state (409) answer in JSON. This board is
+        // where they actually land -- cancelling an order someone else already
+        // cancelled, or finishing an item on a cancelled order -- so the
+        // sentence has to come out of the body instead of the braces.
+        let message = text;
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed && parsed.detail) message = parsed.detail;
+        } catch (e) { /* plain-text refusal, already readable */ }
+        throw new Error(message || ('HTTP '+r.status));
       }
       return r.json();
     }

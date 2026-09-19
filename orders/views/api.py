@@ -17,6 +17,7 @@ from orders.models import (
     Table, MenuItem, Order, OrderItem,
 )
 from orders.services import allocate_floor_order_no, series_for, idempotency
+from orders.services import status as status_service
 from orders.roles import COUNTER_ROLES, KITCHEN_ROLES, ORDER_READ_ROLES
 from orders.views.guards import require_api_roles
 
@@ -238,6 +239,15 @@ def orders_collection(request: HttpRequest):
             table = _get_table_by_number(table_no)
         except Table.DoesNotExist:
             return HttpResponseBadRequest("등록되지 않은 포장 번호입니다.")
+        # D-050: one waiting customer per tag. The unique constraint is the
+        # real boundary; this check exists to answer with a sentence rather
+        # than an integrity error, and to say which number is taken.
+        if _takeout_slot_in_use(table):
+            return JsonResponse(
+                {"detail": f"{table_no}번 포장 번호는 아직 사용 중입니다. "
+                           "다른 번호를 사용해 주세요."},
+                status=409,
+            )
 
     def _to_int(value):
         if value in (None, ""):
@@ -366,6 +376,14 @@ def orders_collection(request: HttpRequest):
                 request_key, role=acting_role, digest=request_digest, order=order
             )
     except IntegrityError as exc:
+        if _is_takeout_slot_conflict(exc):
+            # Two requests claimed the tag at once; the constraint let one
+            # through. Same answer as the check above, from the other side.
+            return JsonResponse(
+                {"detail": f"{table.number}번 포장 번호는 아직 사용 중입니다. "
+                           "다른 번호를 사용해 주세요."},
+                status=409,
+            )
         if not idempotency.is_key_conflict(exc):
             raise
         # The winner committed while we waited on its insert, so its record is
@@ -377,6 +395,21 @@ def orders_collection(request: HttpRequest):
 
     order._prefetched_objects_cache = {"items": created_items}
     return JsonResponse(_serialize_order(order), status=201)
+
+
+def _is_takeout_slot_conflict(exc: Exception) -> bool:
+    cause = getattr(exc, "__cause__", None)
+    diag = getattr(cause, "diag", None)
+    name = getattr(diag, "constraint_name", None) if diag else None
+    return "uq_active_takeout_slot" in (name or str(exc))
+
+
+def _takeout_slot_in_use(table) -> bool:
+    return Order.objects.filter(
+        table=table,
+        order_type=OrderType.TAKEOUT,
+        status__in=[OrderStatus.PREPARING, OrderStatus.READY],
+    ).exists()
 
 
 def _replay_if_known(key: str, role: str, digest: str):
@@ -410,30 +443,26 @@ def order_status(request: HttpRequest, order_id: int):
         payload = _parse_json(request)
     except ValueError as e:
         return HttpResponseBadRequest(str(e))
-    new_status = (payload.get("status") or "").upper()
+    raw_status = payload.get("status")
+    new_status = raw_status.upper() if isinstance(raw_status, str) else ""
     if new_status not in (OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.CANCELLED):
+        # A value that is not a status at all is malformed input. A status the
+        # order may not take is a conflict, answered below with 409.
         return HttpResponseBadRequest("status는 PREPARING/READY/CANCELLED만 허용됩니다.")
 
     try:
-        order = _order_base_queryset().get(id=order_id)
+        # 6B: lock, decide and write as one step (D-050). Reading first and
+        # saving afterwards is how a cancel used to be overwritten.
+        order = status_service.change_by_id(order_id, new_status)
     except Order.DoesNotExist:
         raise Http404("주문이 존재하지 않습니다.")
-
-    order.status = new_status
-
-    order.save(update_fields=["status", "updated_at"])
+    except status_service.TransitionRefused as refused:
+        return JsonResponse(
+            {"detail": refused.detail, "id": order_id, "status": refused.current},
+            status=409,
+        )
 
     return JsonResponse({"id": order.id, "status": order.status}, status=200)
-
-
-def _sync_order_status_from_items(order: Order) -> None:
-    if order.status == OrderStatus.CANCELLED:
-        return
-    remaining_exists = order.items.filter(prepared_qty__lt=F("qty")).exists()
-    desired = OrderStatus.PREPARING if remaining_exists else OrderStatus.READY
-    if order.status != desired:
-        order.status = desired
-        order.save(update_fields=["status", "updated_at"])
 
 
 @require_api_roles(*KITCHEN_ROLES)
@@ -449,14 +478,33 @@ def order_item_progress(request: HttpRequest, item_id: int):
 
     try:
         with transaction.atomic():
+            # Always the order first, then the item. Both rows are locked --
+            # the status decision below belongs to the order, and a cancel
+            # arriving in parallel must not slip between this check and the
+            # write -- and taking them in one fixed order everywhere is what
+            # keeps two requests on the same order from deadlocking each other
+            # (2026-09-18 security review).
+            order_id = (
+                OrderItem.objects.filter(id=item_id)
+                .values_list("order_id", flat=True)
+                .first()
+            )
+            if order_id is None:
+                raise OrderItem.DoesNotExist
+            order = status_service.locked(order_id)
             item = (
                 OrderItem.objects.select_related("order", "menu_item")
                 .select_for_update()
                 .get(id=item_id)
             )
-            order = item.order
-            if order.status == OrderStatus.CANCELLED:
-                return HttpResponseBadRequest("취소된 주문입니다.")
+            if status_service.is_closed(order):
+                # 409, like every other refusal that is about the order's
+                # state rather than the request's shape (D-050).
+                return JsonResponse(
+                    {"detail": "취소된 주문은 조리 상태를 바꿀 수 없습니다.",
+                     "id": order.id, "status": order.status},
+                    status=409,
+                )
 
             if prepared_qty is None:
                 if done_flag is None:
@@ -475,8 +523,8 @@ def order_item_progress(request: HttpRequest, item_id: int):
                 item.prepared_qty = prepared_qty
                 item.save(update_fields=["prepared_qty"])
 
-            # 상태 동기화
-            _sync_order_status_from_items(order)
+            # 상태 동기화: 수량이 말하는 상태가 이긴다 (D-050)
+            status_service.sync_from_items(order)
             order.refresh_from_db()
     except OrderItem.DoesNotExist:
         raise Http404("주문 품목이 존재하지 않습니다.")
