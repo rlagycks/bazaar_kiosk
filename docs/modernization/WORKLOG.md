@@ -26,6 +26,8 @@
   DEPLOYMENT_CANDIDATE·SESSION_SETUP·BLUEPRINT(4A4)·DECISIONS(D-051 구현 메모)·RISK_REGISTER·README.
 - 남은 위험: 이름만으로는 사칭을 막지 못한다(공용 비밀번호). 운영 인수 시 실제 비밀번호 해시와 계정
   등록이 필요하고, 배포 직후 모든 기기가 재로그인한다. 다음: PR 리뷰 → 머지 → 7A.
+- **PR #67 리뷰:** 코드·보안·DB 에이전트 3개, CRITICAL/HIGH 없음. MEDIUM 2건(0025 잠금 창 → 트래픽 없는
+  배포 창 명시, 포장 목록 anti-join 확장성 → 필요 시 부분 인덱스)과 LOW 3건을 ACCOUNTS.md에 기록했다. CI 통과 후 머지.
 
 ## 2026-09-19 — 기획 변경: 개인 계정·권한 4종 (D-051)
 
