@@ -19,7 +19,7 @@ from orders.models import (
 from orders.services import allocate_floor_order_no, series_for, idempotency
 from orders.services import status as status_service
 from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, SERVING_PERMISSIONS, STATS_PERMISSIONS
-from orders.services import audit, scope
+from orders.services import audit, payments, scope
 from orders.views.guards import require_api_permissions
 
 
@@ -38,9 +38,10 @@ def _serialize_order(o: Order) -> Dict[str, Any]:
         cash_amount = o.received_amount if o.payment_method == PaymentMethod.CASH else 0
     if ticket_amount is None:
         ticket_amount = o.received_amount if o.payment_method == PaymentMethod.TICKET else 0
-    total_received = (cash_amount or 0) + (ticket_amount or 0)
-    due_after_ticket = max(0, (o.total_price or 0) - (ticket_amount or 0))
-    change_amount = max(0, (cash_amount or 0) - due_after_ticket)
+    # 7A: stored at creation since 0026; older rows are computed the old way.
+    change_amount = o.change_amount
+    if change_amount is None:
+        change_amount = payments.change_for(cash=cash_amount, ticket=ticket_amount, total=o.total_price)
     return {
         "id": o.id,
         "floor": o.floor,
@@ -214,12 +215,12 @@ def orders_collection(request: HttpRequest):
 
     # 지하 주문서 확장 필드
     is_takeout = bool(p.get("is_takeout", order_type == OrderType.TAKEOUT))
-    payment_method = (p.get("payment_method") or PaymentMethod.CASH).upper()
-    received_amount = p.get("received_amount", None)
-    received_cash_amount = p.get("received_cash_amount", None)
-    received_ticket_amount = p.get("received_ticket_amount", None)
-    if payment_method not in (PaymentMethod.CASH, PaymentMethod.TICKET, PaymentMethod.CASH_TICKET):
-        return HttpResponseBadRequest("payment_method 값이 유효하지 않습니다.")
+    # 7A: every figure is checked by the payment service; nothing is int()-ed here.
+    try:
+        payment = payments.read_payment(p)
+    except payments.AmountError as exc:
+        return HttpResponseBadRequest(str(exc))
+    payment_method = payment.method
 
     # 테이블 (지하 매장 전용 규칙)
     table = None
@@ -254,51 +255,7 @@ def orders_collection(request: HttpRequest):
                 status=409,
             )
 
-    def _to_int(value):
-        if value in (None, ""):
-            return None
-        if isinstance(value, str):
-            value = value.strip().replace(",", "")
-            if value == "":
-                return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            raise ValueError
-
-    try:
-        if payment_method == PaymentMethod.CASH:
-            cash_value = _to_int(received_amount) or 0
-            ticket_value = 0
-        elif payment_method == PaymentMethod.TICKET:
-            cash_value = 0
-            ticket_value = _to_int(received_amount) or 0
-        else:
-            cash_value = _to_int(received_cash_amount)
-            ticket_value = _to_int(received_ticket_amount)
-            if cash_value is None or ticket_value is None:
-                cash_value = None
-                ticket_value = None
-                if isinstance(received_amount, str) and "+" in received_amount:
-                    parts = [part.strip() for part in received_amount.split("+") if part.strip()]
-                    if len(parts) == 2:
-                        try:
-                            cash_value = _to_int(parts[0])
-                            ticket_value = _to_int(parts[1])
-                        except ValueError:
-                            cash_value = None
-                            ticket_value = None
-                if cash_value is None or ticket_value is None:
-                    raise ValueError
-    except ValueError:
-        return HttpResponseBadRequest("금액 입력이 올바르지 않습니다.")
-
-    cash_value = int(cash_value or 0)
-    ticket_value = int(ticket_value or 0)
-    if payment_method == PaymentMethod.CASH_TICKET and (cash_value <= 0 or ticket_value <= 0):
-        return HttpResponseBadRequest("현금과 티켓 금액을 모두 입력하세요.")
-
-    total_received = cash_value + ticket_value
+    cash_value, ticket_value = payment.cash, payment.ticket
 
     # 아이템 파싱/검증
     if not isinstance(items, list) or not items:
@@ -306,13 +263,15 @@ def orders_collection(request: HttpRequest):
     parsed: List[tuple[int, int, str]] = []
     id_list: List[int] = []
     for row in items:
-        try:
-            mid = int(row.get("menu_item_id"))
-            qty = int(row.get("qty"))
-        except Exception:
+        if not isinstance(row, dict):
             return HttpResponseBadRequest("menu_item_id/qty 형식 오류")
-        if qty < 1:
-            return HttpResponseBadRequest("qty는 1 이상")
+        try:
+            mid = payments.parse_amount(row.get("menu_item_id"), "메뉴")
+            qty = payments.parse_qty(row.get("qty"))
+        except payments.AmountError as exc:
+            return HttpResponseBadRequest(str(exc))
+        if mid is None:
+            return HttpResponseBadRequest("menu_item_id/qty 형식 오류")
         mode = (row.get("mode") or row.get("service_mode") or order_type).upper()
         if mode not in (OrderType.DINE_IN, OrderType.TAKEOUT):
             return HttpResponseBadRequest("mode/service_mode 값이 유효하지 않습니다.")
@@ -333,6 +292,14 @@ def orders_collection(request: HttpRequest):
     if source_raw not in OrderSource.values:
         source_raw = OrderSource.COUNTER
 
+    # 7A (D-048): the total is the server's price snapshot; a short payment
+    # is refused before anything is written, and the change is decided here.
+    try:
+        total_price = payments.order_total((mi_map[mid].price, qty) for mid, qty, _ in parsed)
+        settlement = payments.settle(payment, total_price)
+    except (payments.AmountError, payments.PaymentRefused) as exc:
+        return HttpResponseBadRequest(str(exc))
+
     try:
         with transaction.atomic():
             order = Order.objects.create(
@@ -343,9 +310,11 @@ def orders_collection(request: HttpRequest):
                 table=table,
                 is_takeout=is_takeout,
                 payment_method=payment_method,
-                received_amount=total_received or None,
+                received_amount=settlement.received or None,
                 received_cash_amount=cash_value or None,
                 received_ticket_amount=ticket_value or None,
+                change_amount=settlement.change,
+                total_price=total_price,
                 note=note[:200],
                 created_by=actor,
             )
@@ -360,12 +329,6 @@ def orders_collection(request: HttpRequest):
                 for mid, qty, mode in parsed
             ]
             OrderItem.objects.bulk_create(item_objects, batch_size=len(item_objects) or 1)
-
-            total_price = sum(
-                (mi_map[mid].price or 0) * qty for mid, qty, _ in parsed
-            )
-            Order.objects.filter(pk=order.pk).update(total_price=total_price)
-            order.total_price = total_price
 
             allocate_floor_order_no(order)  # 계열·연도별 번호 부여 (D-047)
             audit.record_created(order, actor)

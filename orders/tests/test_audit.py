@@ -25,7 +25,7 @@ class AuditTrailTests(TestCase):
         response = self.server.post(
             reverse("orders:orders-collection"),
             {"request_id": str(uuid.uuid4()), "floor": "B1", "order_type": "DINE_IN",
-             "table_number": "7", "payment_method": "CASH", "received_cash_amount": 1000,
+             "table_number": "7", "payment_method": "CASH", "received_cash_amount": 2000,
              "items": [{"menu_item_id": self.menu.id, "qty": 2}]},
             content_type="application/json",
         )

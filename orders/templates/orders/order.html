@@ -407,8 +407,11 @@
       let {cash: cashAmt, ticket: ticketAmt} = getReceivedAmounts();
       if(Number.isNaN(cashAmt)) cashAmt = 0;
       if(Number.isNaN(ticketAmt)) ticketAmt = 0;
-      const surplus = (cashAmt || 0) + (ticketAmt || 0) - total;
-      const change = Math.max(0, surplus);
+      // Same rule as the server (7A, services/payments.py): tickets pay first,
+      // cash covers the rest, and only cash beyond that rest comes back.
+      // A ticket worth more than the order is used up, not refunded.
+      const dueAfterTicket = Math.max(0, total - (ticketAmt || 0));
+      const change = Math.max(0, (cashAmt || 0) - dueAfterTicket);
       els.change.textContent = KRW(change)+'원';
     }
 
