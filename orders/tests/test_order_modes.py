@@ -31,11 +31,11 @@ class TakeoutFixture:
         self.menu = MenuItem.objects.create(name="Bowl", price=8000)
         login_client(self.client, "ORDER")
 
-    def order_takeout(self, slot="105", client=None):
+    def order_takeout(self, slot="105", client=None, request_id=None):
         return (client or self.client).post(
             reverse("orders:orders-collection"),
             {
-                "request_id": str(uuid.uuid4()),
+                "request_id": request_id or str(uuid.uuid4()),
                 "floor": "B1", "order_type": "TAKEOUT", "table_number": str(slot),
                 "payment_method": "CASH", "received_cash_amount": 8000,
                 "items": [{"menu_item_id": self.menu.id, "qty": 1}],
@@ -133,6 +133,49 @@ class ConcurrentSlotTests(TakeoutFixture, TransactionTestCase):
         self.assertEqual(Order.objects.count(), 1)
         # The refused request left nothing behind -- no order, and no number.
         self.assertEqual(list(Order.objects.values_list("order_no", flat=True)), [1])
+
+    def test_a_retry_of_the_same_attempt_racing_itself_gets_its_own_order_back(self):
+        """The same request_id twice at once is a retry, not a second customer.
+
+        Both arrivals pass the replay check (nothing is committed yet) and both
+        reach the insert. The loser's insert fails on the slot index because the
+        winner -- its own earlier self -- now holds the tag. Answering that with
+        "use another number" would send the volunteer off to create a second
+        order for the same customer (2026-09-20 code review). The loser has to
+        look the id up again and hand back the winner's order.
+        """
+        clients = []
+        for _ in range(2):
+            client = self.client_class()
+            login_client(client, "ORDER")
+            clients.append(client)
+        attempt = str(uuid.uuid4())
+
+        start = threading.Barrier(2)
+        results = []
+        errors = []
+
+        def submit(client):
+            try:
+                start.wait(timeout=5)
+                response = self.order_takeout(client=client, request_id=attempt)
+                results.append((response.status_code, response.json()))
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=submit, args=(c,)) for c in clients]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(code for code, _ in results), [200, 201])
+        self.assertEqual(Order.objects.count(), 1)
+        ids = {body["id"] for _, body in results}
+        self.assertEqual(ids, {Order.objects.get().id})
 
 
 @override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)

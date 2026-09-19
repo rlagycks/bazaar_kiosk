@@ -84,9 +84,9 @@ def sync_from_items(order: Order) -> None:
         return
     remaining = order.items.filter(prepared_qty__lt=F("qty")).exists()
     desired = OrderStatus.PREPARING if remaining else OrderStatus.READY
-    if order.status != desired:
-        order.status = desired
-        order.save(update_fields=["status", "updated_at"])
+    # Through the same table as the status endpoint, so there is one set of
+    # rules and not a second one hidden in this branch (2026-09-20 code review).
+    change(order, desired)
 
 
 def is_closed(order: Order) -> bool:

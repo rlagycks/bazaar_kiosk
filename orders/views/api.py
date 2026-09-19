@@ -376,22 +376,28 @@ def orders_collection(request: HttpRequest):
                 request_key, role=acting_role, digest=request_digest, order=order
             )
     except IntegrityError as exc:
-        if _is_takeout_slot_conflict(exc):
-            # Two requests claimed the tag at once; the constraint let one
-            # through. Same answer as the check above, from the other side.
+        slot_conflict = _is_takeout_slot_conflict(exc)
+        if not slot_conflict and not idempotency.is_key_conflict(exc):
+            raise
+        # Whichever index refused us, the winner committed while we waited on
+        # its insert, so its record is readable now. This request created
+        # nothing. Look the attempt up again before deciding what the refusal
+        # means: when the tag is held by *this same attempt* -- a retry that
+        # raced its own first arrival -- the right answer is that order, not
+        # "use another number", which would send the volunteer off to create
+        # a second order for the same customer (2026-09-20 code review).
+        replayed = _replay_if_known(request_key, acting_role, request_digest)
+        if replayed is not None:
+            return replayed
+        if slot_conflict:
+            # Two different attempts claimed the tag at once; the constraint let
+            # one through. Same answer as the check above, from the other side.
             return JsonResponse(
                 {"detail": f"{table.number}번 포장 번호는 아직 사용 중입니다. "
                            "다른 번호를 사용해 주세요."},
                 status=409,
             )
-        if not idempotency.is_key_conflict(exc):
-            raise
-        # The winner committed while we waited on its insert, so its record is
-        # readable now. This request created nothing.
-        replayed = _replay_if_known(request_key, acting_role, request_digest)
-        if replayed is None:  # pragma: no cover - the row cannot be gone
-            raise
-        return replayed
+        raise  # pragma: no cover - a key conflict whose row is gone
 
     order._prefetched_objects_cache = {"items": created_items}
     return JsonResponse(_serialize_order(order), status=201)

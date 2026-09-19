@@ -259,6 +259,62 @@ class MigrationPathTests(TestCase):
         self.assertNotIn("orders_authdevice", self.connection.introspection.table_names())
         self.assertNotIn("orders_loginattempt", self.connection.introspection.table_names())
 
+    def active_takeout_pair(self, apps, *, table_number=101):
+        """Two live takeout orders holding one tag: what a database written
+        before D-050 may contain, and exactly what 0024 forbids."""
+        alias = self.connection.alias
+        table = apps.get_model("orders", "Table").objects.using(alias).create(
+            number=table_number, name="takeout tag"
+        )
+        order_model = apps.get_model("orders", "Order")
+        return [
+            order_model.objects.using(alias).create(
+                floor="B1", order_type="TAKEOUT", source="ORDER", status=status,
+                table_id=table.pk, is_takeout=True, total_price=4300,
+                received_amount=4300, payment_method="CASH",
+                received_cash_amount=4300, received_ticket_amount=0,
+            )
+            for status in ("PREPARING", "READY")
+        ]
+
+    def test_0023_active_takeout_orders_sharing_a_tag_cannot_upgrade_to_0024(self):
+        """0024 fails closed on legacy duplicates and leaves every row in place.
+
+        A deployment that hits this has to release the tag (cancel or hand
+        over one of the orders) and migrate again; ORDER_STATE.md carries the
+        query that finds such rows before the migration is run.
+        """
+        apps = self.migrate(M23)
+        self.active_takeout_pair(apps)
+        before = self.snapshot(apps)
+        with self.assertRaises(IntegrityError) as caught:
+            self.migrate(M24)
+        self.assert_database_error(caught.exception, "23505", "uq_active_takeout_slot")
+        self.assertEqual(self.snapshot(apps), before)
+        self.assert_head(M23)
+
+    def test_0024_applies_once_the_duplicate_tag_is_released_and_reverses_cleanly(self):
+        apps = self.migrate(M23)
+        first, _ = self.active_takeout_pair(apps)
+        first.status = "CANCELLED"
+        first.save(update_fields=["status"])
+        before = self.snapshot(apps)
+        self.migrate(M24)
+        self.assert_head(M24)
+        # Rows only: the history now records 0024 and pg_constraint does not
+        # list a unique index, so the full snapshot is compared after reverting.
+        self.assertEqual(self.snapshot(apps)[0], before[0])
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_active_takeout_slot'")
+            definition = cursor.fetchone()[0]
+        self.assertIn("UNIQUE", definition)
+        self.assertIn("WHERE", definition)
+        # Schema reversibility only; the business rule is not something to
+        # roll back once the event has run on it.
+        self.migrate(M23)
+        self.assert_head(M23)
+        self.assertEqual(self.snapshot(apps), before)
+
     def test_original_0020_still_fails_on_an_empty_database(self):
         # Pins why D-P07 changed the SQL: the pre-repair statement is the cause.
         self.assertEqual(self.connection.introspection.table_names(), [])
