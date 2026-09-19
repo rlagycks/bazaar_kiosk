@@ -31,6 +31,7 @@ M23 = ("orders", "0023_orderrequest")
 M24 = ("orders", "0024_order_uq_active_takeout_slot")
 M25 = ("orders", "0025_account_permissions_audit")
 M26 = ("orders", "0026_order_change_amount")
+M27 = ("orders", "0027_orderevent_kind_items")
 
 
 class MigrationPathTests(TestCase):
@@ -168,7 +169,7 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = M26
+        leaf = M27
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)

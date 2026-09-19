@@ -17,6 +17,7 @@ class OrderEventKind(models.TextChoices):
     CREATED = "CREATED", "주문 생성"
     STATUS = "STATUS", "상태 변경"
     PROGRESS = "PROGRESS", "조리 진행"
+    ITEMS = "ITEMS", "품목 수정"  # 7B: lines changed after the order was taken
 
 
 class OrderEvent(models.Model):
