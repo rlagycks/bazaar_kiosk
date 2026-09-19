@@ -6,7 +6,7 @@
 ## 2026-09-20 — 주문 생성 POST 서빙 한정 (D-051 판단 5 확정)
 
 - PR #67 머지(develop `6ffafdb`) 뒤 사용자가 “주문생성은 서빙 권한으로”라고 결정했다. 브랜치
-  `fix/order-create-serving-only`.
+  `phase-4a4-order-create-serving`.
 - 변경: `orders-collection` POST 가드를 `by_method={"GET": 읽기 권한, "POST": (SERVING,)}`로 좁혔다.
   `roles.SERVING_PERMISSIONS` 추가. 4A4까지는 인증된 전원이 생성할 수 있었다.
 - TDD: 권한 매트릭스의 생성 행을 `("SERVING",)`으로 바꿔 RED 4건(HALL/TAKEOUT/STATS/BOTH 201≠403)을
