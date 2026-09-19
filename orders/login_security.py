@@ -1,4 +1,4 @@
-"""Database-backed failure budget per account identifier and direct peer IP."""
+"""Database-backed failure budget per login name and direct peer IP (D-045/D-051)."""
 from datetime import timedelta
 import hashlib
 import hmac
@@ -14,9 +14,9 @@ from orders.models import LoginAttempt
 
 
 @sensitive_variables()
-def attempt_login(account_id, password, peer_ip):
+def attempt_login(name, password, peer_ip):
     key = hmac.new(settings.SECRET_KEY.encode(),
-                   (account_id + '\0' + peer_ip).encode(), hashlib.sha256).hexdigest()
+                   (name + '\0' + peer_ip).encode(), hashlib.sha256).hexdigest()
     now = timezone.now()
     with transaction.atomic():
         LoginAttempt.objects.get_or_create(key=key, defaults={'window_started_at': now})
@@ -27,8 +27,8 @@ def attempt_login(account_id, password, peer_ip):
             attempt.window_started_at = now
             attempt.failures = 0
             attempt.blocked_until = None
-        role = authenticate_credentials(account_id, password)
-        if role:
+        account = authenticate_credentials(name, password)
+        if account:
             attempt.failures = 0
             attempt.blocked_until = None
         else:
@@ -37,4 +37,4 @@ def attempt_login(account_id, password, peer_ip):
                 attempt.blocked_until = now + timedelta(seconds=settings.LOGIN_BLOCK_SECONDS)
         attempt.save()
         retry = settings.LOGIN_BLOCK_SECONDS if attempt.blocked_until else 0
-        return role, retry
+        return account, retry

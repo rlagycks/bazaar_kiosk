@@ -11,10 +11,10 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from orders.models import MenuItem, NumberSeries, Order, OrderItem, Table
-from orders.tests.auth_support import ROLE_ACCOUNTS, login_client
+from orders.tests.auth_support import AUTH_SETTINGS, login_client
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class DashboardExecutionTests(TestCase):
     period = date(2025, 10, 18)
 

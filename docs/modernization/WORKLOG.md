@@ -3,6 +3,30 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-20 — 4A4 개인 계정·권한 4종·행위자 기록 (D-051 구현)
+
+- PR #66 머지(develop `61b9412`) 뒤 브랜치 `phase-4a4-personal-accounts`에서 D-051을 구현했다.
+  사용자가 4A4 착수와 "PR → 리뷰 에이전트 → 문제없으면 머지"를 승인했다.
+- **바뀐 것:** 공용 계정 3개(`ROLE_ACCOUNTS`)가 사라지고 `Account`(이름 유일, 권한 4개 불리언, 활성)와
+  행사 공용 비밀번호 해시 `EVENT_PASSWORD_HASH`로 로그인한다. 권한 코드는 SERVING·HALL_MONITOR·
+  TAKEOUT_MONITOR·STATS. 토큰 `sub`는 계정 UUID이고 역할 claim은 없다. 권한은 매 요청 DB에서 읽어
+  관리자 화면의 변경이 다음 요청부터 적용된다. 기존 기기는 0025가 전부 회수한다.
+- **서버 경계:** `services/scope.py`가 주문을 매장 항목 유무로 HALL/TAKEOUT으로 나누고(혼합 = 식당),
+  목록은 `Exists` 서브쿼리로 거르며 단건·상태·조리 진행은 범위 밖이면 403이다. 누적·통계는 전체를 읽는다.
+- **행위자 기록:** `Order.created_by`와 append-only `OrderEvent`(CREATED/STATUS/PROGRESS)를 주문과 같은
+  트랜잭션에 쓴다. 6A `OrderRequest.role`은 `actor`(계정 UUID)로 이름을 바꿨다.
+- 페이지·API 가드는 `require_permissions`/`require_api_permissions`(any-of, all-of)로 바꿨다. 주방
+  종합 화면은 두 모니터링 권한을 모두 요구하고 내비게이션은 가진 권한만 보인다.
+- 검증(전용 PG fixture, 격리 프로젝트): `manage.py check` 무결, `makemigrations --check` 변경 없음,
+  **마이그레이션 23 + 앱 242 = 265개 통과, skip 0**, `node --test scripts/test_auth_client.cjs` 12개 통과,
+  `git diff --check` 깨끗. 브라우저 여정은 돌리지 않았다(PR 리뷰 뒤 남은 위험으로 기록).
+- 에이전트가 정한 것(사용자 확인 대상 아님): 주문 생성 POST는 현행대로 인증된 전원이 가능하다(D-051
+  판단 5, 확인 필요). 테스트 계정 별칭(ORDER/KITCHEN/B1_COUNTER)은 옛 여정을 그대로 읽히려는 용도다.
+- 문서: [ACCOUNTS.md](ACCOUNTS.md) 신설, JWT_AUTHENTICATION·API_AUTHORIZATION·REQUIRED_SETTINGS·
+  DEPLOYMENT_CANDIDATE·SESSION_SETUP·BLUEPRINT(4A4)·DECISIONS(D-051 구현 메모)·RISK_REGISTER·README.
+- 남은 위험: 이름만으로는 사칭을 막지 못한다(공용 비밀번호). 운영 인수 시 실제 비밀번호 해시와 계정
+  등록이 필요하고, 배포 직후 모든 기기가 재로그인한다. 다음: PR 리뷰 → 머지 → 7A.
+
 ## 2026-09-19 — 기획 변경: 개인 계정·권한 4종 (D-051)
 
 - 사용자가 기획 변경을 전달했다. 개인 계정, 이름 입력 기반 로깅·권한 부여, JWT 인증·인가와

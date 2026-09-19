@@ -4,12 +4,12 @@ const assert = require('node:assert/strict');
 const {readFileSync} = require('node:fs');
 const {runInNewContext} = require('node:vm');
 const source = readFileSync(new URL('../orders/static/orders/ui/auth.js', `file://${__filename}`), 'utf8');
-const tokenResponse = (token = 'access-1', role = 'ORDER', session = 'session-1') => new Response(JSON.stringify({access_token: token, role, session_id: session, expires_in: 900}));
+const tokenResponse = (token = 'access-1', account = 'account-1', session = 'session-1') => new Response(JSON.stringify({access_token: token, account_id: account, account_name: 'tester', permissions: ['SERVING'], session_id: session, expires_in: 900}));
 
 function client(handler, locks) {
   const calls = [];
   const redirects = [];
-  const document = {cookie: 'csrftoken=csrf-one', currentScript: {dataset: {authRole: 'ORDER', authSession: 'session-1'}}};
+  const document = {cookie: 'csrftoken=csrf-one', currentScript: {dataset: {authAccount: 'account-1', authSession: 'session-1'}}};
   const window = {
     location: {href: 'https://kiosk.test/orders/order/', origin: 'https://kiosk.test', assign: path => redirects.push(path)},
     navigator: locks ? {locks} : {},
@@ -147,7 +147,7 @@ test('concurrent expired-token responses share one refresh even when one arrives
 });
 
 test('bootstrap after account switch cannot send the old page action', async () => {
-  const app = client(() => tokenResponse('counter-access', 'B1_COUNTER', 'session-2'));
+  const app = client(() => tokenResponse('counter-access', 'account-2', 'session-2'));
   await assert.rejects(app.fetch('/orders/api/orders/', {method: 'POST', body: '{"qty":2}'}), /로그인/);
   assert.equal(app.calls.length, 1);
   assert.ok(app.calls.every(isRefresh));
@@ -157,12 +157,12 @@ test('bootstrap after account switch cannot send the old page action', async () 
   assert.equal(app.calls.length, 1);
 });
 
-test('outstanding POST 401 after ORDER to COUNTER switch never replays under new identity', async () => {
+test('outstanding POST 401 after an account switch never replays under new identity', async () => {
   let refreshes = 0;
   const app = client(request => {
     if (isRefresh(request)) {
       refreshes += 1;
-      return refreshes === 1 ? tokenResponse() : tokenResponse('counter-access', 'B1_COUNTER', 'session-2');
+      return refreshes === 1 ? tokenResponse() : tokenResponse('counter-access', 'account-2', 'session-2');
     }
     return new Response('{}', {status: 401});
   });
@@ -174,8 +174,8 @@ test('outstanding POST 401 after ORDER to COUNTER switch never replays under new
   assert.deepEqual(app.redirects, ['/orders/login/']);
 });
 
-test('same-role fresh login in another tab is also a different session', async () => {
-  const app = client(() => tokenResponse('fresh-access', 'ORDER', 'session-2'));
+test('same-account fresh login in another tab is also a different session', async () => {
+  const app = client(() => tokenResponse('fresh-access', 'account-1', 'session-2'));
   await assert.rejects(app.fetch('/orders/api/orders/', {method: 'POST', body: '{}'}), /로그인/);
   assert.equal(app.calls.length, 1);
   assert.ok(app.calls.every(isRefresh));

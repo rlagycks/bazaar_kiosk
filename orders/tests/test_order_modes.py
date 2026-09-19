@@ -17,7 +17,7 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
 from orders.models import MenuItem, Order, OrderStatus, Table
-from orders.tests.auth_support import ROLE_ACCOUNTS, login_client
+from orders.tests.auth_support import AUTH_SETTINGS, login_client
 from orders.views import api
 
 
@@ -56,7 +56,7 @@ class TakeoutFixture:
         )
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class TakeoutSlotTests(TakeoutFixture, TestCase):
     def test_a_free_slot_is_accepted(self):
         self.assertEqual(self.order_takeout().status_code, 201)
@@ -97,7 +97,7 @@ class TakeoutSlotTests(TakeoutFixture, TestCase):
                 self.assertEqual(self.order_takeout(slot).status_code, 400)
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class ConcurrentSlotTests(TakeoutFixture, TransactionTestCase):
     """Checking before inserting is not enough: both requests would look and
     both would find the slot free. The database has to hold the line."""
@@ -178,7 +178,7 @@ class ConcurrentSlotTests(TakeoutFixture, TransactionTestCase):
         self.assertEqual(ids, {Order.objects.get().id})
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class RefusalReachesTheScreenTests(TestCase):
     """A refusal the volunteer cannot read is a refusal they cannot act on."""
 

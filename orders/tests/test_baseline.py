@@ -15,7 +15,7 @@ from orders.models import FloorOrderCounter, MenuItem, Order, OrderItem, Table
 from orders.views import api
 
 
-from orders.tests.auth_support import ROLE_ACCOUNTS, ROLE_PASSWORDS, login_client
+from orders.tests.auth_support import AUTH_SETTINGS, login_client
 
 
 ROLE_PAGES = (
@@ -39,7 +39,7 @@ class BaselineMixin:
         return response
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class LoginBaselineTests(BaselineMixin, TestCase):
     def test_each_role_redirects_to_its_rendered_page(self):
         for role, page, template, scope in ROLE_PAGES:
@@ -55,11 +55,12 @@ class LoginBaselineTests(BaselineMixin, TestCase):
                 if scope is not None:
                     self.assertEqual(page_response.context["mode_scope"], scope)
 
-    def test_login_requests_id_and_password_without_a_role_selector(self):
+    def test_login_requests_name_and_password_without_a_role_selector(self):
         response = self.client.get(reverse("orders:login"))
-        self.assertContains(response, 'name="account_id"')
+        self.assertContains(response, 'name="name"')
         self.assertContains(response, 'name="password"')
         self.assertNotContains(response, 'name="role"')
+        self.assertNotContains(response, 'name="account_id"')
 
     def test_one_kitchen_login_opens_all_three_filter_pages(self):
         self.login_role("KITCHEN")
@@ -89,9 +90,7 @@ class LoginBaselineTests(BaselineMixin, TestCase):
     def test_retired_roles_cannot_login_or_reuse_existing_sessions(self):
         # Even stale credentials cannot turn retired roles into KITCHEN.
         for role in ("KITCHEN_HALL", "KITCHEN_TAKEOUT"):
-            with self.subTest(role=role), override_settings(
-                ROLE_ACCOUNTS={**ROLE_ACCOUNTS, role: ROLE_ACCOUNTS["KITCHEN"]}
-            ):
+            with self.subTest(role=role):
                 client = Client()
                 response = client.post(reverse("orders:login"),
                                        {"role": role, "pin": "retired-test-pin"})
@@ -105,18 +104,16 @@ class LoginBaselineTests(BaselineMixin, TestCase):
                                          reverse("orders:login"))
                 self.assertEqual(client.get(reverse("orders:menus")).status_code, 401)
 
-    def test_wrong_pin_does_not_establish_a_role(self):
-        for role in ROLE_PASSWORDS:
-            with self.subTest(role=role):
+    def test_wrong_password_does_not_establish_a_login(self):
+        for alias in ("ORDER", "KITCHEN", "B1_COUNTER"):
+            with self.subTest(alias=alias):
                 self.client.cookies.clear()
                 response = self.client.post(
-                    reverse("orders:login"), {"account_id": role.lower(), "password": "wrong-test-password"}
+                    reverse("orders:login"), {"name": alias.lower(), "password": "wrong-test-password"}
                 )
                 self.assertEqual(response.status_code, 200)
-                # The current template does not render the error. Check only
-                # the server context; this does not verify visible feedback.
                 self.assertEqual(
-                    response.context["error"], "계정 또는 비밀번호가 올바르지 않습니다."
+                    response.context["error"], "이름 또는 비밀번호가 올바르지 않습니다."
                 )
                 self.assertTemplateUsed(response, "orders/login.html")
                 self.assertNotIn("role", self.client.session)
@@ -203,7 +200,7 @@ class OrderFixtureMixin(BaselineMixin):
             self.assertEqual(row["line_total"], qty * price)
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class OrderBaselineTests(OrderFixtureMixin, TestCase):
     def test_hall_and_takeout_creation_and_retrieval(self):
         for order_type, table in (("DINE_IN", self.hall), ("TAKEOUT", self.takeout)):
@@ -324,7 +321,7 @@ class OrderBaselineTests(OrderFixtureMixin, TestCase):
         assert_progress([2, 3], [0, 0], "READY")
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class OrderAtomicBaselineTests(OrderFixtureMixin, TransactionTestCase):
     """No TestCase outer atomic block may conceal a missing request transaction."""
 

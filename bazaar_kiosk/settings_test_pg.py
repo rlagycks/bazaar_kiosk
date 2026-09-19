@@ -89,13 +89,8 @@ SUPABASE_URL = ""
 SUPABASE_ANON_KEY = ""
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 
-ROLE_ACCOUNTS = {
-    role: {"id": role.lower(), "password_hash": PBKDF2PasswordHasher().encode(password, "synthetic-tests-only", iterations=1)}
-    for role, password in {
-        "ORDER": "test-order-password", "B1_COUNTER": "test-counter-password",
-        "KITCHEN": "test-kitchen-password",
-    }.items()
-}
+# D-051: the synthetic event password every test account logs in with.
+EVENT_PASSWORD_HASH = PBKDF2PasswordHasher().encode("test-event-password", "synthetic-tests-only", iterations=1)
 JWT_SIGNING_KEY = "synthetic-jwt-signing-key-test-only-at-least-fifty-characters"
 JWT_COOKIE_SECURE = False
 

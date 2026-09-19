@@ -49,7 +49,7 @@ services:
       CSRF_TRUSTED_ORIGINS: ${BK_CSRF_TRUSTED_ORIGINS:?set the https origin}
       SECRET_KEY_FILE: /run/secrets/secret_key
       JWT_SIGNING_KEY_FILE: /run/secrets/jwt_signing_key
-      ROLE_ACCOUNTS_FILE: /run/secrets/role_accounts
+      EVENT_PASSWORD_HASH_FILE: /run/secrets/event_password_hash
       DATABASE_URL_FILE: /run/secrets/database_url
       # Issue #61: gunicorn fills REMOTE_ADDR from the socket peer, which behind
       # this proxy is always the proxy. Without naming the proxy here, every
@@ -60,7 +60,7 @@ services:
     secrets:
       - secret_key
       - jwt_signing_key
-      - role_accounts
+      - event_password_hash
       - database_url
     # This governs the forwarded *scheme* (X-Forwarded-Proto), which is how the
     # application knows the request arrived over HTTPS and may set Secure
@@ -127,8 +127,8 @@ secrets:
     file: ./secrets/secret_key
   jwt_signing_key:
     file: ./secrets/jwt_signing_key
-  role_accounts:
-    file: ./secrets/role_accounts
+  event_password_hash:
+    file: ./secrets/event_password_hash
   database_url:
     file: ./secrets/database_url
   postgres_bootstrap_password:

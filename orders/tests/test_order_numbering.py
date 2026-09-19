@@ -35,7 +35,7 @@ from orders.models import (
 from orders.services import allocate_floor_order_no
 from orders.services import numbering
 from orders.views import api
-from orders.tests.auth_support import ROLE_ACCOUNTS, login_client
+from orders.tests.auth_support import AUTH_SETTINGS, login_client
 
 EVENT_DAY = date(2026, 10, 17)
 SECOND_EVENT_DAY = date(2026, 10, 18)
@@ -151,7 +151,7 @@ class UniquenessTests(NumberingFixture, TestCase):
         self.assertEqual(self.allocate_on(EVENT_DAY).order_no, 6)
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class AllocationUnderConcurrencyTests(NumberingFixture, TransactionTestCase):
     """Real transactions: the row lock is the whole safety argument."""
 
@@ -216,7 +216,7 @@ class AllocationUnderConcurrencyTests(NumberingFixture, TransactionTestCase):
         self.assertEqual(resyncs, [], "allocation collided instead of serialising")
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class OrderApiNumberingTests(TestCase):
     """End to end: what the counter screen actually creates."""
 
@@ -269,7 +269,7 @@ class OrderApiNumberingTests(TestCase):
         self.assertTrue(listed[created["id"]]["is_practice"])
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class PracticeOrdersLeaveSalesAloneTests(TestCase):
     """D-047: practice orders are excluded from revenue and menu totals.
 
@@ -315,7 +315,7 @@ class PracticeOrdersLeaveSalesAloneTests(TestCase):
         self.assertEqual(data["menu"], [{"name": "Bowl", "qty": 1, "amount": 1000}])
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class EventDayWarningTests(TestCase):
     """The failure mode of this design is forgetting to register the day: every
     order then quietly becomes practice. The screens say so."""

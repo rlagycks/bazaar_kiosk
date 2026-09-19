@@ -5,13 +5,15 @@ from unittest.mock import patch
 from django.utils import timezone
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse, path
-from orders.views.guards import require_api_roles
+from orders.views.guards import require_api_permissions
 
 from orders.authentication import issue_tokens, AuthError, validate_access
 from orders.models import AuthDevice, LoginAttempt
+from orders.roles import HALL_MONITOR, SERVING, TAKEOUT_MONITOR
+from orders.tests.auth_support import EVENT_PASSWORD, make_account
 
 
-@require_api_roles()
+@require_api_permissions()
 def failing_api(request):
     raise RuntimeError("synthetic downstream failure")
 
@@ -20,10 +22,14 @@ urlpatterns = [path("failure/", failing_api)]
 
 
 class JWTHTTPTests(TestCase):
-    def login(self, client, account='order', password='test-order-password'):
+    def setUp(self):
+        self.order = make_account('order', SERVING)
+        self.kitchen = make_account('kitchen', HALL_MONITOR, TAKEOUT_MONITOR)
+
+    def login(self, client, name='order', password=EVENT_PASSWORD):
         response = client.get(reverse('orders:login'))
         return client.post(reverse('orders:login'), {
-            'account_id': account, 'password': password,
+            'name': name, 'password': password,
         }, HTTP_X_CSRFTOKEN=response.cookies['csrftoken'].value)
 
     def refresh(self, client):
@@ -43,7 +49,12 @@ class JWTHTTPTests(TestCase):
         response = self.refresh(client)
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('refresh_token', response.json())
-        access = response.json()['access_token']
+        body = response.json()
+        self.assertEqual(body['account_id'], str(self.order.id))
+        self.assertEqual(body['account_name'], 'order')
+        self.assertEqual(body['permissions'], ['SERVING'])
+        self.assertNotIn('role', body)
+        access = body['access_token']
         menus = client.get(reverse('orders:menus'), HTTP_AUTHORIZATION='Bearer ' + access)
         self.assertEqual(menus.status_code, 200)
         self.assertIn('private', menus['Cache-Control'])
@@ -53,7 +64,7 @@ class JWTHTTPTests(TestCase):
 
     @override_settings(ROOT_URLCONF=__name__, DEBUG=True)
     def test_unhandled_api_failure_redacts_bearer_from_guard_locals(self):
-        pair = issue_tokens('ORDER')
+        pair = issue_tokens(self.order)
         client = Client(raise_request_exception=False)
         with self.assertLogs('django.request', level='ERROR'):
             response = client.get('/failure/', HTTP_AUTHORIZATION='Bearer ' + pair.access_token)
@@ -72,14 +83,14 @@ class JWTHTTPTests(TestCase):
         session = self.client.session
         session['role'] = 'KITCHEN'
         session.save()
-        pair = issue_tokens('KITCHEN')
+        pair = issue_tokens(self.kitchen)
         for auth in ('', 'Bearer ' + pair.refresh_token, 'Basic ignored'):
             response = self.client.get(reverse('orders:menus'), HTTP_AUTHORIZATION=auth)
             self.assertEqual(response.status_code, 401)
             self.assertEqual(response['WWW-Authenticate'], 'Bearer')
 
     def test_role_refusal_is_403(self):
-        pair = issue_tokens('ORDER')
+        pair = issue_tokens(self.order)
         response = self.client.get(reverse('orders:stats-dashboard'),
                                    HTTP_AUTHORIZATION='Bearer ' + pair.access_token)
         self.assertEqual(response.status_code, 403)
@@ -106,11 +117,11 @@ class JWTHTTPTests(TestCase):
     def test_logout_revokes_only_its_device(self):
         self.login(self.client)
         access = self.refresh(self.client).json()['access_token']
-        other = issue_tokens('ORDER')
+        other = issue_tokens(self.order)
         self.client.post(reverse('orders:logout'))
         with self.assertRaises(AuthError):
             validate_access(access)
-        self.assertEqual(validate_access(other.access_token), 'ORDER')
+        self.assertEqual(validate_access(other.access_token).account, self.order)
         self.assertEqual(self.client.get(reverse('orders:order')).status_code, 302)
 
     def test_failed_login_limit_is_shared_and_scoped_by_id_and_direct_ip(self):

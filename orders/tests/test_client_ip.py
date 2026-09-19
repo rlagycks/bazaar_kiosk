@@ -15,7 +15,7 @@ from django.urls import reverse
 
 from orders.client_ip import client_ip
 from orders.models import AuthDevice, LoginAttempt
-from orders.tests.auth_support import ROLE_ACCOUNTS
+from orders.tests.auth_support import EVENT_PASSWORD, ensure_account
 
 
 def request_meta(remote_addr, forwarded=None):
@@ -141,11 +141,14 @@ class TrustedProxyRangeTests(SimpleTestCase):
 class ThrottleBucketTests(TestCase):
     """The behaviour issue #61 is about, end to end."""
 
+    def setUp(self):
+        ensure_account("ORDER")
+
     def login(self, client, password="wrong", forwarded=None):
         headers = {"HTTP_X_FORWARDED_FOR": forwarded} if forwarded else {}
         return client.post(
             reverse("orders:login"),
-            {"account_id": ROLE_ACCOUNTS["ORDER"]["id"], "password": password},
+            {"name": "order", "password": password},
             REMOTE_ADDR="10.89.0.10",
             **headers,
         )
@@ -159,7 +162,7 @@ class ThrottleBucketTests(TestCase):
         self.assertEqual(other.status_code, 200, "a second client was locked out")
 
         allowed = self.login(
-            Client(), password="test-order-password", forwarded="203.0.113.10"
+            Client(), password=EVENT_PASSWORD, forwarded="203.0.113.10"
         )
         self.assertEqual(allowed.status_code, 302)
         self.assertEqual(AuthDevice.objects.count(), 1)
@@ -168,7 +171,7 @@ class ThrottleBucketTests(TestCase):
         for _ in range(10):
             self.login(Client(), forwarded="203.0.113.9")
         correct = self.login(
-            Client(), password="test-order-password", forwarded="203.0.113.9"
+            Client(), password=EVENT_PASSWORD, forwarded="203.0.113.9"
         )
         self.assertEqual(correct.status_code, 429)
         self.assertEqual(AuthDevice.objects.count(), 0)

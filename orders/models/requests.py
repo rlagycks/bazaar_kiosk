@@ -19,7 +19,9 @@ class OrderRequest(models.Model):
     """
 
     key = models.CharField(max_length=64, unique=True, verbose_name="요청 ID")
-    role = models.CharField(max_length=16)
+    # D-051: the account that made the attempt, as its UUID string. Two
+    # screens colliding on one id is a conflict, not a replay.
+    actor = models.CharField(max_length=64, blank=True, default="")
     fingerprint = models.CharField(max_length=64)
     # PROTECT, not CASCADE: deleting an order would otherwise silently drop the
     # record that stops a late retry from recreating it. Whether orders may be

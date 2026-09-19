@@ -36,9 +36,8 @@ class SettingsIsolationTests(SimpleTestCase):
                 assert settings.DATABASES['default']['PASSWORD'] == 'synthetic-local-runner-only'
                 assert settings.SECRET_KEY == 'synthetic-local-tests-only-not-a-deployment-secret-key'
                 from django.contrib.auth.hashers import check_password
-                assert settings.ROLE_ACCOUNTS['ORDER']['id'] == 'order'
-                assert check_password('test-order-password', settings.ROLE_ACCOUNTS['ORDER']['password_hash'])
-                assert 'synthetic-deployment' not in str(settings.ROLE_ACCOUNTS)
+                assert check_password('test-event-password', settings.EVENT_PASSWORD_HASH)
+                assert 'synthetic-deployment' not in settings.EVENT_PASSWORD_HASH
                 assert settings.JWT_SIGNING_KEY != 'synthetic-deployment-jwt-key'
                 assert settings.JWT_COOKIE_SECURE is False
                 assert settings.LOGIN_MAX_FAILURES == 10
@@ -59,7 +58,7 @@ class SettingsIsolationTests(SimpleTestCase):
             "DATABASE_URL": "invalid://synthetic-deployment-db.invalid/db",
             "DATABASE_URL_FILE": "/must-not-read-deployment-secret",
             "SECRET_KEY": "synthetic-deployment-secret",
-            "ROLE_ACCOUNTS": "invalid synthetic-deployment-account-config",
+            "EVENT_PASSWORD_HASH": "invalid synthetic-deployment-hash",
             "JWT_SIGNING_KEY": "synthetic-deployment-jwt-key",
             "LOGIN_MAX_FAILURES": "99999",
             "DEBUG": "1",

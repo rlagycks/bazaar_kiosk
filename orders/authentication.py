@@ -1,7 +1,10 @@
 """Signed credentials backed by an individually revocable browser device.
 
-Only hashes of refresh identifiers are stored. A refresh rotation locks its
-row; replay revocation commits before an authentication error is raised.
+D-051: the subject is a personal `Account`, identified at login by name plus
+the shared event password. Only hashes of refresh identifiers are stored. A
+refresh rotation locks its row; replay revocation commits before an
+authentication error is raised. Permissions are read from the account row on
+every check, so an administrator's change applies on the next request.
 """
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -16,11 +19,11 @@ from django.db import transaction
 from django.utils import timezone
 from django.views.decorators.debug import sensitive_variables
 
-from orders.models import AuthDevice
-from orders.roles import ROLE_TO_URLNAME
+from orders.models import Account, AuthDevice
 
 ISSUER = "bazaar-kiosk"
 AUDIENCE = "bazaar-kiosk-browser"
+NAME_MAX_LENGTH = 50
 _DUMMY_PASSWORD = make_password("unusable-account-timing-padding")
 
 
@@ -33,36 +36,62 @@ class RefreshInProgress(AuthError):
 
 
 @dataclass(frozen=True)
+class Identity:
+    """Who a validated credential belongs to, as of this request."""
+    account: Account
+    permissions: frozenset[str]
+    session_id: str
+
+    @property
+    def account_id(self) -> str:
+        return str(self.account.id)
+
+
+@dataclass(frozen=True)
 class TokenPair:
     access_token: str
     refresh_token: str | None
-    role: str
+    account: Account
     expires_at: datetime
     session_id: str
 
+    @property
+    def permissions(self) -> frozenset[str]:
+        return self.account.permissions
+
+
+def _event_password_hash() -> str:
+    encoded = getattr(settings, "EVENT_PASSWORD_HASH", "")
+    return encoded if isinstance(encoded, str) else ""
+
+
+def clean_name(raw) -> str | None:
+    """The name as an account row would store it, or None if unusable."""
+    if not isinstance(raw, str):
+        return None
+    name = raw.strip()
+    if not name or len(name) > NAME_MAX_LENGTH:
+        return None
+    return name
+
 
 @sensitive_variables()
-def _account(role):
-    account = getattr(settings, "ROLE_ACCOUNTS", {}).get(role)
-    if role not in ROLE_TO_URLNAME or not isinstance(account, dict):
-        return None
-    if not isinstance(account.get("id"), str) or not account["id"]:
-        return None
-    if not isinstance(account.get("password_hash"), str) or not account["password_hash"]:
-        return None
-    return account
+def authenticate_credentials(name, password):
+    """The active account for this name if the event password matches, else None.
 
-
-@sensitive_variables()
-def authenticate_credentials(account_id, password):
-    if not isinstance(account_id, str) or not isinstance(password, str):
+    An unknown or inactive name is refused exactly like a wrong password, and
+    costs the same hashing work, so the response does not say which names
+    are registered.
+    """
+    cleaned = clean_name(name)
+    encoded = _event_password_hash()
+    if cleaned is None or not isinstance(password, str) or not encoded:
         return None
-    for role in ROLE_TO_URLNAME:
-        account = _account(role)
-        if account and hmac.compare_digest(account["id"].encode(), account_id.encode()):
-            return role if check_password(password, account["password_hash"]) else None
-    check_password(password, _DUMMY_PASSWORD)
-    return None
+    account = Account.objects.filter(name=cleaned, is_active=True).first()
+    if account is None:
+        check_password(password, _DUMMY_PASSWORD)
+        return None
+    return account if check_password(password, encoded) else None
 
 
 def _digest(value):
@@ -70,8 +99,8 @@ def _digest(value):
 
 
 @sensitive_variables()
-def _fingerprint(account):
-    return _digest(account["id"] + "\0" + account["password_hash"])
+def _fingerprint():
+    return _digest(_event_password_hash())
 
 
 @sensitive_variables()
@@ -82,9 +111,9 @@ def _decode(raw, token_type):
         claims = jwt.decode(
             raw, settings.JWT_SIGNING_KEY, algorithms=["HS256"],
             issuer=ISSUER, audience=AUDIENCE,
-            options={"require": ["iss", "aud", "iat", "exp", "sub", "role", "device", "jti", "type"]},
+            options={"require": ["iss", "aud", "iat", "exp", "sub", "device", "jti", "type"]},
         )
-        for name in ("iss", "aud", "sub", "role", "device", "jti", "type"):
+        for name in ("iss", "aud", "sub", "device", "jti", "type"):
             if not isinstance(claims[name], str) or not claims[name]:
                 raise AuthError()
         for name in ("iat", "exp"):
@@ -92,6 +121,7 @@ def _decode(raw, token_type):
                 raise AuthError()
         if claims["type"] != token_type or claims["exp"] <= claims["iat"]:
             raise AuthError()
+        uuid.UUID(claims["sub"])
         uuid.UUID(claims["device"])
         uuid.UUID(claims["jti"])
         return claims
@@ -100,35 +130,35 @@ def _decode(raw, token_type):
 
 
 def _check_device(device, claims, now):
-    account = _account(device.role)
-    if (device.revoked_at is not None or device.expires_at <= now or not account
-            or device.role != claims["role"] or device.account_id != claims["sub"]
-            or account["id"] != device.account_id
-            or not hmac.compare_digest(device.credential_fingerprint, _fingerprint(account))):
+    account = device.account
+    if (device.revoked_at is not None or device.expires_at <= now
+            or account is None or not account.is_active
+            or str(device.account_id) != claims["sub"]
+            or not _event_password_hash()
+            or not hmac.compare_digest(device.credential_fingerprint, _fingerprint())):
         raise AuthError()
 
 
 @sensitive_variables()
 def _pair(device, refresh_jti, now):
     common = {"iss": ISSUER, "aud": AUDIENCE, "iat": int(now.timestamp()),
-              "sub": device.account_id, "role": device.role, "device": str(device.id)}
+              "sub": str(device.account_id), "device": str(device.id)}
     access_expiry = min(now + timedelta(minutes=getattr(settings, "JWT_ACCESS_MINUTES", 15)), device.expires_at)
     access = jwt.encode({**common, "type": "access", "jti": str(uuid.uuid4()),
                          "exp": int(access_expiry.timestamp())}, settings.JWT_SIGNING_KEY, algorithm="HS256")
     refresh = jwt.encode({**common, "type": "refresh", "jti": refresh_jti,
                           "exp": int(device.expires_at.timestamp())}, settings.JWT_SIGNING_KEY, algorithm="HS256")
-    return TokenPair(access, refresh, device.role, device.expires_at, str(device.id))
+    return TokenPair(access, refresh, device.account, device.expires_at, str(device.id))
 
 
 @sensitive_variables()
-def issue_tokens(role):
-    account = _account(role)
-    if not account:
+def issue_tokens(account):
+    if not isinstance(account, Account) or not account.is_active or not _event_password_hash():
         raise AuthError()
     now = timezone.now()
     jti = str(uuid.uuid4())
     device = AuthDevice(
-        role=role, account_id=account["id"], credential_fingerprint=_fingerprint(account),
+        account=account, credential_fingerprint=_fingerprint(),
         refresh_jti_hash=_digest(jti),
         expires_at=datetime.fromtimestamp(int((now + timedelta(hours=getattr(settings, "JWT_REFRESH_HOURS", 12))).timestamp()), dt_timezone.utc),
     )
@@ -138,34 +168,41 @@ def issue_tokens(role):
 
 
 def _device(claims, lock=False):
-    query = AuthDevice.objects.select_for_update() if lock else AuthDevice.objects
+    query = AuthDevice.objects.select_related("account")
+    if lock:
+        # Lock the device row only; the account row is read, not changed.
+        query = query.select_for_update(of=("self",))
     try:
         return query.get(pk=claims["device"])
     except AuthDevice.DoesNotExist as exc:
         raise AuthError() from exc
 
 
+def _identity(device) -> Identity:
+    return Identity(device.account, device.account.permissions, str(device.id))
+
+
 @sensitive_variables()
-def validate_access(raw):
+def validate_access(raw) -> Identity:
     claims = _decode(raw, "access")
     device = _device(claims)
     _check_device(device, claims, timezone.now())
-    return device.role
+    return _identity(device)
 
 
 @sensitive_variables()
-def refresh_identity(raw):
+def refresh_identity(raw) -> Identity:
     claims = _decode(raw, "refresh")
     device = _device(claims)
     _check_device(device, claims, timezone.now())
     if not hmac.compare_digest(device.refresh_jti_hash, _digest(claims["jti"])):
         raise AuthError()
-    return device.role, str(device.id)
+    return _identity(device)
 
 
 @sensitive_variables()
-def validate_refresh(raw):
-    return refresh_identity(raw)[0]
+def validate_refresh(raw) -> Identity:
+    return refresh_identity(raw)
 
 
 @sensitive_variables()
@@ -189,7 +226,7 @@ def rotate_refresh(raw):
                 # Coalesce current-token requests while older requests may still
                 # be in flight. Do not advance generation or overwrite cookies.
                 pair = _pair(device, claims["jti"], now)
-                return TokenPair(pair.access_token, None, pair.role, pair.expires_at, pair.session_id)
+                return TokenPair(pair.access_token, None, pair.account, pair.expires_at, pair.session_id)
             jti = str(uuid.uuid4())
             pair = _pair(device, jti, now)
             device.previous_jti_hash = device.refresh_jti_hash
@@ -207,7 +244,7 @@ def revoke_refresh(raw):
     with transaction.atomic():
         device = _device(claims, lock=True)
         # A signed stale refresh still identifies the browser being logged out.
-        if device.role != claims["role"] or device.account_id != claims["sub"]:
+        if str(device.account_id) != claims["sub"]:
             raise AuthError()
         if device.revoked_at is None:
             device.revoked_at = timezone.now()

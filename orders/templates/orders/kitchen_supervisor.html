@@ -67,7 +67,7 @@
     <div class="hdr">
       <div>
         <h2>{{ page_title }}</h2>
-        <div class="muted">{{ page_hint|default:"주문을 관리하세요." }}</div>
+        <div class="muted">{{ page_hint|default:"주문을 관리하세요." }}{% if account_name %} · {{ account_name }}{% endif %}</div>
       </div>
       <div class="hdr-actions">
         <button class="btn secondary" id="btnReload">새로고침</button>
@@ -79,9 +79,9 @@
 
 {% include "orders/_practice_banner.html" %}
     <nav class="scope-nav" aria-label="주방 주문 필터">
-      <a class="btn" href="{% url 'orders:kitchen' %}"{% if mode_scope == "ALL" %} aria-current="page"{% endif %}>전체</a>
-      <a class="btn" href="{% url 'orders:kitchen-hall' %}"{% if mode_scope == "HALL" %} aria-current="page"{% endif %}>홀</a>
-      <a class="btn" href="{% url 'orders:kitchen-takeout' %}"{% if mode_scope == "TAKEOUT" %} aria-current="page"{% endif %}>포장</a>
+      {% if can_monitor_all %}<a class="btn" href="{% url 'orders:kitchen' %}"{% if mode_scope == "ALL" %} aria-current="page"{% endif %}>전체</a>{% endif %}
+      {% if can_monitor_hall %}<a class="btn" href="{% url 'orders:kitchen-hall' %}"{% if mode_scope == "HALL" %} aria-current="page"{% endif %}>홀</a>{% endif %}
+      {% if can_monitor_takeout %}<a class="btn" href="{% url 'orders:kitchen-takeout' %}"{% if mode_scope == "TAKEOUT" %} aria-current="page"{% endif %}>포장</a>{% endif %}
     </nav>
 
     <section class="panel">
@@ -94,7 +94,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="{% static 'orders/ui/auth.js' %}" data-auth-role="{{ request.auth_role }}" data-auth-session="{{ request.auth_session_id }}"></script>
+  <script src="{% static 'orders/ui/auth.js' %}" data-auth-account="{{ request.auth_account.id }}" data-auth-session="{{ request.auth_session_id }}"></script>
   <script>
     const SUPABASE_URL = "{{ supabase_url|default:'' }}";
     const SUPABASE_ANON_KEY = "{{ supabase_anon_key|default:'' }}";

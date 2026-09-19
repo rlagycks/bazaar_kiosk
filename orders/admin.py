@@ -2,7 +2,7 @@ from __future__ import annotations
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import Table, MenuItem, Order, OrderItem, EventDay
+from .models import Account, Table, MenuItem, Order, OrderItem, OrderEvent, EventDay
 
 # ---- 공용 유틸: 모델에 실제 존재하는 필드만 골라서 사용 ----
 def _field_names(model):
@@ -57,7 +57,7 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = (
         ["id"]
         + _present(Order, "order_type", "status", "table", "pickup_no", "pickup_date",
-                   "total_price", "source", "is_pickup_call", "created_at")
+                   "total_price", "source", "is_pickup_call", "created_by", "created_at")
     )
     list_filter = _present(
         Order, "order_type", "status", "source", "pickup_date", "created_at"
@@ -71,7 +71,7 @@ class OrderAdmin(admin.ModelAdmin):
         base = _present(
             Order,
             "pickup_no", "pickup_date", "total_price",
-            "created_at", "updated_at", "source", "is_pickup_call",
+            "created_at", "updated_at", "source", "is_pickup_call", "created_by",
         )
         return tuple(base)
 
@@ -81,7 +81,7 @@ class OrderAdmin(admin.ModelAdmin):
                  "order_type", "status", "table",
                  "pickup_no", "pickup_date",
                  "total_price", "note",
-                 "source", "is_pickup_call",
+                 "source", "is_pickup_call", "created_by",
                  "created_at", "updated_at")
         or ["id"]  # 안전망
     )
@@ -100,3 +100,43 @@ class EventDayAdmin(admin.ModelAdmin):
     list_display = ("date", "label", "created_at")
     search_fields = ("label",)
     ordering = ("-date",)
+
+
+# ---- Account (D-051) ----
+@admin.register(Account)
+class AccountAdmin(admin.ModelAdmin):
+    """The operator's control over who may do what.
+
+    One row per person. The event password is shared and lives in the
+    deployment configuration, not here; this screen grants permissions and
+    switches people off. Deactivating, not deleting: an account with orders
+    or history behind it is protected from deletion.
+    """
+
+    list_display = ("name", "can_serve", "can_monitor_hall", "can_monitor_takeout",
+                    "can_view_stats", "is_active", "created_at")
+    list_editable = ("can_serve", "can_monitor_hall", "can_monitor_takeout",
+                     "can_view_stats", "is_active")
+    list_filter = ("is_active", "can_serve", "can_monitor_hall", "can_monitor_takeout", "can_view_stats")
+    search_fields = ("name",)
+    ordering = ("name",)
+    readonly_fields = ("id", "created_at")
+
+
+# ---- OrderEvent (D-051) -- read only ----
+@admin.register(OrderEvent)
+class OrderEventAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "order", "kind", "actor", "from_status", "to_status", "item", "prepared_qty")
+    list_filter = ("kind", "actor")
+    search_fields = ("order__id", "actor__name")
+    ordering = ("-created_at", "-id")
+    readonly_fields = ("order", "actor", "kind", "from_status", "to_status", "item", "prepared_qty", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

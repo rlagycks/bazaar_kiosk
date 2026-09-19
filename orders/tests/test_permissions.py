@@ -1,77 +1,53 @@
-"""Phase 3: the approved authorization matrix for BK-R001.
+"""Authorization matrix regression (phase 3, rewritten for D-051 in 4A4).
 
-These were characterization tests pinning that every API was open to everyone.
-D-036 (block anonymous) and D-040 (per-account subjects) replaced that, so the
-expectations below are now a contract, not a defect report. The previous OPEN
-expectations were confirmed to fail against this implementation before being
-rewritten — without that step a passing suite would prove nothing.
+The approved matrix (D-051) is written here as literals, NOT imported from
+the code under test. Deriving it from the permission tuples in orders.roles
+would move the expectation in lockstep with the implementation, so widening
+a tuple would pass unnoticed -- exactly the escalation this file exists to
+catch. test_the_permission_constants_still_match_the_approved_matrix pins the
+constants themselves, so a deliberate change has to be made here too.
 
-Approved matrix, D-040 as revised 2026-09-13:
-
-    order-status, order-item-progress     주방        (KITCHEN_ROLES)
-    stats-dashboard, stats-menu-counts    주방 카운터  (COUNTER_ROLES)
-    orders-collection GET, order-detail   주방+카운터  (ORDER_READ_ROLES)
-    everything else                       인증된 계정 전체  (tables, menus,
-                                          orders-collection POST)
-
-Reading an order carries its money -- total_price, payment_method, the cash and
-ticket split, change, per-item unit_price -- so leaving it open would undo the
-counter-only restriction on the stats endpoints rather than stay neutral on it.
-Creating an order stays open: the ordering screen posts and never reads back.
-
-"Everything else" is authenticated-only on purpose. D-040 left those subjects
-undecided, and guessing a role restriction would invent an approval. Anonymous
-is refused everywhere, which is the part D-036 did decide.
-
-Missing or invalid Bearer credentials return 401; a valid wrong role returns 403.
-
-Run with bazaar_kiosk.settings_test_pg and the dedicated Compose test database.
+Actors are accounts holding exactly one permission each, plus an account
+holding both monitor permissions, an anonymous caller and a "GHOST" carrying
+a legacy session role the server never issued.
 """
-
 from importlib import import_module
+import uuid
 
 from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
-import uuid
-
 from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
-from orders.models import MenuItem, Order, OrderItem, Table
-from orders.views import api
-from orders.tests.auth_support import ROLE_ACCOUNTS, credentials, login_client
+from orders.models import Account, MenuItem, Order, OrderItem, Table
 from orders.roles import (
-    COUNTER_ROLES,
-    KITCHEN_ROLES,
-    ORDER_READ_ROLES,
-    ROLE_LABELS,
+    MONITOR_PERMISSIONS,
+    ORDER_READ_PERMISSIONS,
+    PERMISSION_LABELS,
+    STATS_PERMISSIONS,
 )
+from orders.tests.auth_support import ALIASES, AUTH_SETTINGS, credentials, login_client
+from orders.views import api
 
-# The approved matrix is written here as literals, NOT imported from the code
-# under test. Deriving it from KITCHEN_ROLES/COUNTER_ROLES would move the
-# expectation in lockstep with the implementation, so widening either tuple
-# would pass unnoticed -- exactly the escalation this file exists to catch.
-# test_the_role_constants_still_match_the_approved_matrix pins the constants
-# themselves, so a deliberate change has to be made here too.
-APPROVED_KITCHEN = ("KITCHEN",)
-APPROVED_COUNTER = ("B1_COUNTER",)
-APPROVED_ORDER_READ = APPROVED_KITCHEN + APPROVED_COUNTER
+APPROVED_MONITORS = ("HALL_MONITOR", "TAKEOUT_MONITOR")
+APPROVED_STATS = ("STATS",)
+APPROVED_ORDER_READ = APPROVED_MONITORS + APPROVED_STATS
 
-
-ROLES = tuple(ROLE_ACCOUNTS)
-# "GHOST" holds a session whose role the server never issued. It separates
-# "has a session" from "has a role the server recognises"; without it, a guard
-# that only checked for session presence would still pass every case here.
-RETIRED_ROLES = ("KITCHEN_HALL", "KITCHEN_TAKEOUT")
-ACTORS = ("anonymous", *ROLES, "GHOST", *RETIRED_ROLES)
-UNAUTHENTICATED = ("anonymous", "GHOST", *RETIRED_ROLES)
+# The order under test is a dine-in order, so the takeout monitor is refused
+# by scope (403) where the hall monitor is allowed. Both hold the permission
+# the endpoint names; the matrix below is what the server actually answers.
+# An account holding no permission cannot log in at all (D-051), so it is
+# covered in test_accounts rather than as an actor here.
+PERMISSION_ACTORS = ("SERVING", "HALL_MONITOR", "TAKEOUT_MONITOR", "STATS", "BOTH_MONITORS")
+ACTORS = ("anonymous", *PERMISSION_ACTORS, "GHOST")
+UNAUTHENTICATED = ("anonymous", "GHOST")
 
 ALLOWED = "ALLOWED"
 REFUSED = "REFUSED"
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class AuthorizationMatrixTests(TestCase):
     def setUp(self):
         cache.clear()
@@ -100,28 +76,30 @@ class AuthorizationMatrixTests(TestCase):
         client = Client()
         if actor == "anonymous":
             return client
-        if actor in ("GHOST", *RETIRED_ROLES):
+        if actor == "GHOST":
             session = client.session
-            session["role"] = actor
+            session["role"] = "KITCHEN"
             session.save()
             return client
         login_client(client, actor)
         return client
 
     # --- the matrix ------------------------------------------------------
-    # Each entry is (method, url builder, request kwargs, allowed roles).
+    # Each entry is (method, url, request kwargs, actors the server allows).
     # An empty allowed set means "any authenticated account".
 
     def endpoints(self):
+        hall_side = ("HALL_MONITOR", "BOTH_MONITORS")
         return {
             "tables": ("get", reverse("orders:tables"), {}, ()),
             "menus": ("get", reverse("orders:menus"), {}, ()),
             "orders-collection-read": (
-                "get", reverse("orders:orders-collection"), {}, APPROVED_ORDER_READ,
+                "get", reverse("orders:orders-collection"), {},
+                ("HALL_MONITOR", "TAKEOUT_MONITOR", "STATS", "BOTH_MONITORS"),
             ),
             "order-detail": (
                 "get", reverse("orders:order-detail", args=[self.order.id]), {},
-                APPROVED_ORDER_READ,
+                hall_side + ("STATS",),
             ),
             "orders-collection-create": ("post", reverse("orders:orders-collection"), {
                 "data": {
@@ -135,19 +113,19 @@ class AuthorizationMatrixTests(TestCase):
             "order-status": (
                 "patch", reverse("orders:order-status", args=[self.order.id]),
                 {"data": {"status": "READY"}, "content_type": "application/json"},
-                APPROVED_KITCHEN,
+                hall_side,
             ),
             "order-item-progress": (
                 "patch", reverse("orders:order-item-progress", args=[self.item.id]),
                 {"data": {"done": True}, "content_type": "application/json"},
-                APPROVED_KITCHEN,
+                hall_side,
             ),
             "stats-menu-counts": (
-                "get", reverse("orders:stats-menu-counts"), {}, APPROVED_COUNTER,
+                "get", reverse("orders:stats-menu-counts"), {}, ("STATS",),
             ),
             "stats-dashboard": (
                 "get", reverse("orders:stats-dashboard"), {"data": {"floor": "B1"}},
-                APPROVED_COUNTER,
+                ("STATS",),
             ),
         }
 
@@ -156,8 +134,6 @@ class AuthorizationMatrixTests(TestCase):
         data = kwargs.get("data")
         if isinstance(data, dict) and "request_id" in data:
             # 6A: each send is a separate attempt, not a retry of the last one.
-            # Reusing one id across actors would answer 409 rather than testing
-            # the permission the matrix is about.
             data = dict(data, request_id=str(uuid.uuid4()))
             kwargs = dict(kwargs, data=data)
         return getattr(client, method)(url, **kwargs)
@@ -186,6 +162,31 @@ class AuthorizationMatrixTests(TestCase):
                             f"{name} did not refuse {actor}",
                         )
 
+    def test_the_takeout_side_of_the_matrix_mirrors_the_hall_side(self):
+        """The dine-in order above refuses the takeout monitor by scope. A
+        takeout order swaps the two, so the scope check is not a hardcoded
+        preference for one side."""
+        tag = Table.objects.create(number=105)
+        takeout = Order.objects.create(
+            table=tag, floor="B1", order_type="TAKEOUT", is_takeout=True,
+            status="PREPARING", total_price=1000, payment_method="CASH",
+            received_amount=1000, received_cash_amount=1000, received_ticket_amount=0,
+        )
+        item = OrderItem.objects.create(order=takeout, menu_item=self.menu, qty=1,
+                                        unit_price=1000, service_mode="TAKEOUT")
+        for actor, expected in (("TAKEOUT_MONITOR", 200), ("HALL_MONITOR", 403),
+                                ("BOTH_MONITORS", 200), ("STATS", 403), ("SERVING", 403)):
+            with self.subTest(actor=actor):
+                client = self.client_as(actor)
+                status = client.patch(reverse("orders:order-status", args=[takeout.id]),
+                                      data={"status": "READY"}, content_type="application/json")
+                self.assertEqual(status.status_code, expected)
+                progress = client.patch(reverse("orders:order-item-progress", args=[item.id]),
+                                        data={"done": True}, content_type="application/json")
+                self.assertEqual(progress.status_code, expected)
+                detail = client.get(reverse("orders:order-detail", args=[takeout.id]))
+                self.assertEqual(detail.status_code, 200 if actor in ("TAKEOUT_MONITOR", "BOTH_MONITORS", "STATS") else 403)
+
     def test_refusals_are_json_and_never_an_html_login_redirect(self):
         """A redirect would reach the caller as an HTML page and surface as a
         JSON parse error rather than a permission problem."""
@@ -198,22 +199,20 @@ class AuthorizationMatrixTests(TestCase):
                 self.assertIn("detail", response.json())
                 self.assertFalse(response.has_header("Location"))
 
-    def test_refusal_body_does_not_disclose_the_role_or_the_allowed_set(self):
-        """Both refusal branches. The English role codes alone are not enough:
-        this app names roles in Korean, so a body reading "주방 카운터 전용"
+    def test_refusal_body_does_not_disclose_the_permission_or_the_allowed_set(self):
+        """Both refusal branches. The English codes alone are not enough: this
+        app names permissions in Korean, so a body reading "누적·통계 전용"
         would leak the allowed set while passing an English-only check."""
         url = reverse("orders:stats-dashboard")
-        leaks = (*ROLES, *ROLE_LABELS.values())
+        leaks = (*PERMISSION_LABELS, *PERMISSION_LABELS.values(), *(name for name, _ in ALIASES.values()))
         cases = (
-            ("wrong role", self.client_as("ORDER"), "권한이 없습니다."),
+            ("wrong permission", self.client_as("SERVING"), "권한이 없습니다."),
             ("no session", self.client_as("anonymous"), "로그인이 필요합니다."),
         )
         for label, client, expected in cases:
             with self.subTest(branch=label):
                 response = client.get(url, {"floor": "B1"})
                 self.assertEqual(response.status_code, 401 if label == "no session" else 403)
-                # Pin the body exactly. Asserting only on absence lets any
-                # future message through, including a disclosing one.
                 self.assertEqual(response.json(), {"detail": expected})
                 body = response.content.decode()
                 for leak in leaks:
@@ -231,15 +230,13 @@ class AuthorizationMatrixTests(TestCase):
         for name in ("orders:tables", "orders:menus"):
             with self.subTest(endpoint=name):
                 cache.clear()
-                warm = self.client_as("ORDER").get(reverse(name))
+                warm = self.client_as("SERVING").get(reverse(name))
                 self.assertEqual(warm.status_code, 200)
-                cached = self.client_as("ORDER").get(reverse(name))
+                cached = self.client_as("SERVING").get(reverse(name))
                 self.assertEqual(cached.status_code, 200)
                 refused = self.client_as("anonymous").get(reverse(name))
                 self.assertEqual(refused.status_code, 401)
-                self.assertTrue(
-                    refused["Content-Type"].startswith("application/json")
-                )
+                self.assertTrue(refused["Content-Type"].startswith("application/json"))
 
     def test_authorization_runs_before_the_method_check(self):
         """An unauthenticated caller must not learn which methods a route
@@ -251,11 +248,9 @@ class AuthorizationMatrixTests(TestCase):
             401,
         )
         # The method boundary still exists for an authorised caller.
+        self.assertEqual(self.client_as("SERVING").post(reverse("orders:tables")).status_code, 405)
         self.assertEqual(
-            self.client_as("ORDER").post(reverse("orders:tables")).status_code, 405,
-        )
-        self.assertEqual(
-            self.client_as("KITCHEN").get(
+            self.client_as("BOTH_MONITORS").get(
                 reverse("orders:order-status", args=[self.order.id])
             ).status_code,
             405,
@@ -263,7 +258,7 @@ class AuthorizationMatrixTests(TestCase):
 
     def test_logout_revokes_api_access(self):
         """Logout revokes the device, including an already-issued access JWT."""
-        client = self.client_as("B1_COUNTER")
+        client = self.client_as("STATS")
         before = client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
         self.assertEqual(before.status_code, 200)
         self.assertEqual(client.post(reverse("orders:logout")).status_code, 302)
@@ -272,154 +267,75 @@ class AuthorizationMatrixTests(TestCase):
         self.assertEqual(after.status_code, 401)
 
     def test_logout_is_not_reachable_by_a_safe_method(self):
-        """A GET logout is triggerable cross-site.
-
-        `<img src=".../orders/logout/">` on any other page is enough, and Django
-        exempts safe methods from CSRF, so nothing would stop it. On a kiosk that
-        means a staff screen logged out mid-service by a request the operator
-        never made. The device must remain authenticated after every safe method (BK-R019).
-
-        All three safe methods are checked, not just GET, because each is a
-        separate way to reach the view and CSRF exempts all of them. A guard
-        written as "refuse GET" rather than "require POST" would pass the GET
-        case and still revoke the device on HEAD.
-        """
+        """A GET logout is triggerable cross-site (BK-R019). All three safe
+        methods are checked; a guard written as "refuse GET" rather than
+        "require POST" would pass GET and still revoke the device on HEAD."""
         for method in ("get", "head", "options"):
             with self.subTest(method=method):
-                client = self.client_as("B1_COUNTER")
+                client = self.client_as("STATS")
                 response = getattr(client, method)(reverse("orders:logout"))
                 self.assertEqual(response.status_code, 405)
                 self.assertTrue(client.cookies["bk_refresh"].value)
                 self.assertEqual(
-                    client.get(
-                        reverse("orders:stats-dashboard"), {"floor": "B1"}
-                    ).status_code,
+                    client.get(reverse("orders:stats-dashboard"), {"floor": "B1"}).status_code,
                     200,
                 )
 
     # --- 자격증명 회수 ----------------------------------------------------
 
-    def test_withdrawing_a_credential_blocks_existing_device_tokens(self):
-        """Revocation has to reach devices that are already signed in.
-
-        Both access JWTs and refresh-cookie page authentication must check
-        the current provisioned account, not only the signed role claim.
-
-        Both surfaces are checked. They refuse differently -- a page redirects, an
-        API answers JSON -- so a fix applied to only one of them would leave the
-        revoked account still reading orders through the API.
-        """
-        counter = self.client_as("B1_COUNTER")
-        kitchen = self.client_as("KITCHEN")
+    def test_switching_an_account_off_blocks_existing_device_tokens(self):
+        """Revocation has to reach devices that are already signed in, on
+        both surfaces: a page redirects, an API answers JSON, so a fix applied
+        to only one would leave the switched-off account still reading."""
+        stats = self.client_as("STATS")
+        kitchen = self.client_as("BOTH_MONITORS")
         dashboard = (reverse("orders:stats-dashboard"), {"floor": "B1"})
-        self.assertEqual(counter.get(*dashboard).status_code, 200)
+        self.assertEqual(stats.get(*dashboard).status_code, 200)
 
-        remaining = {r: p for r, p in ROLE_ACCOUNTS.items() if r != "B1_COUNTER"}
-        with override_settings(ROLE_ACCOUNTS=remaining):
-            self.assertEqual(counter.get(*dashboard).status_code, 401)
-            page = counter.get(reverse("orders:b1-counter"))
-            self.assertEqual(page.status_code, 302)
-            self.assertEqual(page.headers["Location"], reverse("orders:login"))
-            # The withdrawal is aimed at one role. Everyone else keeps working:
-            # a fix that simply refused every session would also pass the
-            # assertions above.
-            self.assertEqual(
-                kitchen.get(reverse("orders:kitchen")).status_code, 200
-            )
-            self.assertEqual(
-                kitchen.get(
-                    reverse("orders:order-detail", args=[self.order.id])
-                ).status_code,
-                200,
-            )
-
-    def test_a_blank_credential_does_not_provision_a_role(self):
-        """An empty value is a role with no way to sign in, not a role with an
-        empty password. Treating it as provisioned would keep its existing
-        sessions alive while the operator believes the account is closed."""
-        blanked = {**ROLE_ACCOUNTS, "B1_COUNTER": {"id": "b1_counter", "password_hash": ""}}
-        counter = self.client_as("B1_COUNTER")
-        with override_settings(ROLE_ACCOUNTS=blanked):
-            self.assertEqual(
-                counter.get(
-                    reverse("orders:stats-dashboard"), {"floor": "B1"}
-                ).status_code,
-                401,
-            )
-
-    def test_an_unknown_name_in_the_credential_list_does_not_mint_a_role(self):
-        """provisioned_roles() intersects with the app's own role table.
-
-        Without that intersection a deployment could name anything in its
-        credential list and have the guards honour it. GHOST does not cover
-        this: GHOST is never in ROLE_ACCOUNTS, so it is refused by the membership
-        check whether or not the intersection exists. The name has to be
-        *present in the credential list* and absent from the app.
-        """
-        from orders.roles import provisioned_roles
-
-        with override_settings(ROLE_ACCOUNTS={**ROLE_ACCOUNTS, "ADMIN": {"id": "admin", "password_hash": ROLE_ACCOUNTS["ORDER"]["password_hash"]}}):
-            self.assertEqual(
-                sorted(provisioned_roles()),
-                [
-                    "B1_COUNTER", "KITCHEN", "ORDER",
-                ],
-            )
-            minted = Client()
-            session = minted.session
-            session["role"] = "ADMIN"
-            session.save()
-            self.assertEqual(
-                minted.get(
-                    reverse("orders:stats-dashboard"), {"floor": "B1"}
-                ).status_code,
-                401,
-            )
-            self.assertEqual(
-                minted.get(reverse("orders:kitchen")).status_code, 302
-            )
+        Account.objects.filter(name="stats").update(is_active=False)
+        self.assertEqual(stats.get(*dashboard).status_code, 401)
+        page = stats.get(reverse("orders:b1-counter"))
+        self.assertEqual(page.status_code, 302)
+        self.assertEqual(page.headers["Location"], reverse("orders:login"))
+        # Aimed at one account. Everyone else keeps working: a fix that
+        # simply refused every session would also pass the assertions above.
+        self.assertEqual(kitchen.get(reverse("orders:kitchen")).status_code, 200)
+        self.assertEqual(
+            kitchen.get(reverse("orders:order-detail", args=[self.order.id])).status_code, 200
+        )
 
     def test_legacy_session_roles_do_not_authorize_pages_or_apis(self):
-        for role in ("B1_COUNTER", "b1_counter"):
+        for role in ("B1_COUNTER", "b1_counter", "KITCHEN"):
             client = Client()
             session = client.session
             session["role"] = role
             session.save()
             self.assertEqual(client.get(reverse("orders:stats-dashboard")).status_code, 401)
             self.assertEqual(client.get(reverse("orders:b1-counter")).status_code, 302)
+            self.assertEqual(client.get(reverse("orders:kitchen")).status_code, 302)
 
-    def test_password_rotation_revokes_previously_issued_tokens(self):
-        counter = self.client_as("B1_COUNTER")
+    def test_event_password_rotation_revokes_previously_issued_tokens(self):
+        stats = self.client_as("STATS")
         from django.contrib.auth.hashers import PBKDF2PasswordHasher
-        rotated = {**ROLE_ACCOUNTS, "B1_COUNTER": {
-            **ROLE_ACCOUNTS["B1_COUNTER"],
-            "password_hash": PBKDF2PasswordHasher().encode("replacement", "synthetic-salt", iterations=1),
-        }}
-        with override_settings(ROLE_ACCOUNTS=rotated):
-            self.assertEqual(counter.get(reverse("orders:stats-dashboard")).status_code, 401)
-            self.assertEqual(counter.get(reverse("orders:b1-counter")).status_code, 302)
+        rotated = PBKDF2PasswordHasher().encode("replacement", "synthetic-salt", iterations=1)
+        with override_settings(EVENT_PASSWORD_HASH=rotated):
+            self.assertEqual(stats.get(reverse("orders:stats-dashboard")).status_code, 401)
+            self.assertEqual(stats.get(reverse("orders:b1-counter")).status_code, 302)
 
     def test_withdrawal_reaches_the_cached_endpoints_too(self):
-        """tables and menus wear @require_api_roles OUTSIDE @cache_page, so the
-        guard runs before the cache lookup. The anonymous case is covered
-        elsewhere; this covers the revoked-but-still-has-a-token case against
-        the same endpoints, because D-036 plans to split those two branches
-        apart and the cache invariant has to hold for both afterwards."""
-        counter = self.client_as("B1_COUNTER")
+        """tables and menus wear the guard OUTSIDE @cache_page, so the guard
+        runs before the cache lookup, for the revoked-but-still-has-a-token
+        case as well as the anonymous one."""
+        stats = self.client_as("STATS")
         for name in ("orders:tables", "orders:menus"):
             with self.subTest(endpoint=name):
-                # Warm the cache as an authorized caller.
-                self.assertEqual(counter.get(reverse(name)).status_code, 200)
-
-        remaining = {r: p for r, p in ROLE_ACCOUNTS.items() if r != "B1_COUNTER"}
-        with override_settings(ROLE_ACCOUNTS=remaining):
-            for name in ("orders:tables", "orders:menus"):
-                with self.subTest(endpoint=name):
-                    response = counter.get(reverse(name))
-                    self.assertEqual(response.status_code, 401)
-                    self.assertEqual(
-                        response.json(), {"detail": "로그인이 필요합니다."}
-                    )
+                self.assertEqual(stats.get(reverse(name)).status_code, 200)
+        Account.objects.filter(name="stats").update(is_active=False)
+        for name in ("orders:tables", "orders:menus"):
+            with self.subTest(endpoint=name):
+                response = stats.get(reverse(name))
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.json(), {"detail": "로그인이 필요합니다."})
 
     # --- CSRF ------------------------------------------------------------
 
@@ -429,88 +345,57 @@ class AuthorizationMatrixTests(TestCase):
             if spec[0] in ("post", "patch")
         }
 
-    def role_for(self, spec):
+    def actor_for(self, spec):
         allowed = spec[3]
-        return allowed[0] if allowed else "ORDER"
+        return allowed[0] if allowed else "SERVING"
+
+    def enforcing_client(self, actor):
+        """A client that enforces CSRF, logged in the way the screen does
+        (login_client sends the token the login page set)."""
+        enforcing = Client(enforce_csrf_checks=True)
+        login_client(enforcing, actor)
+        return enforcing
 
     def test_writes_are_rejected_without_a_csrf_token(self):
         """`@csrf_exempt` was removed from all three write endpoints. The
         control is the status code: 403 from CSRF, while the same client with
-        a token succeeds in the next test — so this is the check firing, not
-        the authorization guard refusing a valid access JWT."""
+        a token succeeds in the next test."""
         for name, spec in self.write_specs().items():
             with self.subTest(endpoint=name):
                 self.reset_order()
-                enforcing = Client(enforce_csrf_checks=True)
-                role = self.role_for(spec)
-                login = enforcing.post(
-                    reverse("orders:login"),
-                    credentials(role),
-                    HTTP_X_CSRFTOKEN=enforcing.get(reverse("orders:login")).cookies[
-                        "csrftoken"
-                    ].value,
-                )
-                self.assertEqual(login.status_code, 302, "login itself failed")
-                login_client(enforcing, role)
+                enforcing = self.enforcing_client(self.actor_for(spec))
                 response = self.send(enforcing, spec)
-                self.assertEqual(
-                    response.status_code, 403,
-                    f"{name} accepted a tokenless write",
-                )
+                self.assertEqual(response.status_code, 403, f"{name} accepted a tokenless write")
 
     def test_writes_succeed_with_a_csrf_token_from_the_page(self):
-        """The positive half: the same enforcing client, same role, plus the
-        token the screen would read from the cookie."""
         for name, spec in self.write_specs().items():
             with self.subTest(endpoint=name):
                 self.reset_order()
-                enforcing = Client(enforce_csrf_checks=True)
-                role = self.role_for(spec)
-                token = enforcing.get(reverse("orders:login")).cookies["csrftoken"].value
-                self.assertEqual(
-                    enforcing.post(
-                        reverse("orders:login"),
-                        credentials(role),
-                        HTTP_X_CSRFTOKEN=token,
-                    ).status_code,
-                    302,
-                )
-                login_client(enforcing, role)
-                # Django rotates the token on login, so re-read the cookie.
+                enforcing = self.enforcing_client(self.actor_for(spec))
                 token = enforcing.cookies["csrftoken"].value
                 method, url, kwargs, _ = spec
-                response = getattr(enforcing, method)(
-                    url, **kwargs, HTTP_X_CSRFTOKEN=token
-                )
-                self.assertIn(
-                    response.status_code, (200, 201),
-                    f"{name} rejected a properly tokened write",
-                )
+                response = getattr(enforcing, method)(url, **kwargs, HTTP_X_CSRFTOKEN=token)
+                self.assertIn(response.status_code, (200, 201), f"{name} rejected a properly tokened write")
 
     def test_write_capable_pages_set_the_csrf_cookie(self):
-        """Without the cookie the screens cannot send a token at all, so the
-        guard above would make every write fail in the browser."""
-        for role, page in (
-            ("ORDER", "order"),
-            ("KITCHEN", "kitchen"),
-            ("KITCHEN", "kitchen-hall"),
-            ("KITCHEN", "kitchen-takeout"),
+        """Without the cookie the screens cannot send a token at all."""
+        for actor, page in (
+            ("SERVING", "order"),
+            ("BOTH_MONITORS", "kitchen"),
+            ("HALL_MONITOR", "kitchen-hall"),
+            ("TAKEOUT_MONITOR", "kitchen-takeout"),
         ):
             with self.subTest(page=page):
-                client = self.client_as(role)
+                client = self.client_as(actor)
                 response = client.get(reverse(f"orders:{page}"))
                 self.assertEqual(response.status_code, 200)
-                # response.cookies holds only what THIS response set, so the
-                # page itself is issuing the token, not the earlier login.
                 self.assertIn("csrftoken", response.cookies)
                 self.assertTrue(response.cookies["csrftoken"].value)
 
     # --- existing journeys ----------------------------------------------
 
     def test_the_existing_kitchen_and_counter_journeys_still_work(self):
-        """Phase 3's acceptance criterion is that normal journeys survive.
-        These are the exact calls the two screens make today."""
-        kitchen = self.client_as("KITCHEN")
+        kitchen = self.client_as("BOTH_MONITORS")
         progress = kitchen.patch(
             reverse("orders:order-item-progress", args=[self.item.id]),
             data={"prepared_qty": 1}, content_type="application/json",
@@ -524,33 +409,22 @@ class AuthorizationMatrixTests(TestCase):
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, "CANCELLED")
 
-        counter = self.client_as("B1_COUNTER")
-        dashboard = counter.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
+        stats = self.client_as("STATS")
+        dashboard = stats.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn("summary", dashboard.json())
 
     # --- the matrix itself, not just the responses -----------------------
 
-    def test_the_role_constants_still_match_the_approved_matrix(self):
-        """The expectations above are literals on purpose, so widening a role
-        tuple in the code cannot move them. That leaves one gap: the widening
-        would be invisible rather than wrong. This closes it by pinning the
-        constants, so changing who counts as 주방 or 카운터 has to be a
-        deliberate edit here, traceable back to D-040."""
-        self.assertEqual(tuple(KITCHEN_ROLES), APPROVED_KITCHEN)
-        self.assertEqual(tuple(COUNTER_ROLES), APPROVED_COUNTER)
-        self.assertEqual(tuple(ORDER_READ_ROLES), APPROVED_ORDER_READ)
+    def test_the_permission_constants_still_match_the_approved_matrix(self):
+        self.assertEqual(tuple(MONITOR_PERMISSIONS), APPROVED_MONITORS)
+        self.assertEqual(tuple(STATS_PERMISSIONS), APPROVED_STATS)
+        self.assertEqual(tuple(ORDER_READ_PERMISSIONS), APPROVED_ORDER_READ)
 
     def test_every_api_route_appears_in_the_matrix(self):
-        """The table is a hand-written dict. A duplicated key would silently
-        discard the earlier entry, and a new endpoint would simply never be
-        checked. Both failures are invisible without this."""
         from django.urls import resolve
 
-        declared = set()
-        for spec in self.endpoints().values():
-            declared.add(resolve(spec[1]).url_name)
-
+        declared = {resolve(spec[1]).url_name for spec in self.endpoints().values()}
         routed = {
             pattern.name
             for pattern in import_module("orders.urls").urlpatterns
@@ -558,19 +432,14 @@ class AuthorizationMatrixTests(TestCase):
             and pattern.callback.__module__ == api.__name__
         }
         self.assertEqual(declared, routed)
-
-        # orders-collection carries GET and POST, so the route count and the
-        # check count differ by one. Pin both: a duplicate key would shrink
-        # the table while leaving the route set intact.
         self.assertEqual(len(routed), 8)
         self.assertEqual(len(self.endpoints()), 9)
         self.assertEqual(len(self.write_specs()), 3)
 
-    def test_reading_an_order_is_refused_to_the_ordering_account(self):
-        """The stats endpoints are counter-only, but the same figures ride
-        along on every serialized order. If the read stayed open, restricting
-        stats would accomplish nothing -- so this pins the money out of reach
-        and pins that creating an order is still open."""
+    def test_reading_an_order_is_refused_to_the_serving_account(self):
+        """The stats endpoints are STATS-only, but the same figures ride along
+        on every serialized order. If the read stayed open, restricting stats
+        would accomplish nothing."""
         money = (
             "total_price", "payment_method", "received_cash_amount",
             "received_ticket_amount", "change_amount", "unit_price",
@@ -578,14 +447,12 @@ class AuthorizationMatrixTests(TestCase):
         listing = reverse("orders:orders-collection")
         detail = reverse("orders:order-detail", args=[self.order.id])
 
-        ordering = self.client_as("ORDER")
+        serving = self.client_as("SERVING")
         for url in (listing, detail):
             with self.subTest(url=url):
-                self.assertEqual(ordering.get(url).status_code, 403)
+                self.assertEqual(serving.get(url).status_code, 403)
 
-        # The counter reads it, and the body really does carry the figures --
-        # otherwise the refusal above would be protecting nothing.
-        body = self.client_as("B1_COUNTER").get(listing).json()
+        body = self.client_as("STATS").get(listing).json()
         self.assertTrue(body["results"], "no orders to inspect; the test proves nothing")
         served = body["results"][0]
         for field in money:
@@ -595,8 +462,7 @@ class AuthorizationMatrixTests(TestCase):
                     f"{field} is missing, so this test no longer guards it",
                 )
 
-        # Creating is not reading: the ordering screen must still post.
-        created = ordering.post(
+        created = serving.post(
             listing,
             data={
                 "request_id": str(uuid.uuid4()),
@@ -611,7 +477,7 @@ class AuthorizationMatrixTests(TestCase):
     # --- session and CSRF boundaries -------------------------------------
 
     def test_login_starts_a_clean_session_and_rotates_the_csrf_token(self):
-        """JWT login flushes legacy session state and rotates the CSRF secret."""
+        login_client(Client(), "BOTH_MONITORS")  # creates the account
         client = Client()
         client.get(reverse("orders:login"))
         session = client.session
@@ -623,9 +489,7 @@ class AuthorizationMatrixTests(TestCase):
         self.assertTrue(planted_key, "no pre-login session; the test proves nothing")
         self.assertTrue(planted_csrf, "no pre-login token; the test proves nothing")
 
-        response = client.post(
-            reverse("orders:login"), credentials("KITCHEN")
-        )
+        response = client.post(reverse("orders:login"), credentials("BOTH_MONITORS"))
         self.assertEqual(response.status_code, 302)
         self.assertNotIn("role", client.session)
         self.assertNotEqual(client.session.session_key, planted_key)
@@ -633,98 +497,67 @@ class AuthorizationMatrixTests(TestCase):
         self.assertNotEqual(client.cookies[settings.CSRF_COOKIE_NAME].value, planted_csrf)
 
     def test_logout_rotates_the_csrf_token_as_well_as_the_session(self):
-        """Logout's counterpart to the login rotation above.
-
-        The session key and the CSRF secret are one credential pair. Tearing
-        down the session while leaving the old CSRF secret in the cookie hands
-        the next person at that terminal a token minted for the previous
-        occupant's session. Checking only that `role` left the session would
-        pass with rotate_token deleted.
-        """
-        client = self.client_as("KITCHEN")
+        client = self.client_as("BOTH_MONITORS")
         before = client.cookies[settings.CSRF_COOKIE_NAME].value
         self.assertTrue(before, "no token before logout; the test proves nothing")
-
         self.assertEqual(client.post(reverse("orders:logout")).status_code, 302)
         self.assertNotIn("role", client.session)
         self.assertNotEqual(client.cookies[settings.CSRF_COOKIE_NAME].value, before)
 
     def test_the_logout_control_on_a_live_screen_is_a_post_form(self):
-        """The server refuses GET logout; this pins that the UI stopped asking.
-
-        A template still linking to it with <a href> would 405 every logout
-        button in the app, and no server-side assertion notices -- the guard is
-        working exactly as intended in that scenario. Only the rendered page
-        shows it.
-
-        kitchen_supervisor.html is the live screen: pages.py renders it for all
-        three kitchen routes. serve.html carries the same control but no view
-        renders it, so it is not asserted here.
-        """
-        page = self.client_as("KITCHEN").get(reverse("orders:kitchen"))
+        page = self.client_as("BOTH_MONITORS").get(reverse("orders:kitchen"))
         self.assertEqual(page.status_code, 200)
         html = page.content.decode()
         logout_url = reverse("orders:logout")
-
         self.assertIn(f'<form method="post" action="{logout_url}"', html)
         self.assertIn("csrfmiddlewaretoken", html)
         self.assertNotIn(f'href="{logout_url}"', html)
 
     def test_a_failed_login_leaves_the_session_alone(self):
-        """Rotation belongs to the privilege transition. If a wrong password also
-        cycled the key, an unauthenticated caller could churn session rows."""
+        login_client(Client(), "BOTH_MONITORS")  # creates the account
         client = Client()
         client.get(reverse("orders:login"))
         before = client.session.session_key
-
-        response = client.post(
-            reverse("orders:login"), {"account_id": "kitchen", "password": "wrong-password"}
-        )
+        response = client.post(reverse("orders:login"), {"name": "both-monitors", "password": "wrong-password"})
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("role", client.session)
         self.assertEqual(client.session.session_key, before)
 
     def test_head_is_authorized_as_the_get_it_is(self):
-        """HEAD is GET without a body, so it must clear GET's bar. The guard
-        has to enforce that itself: require_http_methods would also refuse HEAD
-        today, but that decorator sits inside this one, so relying on it makes
-        the restriction a side effect of an unrelated list."""
-        from orders.views.guards import require_api_roles
+        from orders.authentication import issue_tokens
+        from orders.tests.auth_support import ensure_account
+        from orders.views.guards import require_api_permissions
 
-        @require_api_roles(by_method={"GET": APPROVED_COUNTER})
+        @require_api_permissions(by_method={"GET": APPROVED_STATS})
         def view(request):
             return JsonResponse({"money": 1})
 
         factory = RequestFactory()
+        serving = ensure_account("SERVING")
         for method in ("get", "head"):
             with self.subTest(method=method):
                 request = getattr(factory, method)("/probe")
-                from orders.authentication import issue_tokens
-                request.META["HTTP_AUTHORIZATION"] = "Bearer " + issue_tokens("ORDER").access_token
+                request.META["HTTP_AUTHORIZATION"] = "Bearer " + issue_tokens(serving).access_token
                 self.assertEqual(view(request).status_code, 403)
 
     def test_a_mistyped_method_key_is_refused_at_decoration(self):
-        """A key that never matches would leave that method on the endpoint
-        default, which for orders-collection is the open sentinel. The narrower
-        mistake -- a mistyped role -- already raises; this is the one that
-        actually grants access."""
-        from orders.views.guards import require_api_roles
+        from orders.views.guards import require_api_permissions, require_permissions
 
-        for bad in ({"GTE": APPROVED_COUNTER}, {"GET": "B1_COUNTER"}, {"GET": ()}):
+        for bad in ({"GTE": APPROVED_STATS}, {"GET": "STATS"}, {"GET": ()}):
             with self.subTest(by_method=bad):
                 with self.assertRaises(ValueError):
-                    require_api_roles(by_method=bad)
+                    require_api_permissions(by_method=bad)
         with self.assertRaises(ValueError):
-            require_api_roles("NOT_A_ROLE")
+            require_api_permissions("NOT_A_PERMISSION")
+        with self.assertRaises(ValueError):
+            require_permissions("KITCHEN")
+        with self.assertRaises(ValueError):
+            require_permissions(all_of=("HALL_MONITOR", "KITCHEN"))
 
     def test_a_csrf_rejection_on_the_api_is_json_not_html(self):
-        """CsrfViewMiddleware runs outside every view decorator, so a tokenless
-        write never reaches the guard. Without a JSON failure view the caller
-        gets an HTML page and reports a parse error, not a permission problem."""
+        login_client(Client(), "BOTH_MONITORS")
         client = Client(enforce_csrf_checks=True)
-        client.post(
-            reverse("orders:login"), credentials("KITCHEN")
-        )
+        client.post(reverse("orders:login"), credentials("BOTH_MONITORS"))
         response = client.patch(
             reverse("orders:order-status", args=[self.order.id]),
             data={"status": "READY"}, content_type="application/json",
@@ -733,25 +566,14 @@ class AuthorizationMatrixTests(TestCase):
         self.assertTrue(response["Content-Type"].startswith("application/json"))
         self.assertIn("detail", response.json())
         body = response.content.decode()
-        # The reason string names the check that failed; it is not the caller's.
-        for leak in ("CSRF", "Referer", "origin", *ROLES):
+        for leak in ("CSRF", "Referer", "origin", *PERMISSION_LABELS):
             self.assertNotIn(leak, body)
 
     @override_settings(ROOT_URLCONF="orders.tests.urls_outside_api")
     def test_the_json_refusal_follows_the_guard_and_not_the_path(self):
-        """_targets_the_api resolves the URLconf and looks for the marker the
-        guard sets, instead of testing the path against "/orders/api/".
-
-        With every API view under one prefix the two rules agree on every
-        request, so the resolver version is indistinguishable from the cheap
-        string check -- and the reasoning in its docstring is unverifiable.
-        This mounts a require_api_roles view somewhere else entirely. A prefix
-        check answers it with Django's HTML page; the marker answers in JSON.
-        """
+        login_client(Client(), "BOTH_MONITORS")
         client = Client(enforce_csrf_checks=True)
-        client.post(
-            reverse("orders:login"), credentials("KITCHEN")
-        )
+        client.post(reverse("orders:login"), credentials("BOTH_MONITORS"))
         response = client.post(reverse("outside-api-ping"))
         self.assertEqual(response.status_code, 403)
         self.assertTrue(
@@ -761,19 +583,18 @@ class AuthorizationMatrixTests(TestCase):
         self.assertIn("detail", response.json())
 
     def test_a_csrf_rejection_on_a_page_is_still_the_html_page(self):
-        """A browser navigation should see a page, not a JSON blob. This keeps
-        the JSON answer scoped to the API instead of applying it everywhere."""
+        login_client(Client(), "BOTH_MONITORS")
         response = Client(enforce_csrf_checks=True).post(
-            reverse("orders:login"), credentials("KITCHEN")
+            reverse("orders:login"), credentials("BOTH_MONITORS")
         )
         self.assertEqual(response.status_code, 403)
         self.assertTrue(response["Content-Type"].startswith("text/html"))
 
-    def test_pages_still_refuse_the_wrong_role_by_redirecting(self):
-        """The page guard is unchanged: screens redirect, APIs answer JSON.
-        This keeps the two rejection styles from drifting into each other."""
-        response = self.client_as("ORDER").get(reverse("orders:kitchen"))
+    def test_pages_still_refuse_the_wrong_permission_by_redirecting(self):
+        response = self.client_as("SERVING").get(reverse("orders:kitchen"))
         self.assertEqual(response.status_code, 302)
-        # Equality, not a substring. "/login" is also satisfied by a hardcoded
-        # "/login", which is a 404 here -- the real screen is /orders/login/.
         self.assertEqual(response["Location"], reverse("orders:login"))
+        for actor in ("HALL_MONITOR", "TAKEOUT_MONITOR", "STATS"):
+            with self.subTest(actor=actor):
+                response = self.client_as(actor).get(reverse("orders:order"))
+                self.assertEqual(response["Location"], reverse("orders:login"))

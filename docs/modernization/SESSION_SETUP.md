@@ -8,7 +8,7 @@
 검증, 절대 12시간 refresh, 원자적 회전·동시 요청 처리, 브라우저 역할/session 결속을 포함한다.
 [현재 구현·설정·복구 계약](JWT_AUTHENTICATION.md)을 먼저 읽는다. 운영 배포와 4A2 전체
 완료를 뜻하지 않으며 최종 검증·머지 상태는 작업 기록과 실제 PR 상태로 확인한다.
-`ROLE_ACCOUNTS`·별도 `JWT_SIGNING_KEY`가 운영 필수 설정이다.
+`EVENT_PASSWORD_HASH`(4A4, 이전 `ROLE_ACCOUNTS`)·별도 `JWT_SIGNING_KEY`가 운영 필수 설정이다.
 운영 계정은 미공급 상태이며 테스트 값은 합성 fixture다.
 
 **2026-09-18 4B1:** 주문·카운터 화면의 저장 문자열 렌더링을 안전한 DOM 생성으로 바꿨다.

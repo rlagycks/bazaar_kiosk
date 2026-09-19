@@ -110,6 +110,13 @@ class Order(models.Model):
     total_price = models.PositiveIntegerField(default=0)
     note = models.CharField(max_length=200, blank=True, default="")
 
+    # D-051: who took the order. Null for orders written before accounts
+    # existed; PROTECT so an author with orders is deactivated, not deleted.
+    created_by = models.ForeignKey(
+        "orders.Account", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="created_orders", verbose_name="주문자",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 

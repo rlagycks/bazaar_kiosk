@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 from django.test import SimpleTestCase
-from orders.tests.auth_support import ROLE_ACCOUNTS
+from orders.tests.auth_support import EVENT_PASSWORD_HASH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -27,7 +27,7 @@ DEPLOYMENT = {
     "SECRET_KEY": "synthetic-deployment-secret-long-enough-to-clear-the-length-floor",
     "ALLOWED_HOSTS": "deployment.invalid",
     "CSRF_TRUSTED_ORIGINS": "https://deployment.invalid",
-    "ROLE_ACCOUNTS": json.dumps(ROLE_ACCOUNTS),
+    "EVENT_PASSWORD_HASH": EVENT_PASSWORD_HASH,
     "JWT_SIGNING_KEY": "synthetic-jwt-signing-key-distinct-and-at-least-fifty-characters",
     "DATABASE_URL": "postgresql://runner:synthetic-probe-password@127.0.0.1:5432/synthetic",
 }
@@ -51,7 +51,7 @@ else:
     print(json.dumps({
         "started": True,
         "debug": s.DEBUG,
-        "roles": sorted(s.ROLE_ACCOUNTS),
+        "event_password_configured": bool(s.EVENT_PASSWORD_HASH),
         # The deployment-only security block. Reporting it here is what lets a
         # test assert those cookies are actually hardened; nothing else in the
         # repository boots real settings with DEBUG off.
@@ -131,7 +131,7 @@ class RequiredSettingsTests(SimpleTestCase):
         """One at a time, with everything else valid. Checking them only in
         combination would not show which ones are actually enforced."""
         for name in ("SECRET_KEY", "ALLOWED_HOSTS", "CSRF_TRUSTED_ORIGINS",
-                     "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "DATABASE_URL"):
+                     "EVENT_PASSWORD_HASH", "JWT_SIGNING_KEY", "DATABASE_URL"):
             for value in (None, ""):
                 with self.subTest(setting=name, value=value):
                     result = self.boot(**{name: value})
@@ -148,56 +148,34 @@ class RequiredSettingsTests(SimpleTestCase):
                 self.assertIn("refused", result, f"{name}={value!r} was accepted")
                 self.assertIn(name, result["refused"])
 
-    def test_invalid_account_configuration_is_refused(self):
-        good = ROLE_ACCOUNTS["ORDER"]
+    def test_an_unusable_event_password_hash_is_refused(self):
+        """D-051: the event password arrives as a PBKDF2 hash. Anything else
+        would sit in the environment and never match anyone."""
         cases = {
-            "invalid JSON": "not-json",
-            "empty mapping": "{}",
-            "non mapping": "[]",
-            "blank id": json.dumps({"ORDER": {**good, "id": ""}}),
-            "blank hash": json.dumps({"ORDER": {**good, "password_hash": ""}}),
-            "plaintext": json.dumps({"ORDER": {**good, "password_hash": "synthetic-password"}}),
-            "unusable": json.dumps({"ORDER": {**good, "password_hash": "!unusable"}}),
-            "unknown role": json.dumps({"ADMIN": good}),
-            "duplicate ids": json.dumps({"ORDER": good, "KITCHEN": good}),
+            "plaintext": "synthetic-password",
+            "unusable": "!unusable",
+            "wrong algorithm": "md5$salt$abc",
+            "json": json.dumps({"password_hash": EVENT_PASSWORD_HASH}),
         }
         for label, value in cases.items():
             with self.subTest(case=label):
-                self.assertIn("ROLE_ACCOUNTS", self.boot(ROLE_ACCOUNTS=value).get("refused", ""))
+                result = self.boot(EVENT_PASSWORD_HASH=value)
+                self.assertIn("EVENT_PASSWORD_HASH", result.get("refused", ""))
+                self.assertNotIn(value, result["refused"])
 
     def test_malformed_pbkdf2_digest_is_refused_without_leaking_it(self):
         # A recognizable algorithm label does not make the digest usable.
         for digest in ("%%%synthetic-invalid-base64%%%", "YQ==", "A" * 48):
             encoded = "pbkdf2_sha256$1$synthetic-salt$" + digest
-            raw = json.dumps({"ORDER": {"id": "synthetic-order", "password_hash": encoded}})
             with self.subTest(digest=digest):
-                result = self.boot(ROLE_ACCOUNTS=raw)
-                self.assertIn("ROLE_ACCOUNTS", result.get("refused", ""))
+                result = self.boot(EVENT_PASSWORD_HASH=encoded)
+                self.assertIn("EVENT_PASSWORD_HASH", result.get("refused", ""))
                 self.assertNotIn(encoded, result["refused"])
 
-    def test_duplicate_json_keys_are_refused(self):
-        account = json.dumps(ROLE_ACCOUNTS["ORDER"])
-        encoded = json.dumps(ROLE_ACCOUNTS["ORDER"]["password_hash"])
-        cases = (
-            '{"ORDER":' + account + ',"ORDER":' + account + '}',
-            '{"ORDER":{"id":"first","id":"second","password_hash":' + encoded + '}}',
-        )
-        for raw in cases:
-            with self.subTest(raw=raw):
-                result = self.boot(ROLE_ACCOUNTS=raw)
-                self.assertIn("ROLE_ACCOUNTS", result.get("refused", ""))
-
-    def test_retired_kitchen_roles_are_refused_at_startup(self):
-        for role in ("KITCHEN_HALL", "KITCHEN_TAKEOUT"):
-            with self.subTest(role=role):
-                result = self.boot(ROLE_ACCOUNTS=json.dumps({role: ROLE_ACCOUNTS["KITCHEN"]}))
-                self.assertIn("ROLE_ACCOUNTS", result.get("refused", ""))
-
-    def test_a_deployment_with_a_withdrawn_role_still_starts(self):
-        for roles in (("ORDER", "KITCHEN"), ("B1_COUNTER",)):
-            result = self.boot(ROLE_ACCOUNTS=json.dumps({role: ROLE_ACCOUNTS[role] for role in roles}))
-            self.assertTrue(result.get("started"), result)
-            self.assertEqual(result["roles"], sorted(roles))
+    def test_a_deployment_with_a_usable_hash_starts(self):
+        result = self.boot()
+        self.assertTrue(result.get("started"), result)
+        self.assertIs(result["event_password_configured"], True)
 
     def test_jwt_key_must_be_strong_and_distinct(self):
         for value in (" ", "x" * 49, DEPLOYMENT["SECRET_KEY"]):
@@ -261,7 +239,7 @@ class RequiredSettingsTests(SimpleTestCase):
         # printed exactly what it rejected would pass. These two are the
         # credentials BK-R028 is about, and both are non-empty.
         offenders = self.boot(
-            ROLE_ACCOUNTS="synthetic-invalid-credential-config", SECRET_KEY=DEV_SECRET_KEY,
+            EVENT_PASSWORD_HASH="synthetic-invalid-credential-config", SECRET_KEY=DEV_SECRET_KEY,
         )
         self.assertIn("refused", offenders)
         for value in ("synthetic-invalid-credential-config", DEV_SECRET_KEY):
@@ -286,8 +264,7 @@ class RequiredSettingsTests(SimpleTestCase):
                          "deployment.invalid"):
             with self.subTest(fragment=fragment):
                 self.assertNotIn(fragment, message)
-        for account in ROLE_ACCOUNTS.values():
-            self.assertNotIn(account["password_hash"], message)
+        self.assertNotIn(EVENT_PASSWORD_HASH, message)
         self.assertIn("ALLOWED_HOSTS", message)
 
     def test_the_refusal_lists_every_missing_setting_at_once(self):
@@ -296,11 +273,11 @@ class RequiredSettingsTests(SimpleTestCase):
         though it is parsed later, so the very first refusal is complete."""
         result = self.boot(
             SECRET_KEY=None, ALLOWED_HOSTS=None, CSRF_TRUSTED_ORIGINS=None,
-            ROLE_ACCOUNTS=None, JWT_SIGNING_KEY=None, DATABASE_URL=None,
+            EVENT_PASSWORD_HASH=None, JWT_SIGNING_KEY=None, DATABASE_URL=None,
         )
         self.assertIn("refused", result)
         for name in ("SECRET_KEY", "ALLOWED_HOSTS", "CSRF_TRUSTED_ORIGINS",
-                     "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "DATABASE_URL"):
+                     "EVENT_PASSWORD_HASH", "JWT_SIGNING_KEY", "DATABASE_URL"):
             with self.subTest(setting=name):
                 self.assertIn(name, result["refused"])
 
@@ -320,7 +297,7 @@ class RequiredSettingsTests(SimpleTestCase):
             if "=" in line and not line.lstrip().startswith("#")
         }
         for name in ("DEBUG", "SECRET_KEY", "ALLOWED_HOSTS",
-                     "CSRF_TRUSTED_ORIGINS", "ROLE_ACCOUNTS", "JWT_SIGNING_KEY", "DATABASE_URL"):
+                     "CSRF_TRUSTED_ORIGINS", "EVENT_PASSWORD_HASH", "JWT_SIGNING_KEY", "DATABASE_URL"):
             with self.subTest(setting=name):
                 self.assertIn(name, assignments)
         self.assertIn("[필수]", text)
