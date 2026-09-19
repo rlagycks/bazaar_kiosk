@@ -150,6 +150,31 @@ class AdminOrderEditTests(TestCase):
         self.assertEqual((order.items.get().qty, order.total_price, order.change_amount), (1, 5000, 15000))
         self.assertFalse(OrderEvent.objects.filter(order=order, kind=OrderEventKind.ITEMS).exists())
 
+    def test_the_admin_keeps_the_screens_quantity_bound(self):
+        """The API caps a line at 99; a cheap or free menu item must not let
+        the admin store what the screens never could (PR #70 review)."""
+        MenuItem.objects.filter(pk=self.meal.pk).update(price=0)
+        self.item.unit_price = 0
+        self.item.save(update_fields=["unit_price"])
+        response = self.client.post(self.change_url(), self.form(self.existing(qty=100)))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "99 이하")
+        self.assertEqual(self.reload().items.get().qty, 1)
+        response = self.client.post(self.change_url(), self.form(self.existing(qty=99)))
+        self.assertEqual(response.status_code, 302, response.content[:500])
+
+    def test_only_sellable_kitchen_menu_items_can_be_added(self):
+        retired = MenuItem.objects.create(name="Retired", price=1000, is_active=False)
+        counter_only = MenuItem.objects.create(name="Sticker", price=1000, visible_kitchen=False)
+        for menu in (retired, counter_only):
+            with self.subTest(menu=menu.name):
+                response = self.client.post(self.change_url(), self.form(
+                    self.existing(), {"menu_item": menu.pk, "qty": 1, "service_mode": "DINE_IN"},
+                ))
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "판매 중인 주방 메뉴")
+                self.assertEqual(self.reload().items.count(), 1)
+
     def test_the_snapshot_number_and_money_cannot_be_posted_over(self):
         before = self.reload()
         response = self.client.post(self.change_url(), self.form(
@@ -209,6 +234,50 @@ class AdminOrderEditTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "취소된 주문")
         self.assertEqual(self.reload().items.get().qty, 1)
+
+    def test_the_items_event_carries_the_status_the_edit_left(self):
+        self.item.prepared_qty = 1
+        self.item.save(update_fields=["prepared_qty"])
+        Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.READY)
+        self.client.post(self.change_url(), self.form(
+            self.existing(), {"menu_item": self.soup.pk, "qty": 1, "service_mode": "DINE_IN"},
+        ))
+        items_event = OrderEvent.objects.get(order=self.order, kind=OrderEventKind.ITEMS)
+        self.assertEqual(items_event.to_status, OrderStatus.PREPARING)
+
+    # --- the shape of the guard -----------------------------------------------
+
+    def test_only_status_and_note_are_editable_on_the_order(self):
+        """Django builds the form from `fields` minus `readonly_fields`; the
+        narrower Meta on OrderAdminForm is not what protects the money. Keep
+        the two tuples complementary (PR #70 review)."""
+        from orders.admin import OrderAdmin
+        self.assertEqual(set(OrderAdmin.fields) - set(OrderAdmin.readonly_fields), {"status", "note"})
+        from orders.admin import OrderItemInline
+        self.assertEqual(set(OrderItemInline.fields) - set(OrderItemInline.readonly_fields),
+                         {"menu_item", "qty", "service_mode"})
+
+    def test_a_change_form_post_holds_the_order_row_from_the_first_read(self):
+        """The validation and the write have to see one order: the kitchen
+        locks the order before touching its items, so an admin POST that holds
+        the row from its first read cannot be raced into a 500 (PR #70 review)."""
+        from django.contrib.admin.sites import site
+        from django.test import RequestFactory
+        from django.urls import resolve
+        from orders.admin import OrderAdmin
+        model_admin = OrderAdmin(Order, site)
+        post = RequestFactory().post(self.change_url())
+        post.user = self.operator
+        post.resolver_match = resolve(self.change_url())
+        self.assertTrue(model_admin.get_queryset(post).query.select_for_update)
+        get = RequestFactory().get(self.change_url())
+        get.user = self.operator
+        get.resolver_match = resolve(self.change_url())
+        self.assertFalse(model_admin.get_queryset(get).query.select_for_update)
+        listing = RequestFactory().post(reverse("admin:orders_order_changelist"))
+        listing.user = self.operator
+        listing.resolver_match = resolve(reverse("admin:orders_order_changelist"))
+        self.assertFalse(model_admin.get_queryset(listing).query.select_for_update)
 
     # --- who may ------------------------------------------------------------
 

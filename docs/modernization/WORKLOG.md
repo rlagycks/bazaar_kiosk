@@ -36,6 +36,9 @@
   보호 객체 검사가 먼저 걸려 문구가 달랐고 우리 검사를 앞으로 옮겼다.
 - 검증: 전용 PG `check`·`makemigrations --check` 무결, **마이그레이션 24 + 앱 284 통과, skip 0**, `git diff --check` 깨끗.
 - 문서: [ADMIN_EDITS.md](ADMIN_EDITS.md) 신설, DECISIONS D-052·D-011, BLUEPRINT 7B, RISK BK-R008, README.
+- **PR #70 리뷰:** 코드·보안 에이전트 2개. HIGH 1건(검증과 저장 사이 경합에서 거부 예외가 500) → 변경 폼 POST의 첫
+  읽기부터 `select_for_update`로 닫음. MEDIUM 3건(읽기 전용 집합 회귀, 비활성·비주방 메뉴 추가, 수량 상한) 반영, LOW 3건
+  반영. test_admin_integrity 19개 등 35개 재실행 통과. 상세는 ADMIN_EDITS.md.
 - 남은 것: 관리자 사용자와 `Account` 연결(행위자), 브라우저 admin 폼 여정.
 
 ## 2026-09-20 — 7A 서버 결제 검증과 금액 의미 (D-048 구현)

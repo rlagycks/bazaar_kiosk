@@ -39,6 +39,9 @@ class Line:
     prepared_qty: int = 0
     deleting: bool = False
     has_history: bool = False
+    # A menu item the serving screen could not sell (inactive, or not a
+    # kitchen item). The admin must not add what the API refuses (PR #70).
+    sellable: bool = True
 
 
 def payment_of(order: Order) -> payments.Payment:
@@ -63,6 +66,10 @@ def check_lines(order: Order, lines: Iterable[Line]) -> payments.Settlement:
             if line.has_history:
                 raise EditRefused("조리 이력이 있는 품목은 지울 수 없습니다. 수량을 조정해 주세요.")
             continue
+        if not line.sellable:
+            raise EditRefused("판매 중인 주방 메뉴만 담을 수 있습니다.")
+        if line.qty < 1 or line.qty > payments.MAX_QTY:
+            raise EditRefused(f"수량은 1 이상 {payments.MAX_QTY} 이하여야 합니다.")
         if line.qty < line.prepared_qty:
             raise EditRefused("이미 조리한 수량보다 적게 줄일 수 없습니다.")
         kept.append((line.unit_price, line.qty))
@@ -84,8 +91,10 @@ def apply_line_changes(order: Order, actor: Account | None) -> None:
     order.total_price = payments.order_total((l.unit_price, l.qty) for l in lines)
     order.change_amount = settlement.change
     order.save(update_fields=["total_price", "change_amount", "updated_at"])
-    audit.record_items(order, actor)
     previous = order.status
     status_service.sync_from_items(order)
+    # The ITEMS row carries the status the edit left the order in; the STATUS
+    # row after it says how it got there (PR #70 review).
+    audit.record_items(order, actor)
     if order.status != previous:
         audit.record_status(order, actor, previous=previous)

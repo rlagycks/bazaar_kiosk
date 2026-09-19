@@ -68,18 +68,21 @@ class OrderItemInlineFormSet(forms.BaseInlineFormSet):
             data = form.cleaned_data
             item = form.instance
             deleting = bool(data.get("DELETE"))
+            sellable = True
             if item.pk:
                 price = int(item.unit_price or 0)
                 history = item.events.exists()
             else:
                 if deleting or not data.get("menu_item"):
                     continue
-                price = int(data["menu_item"].price or 0)
+                menu = data["menu_item"]
+                price = int(menu.price or 0)
                 history = False
+                sellable = bool(menu.is_active and menu.visible_kitchen)
             lines.append(order_edits.Line(
                 unit_price=price, qty=int(data.get("qty") or 0),
                 prepared_qty=int(item.prepared_qty or 0) if item.pk else 0,
-                deleting=deleting, has_history=history,
+                deleting=deleting, has_history=history, sellable=sellable,
             ))
         try:
             order_edits.check_lines(self.instance, lines)
@@ -136,9 +139,22 @@ class OrderAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         return False
 
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        # A change-form POST runs inside one transaction. Take the row lock
+        # when the object is first read, so the validation (transition table,
+        # cooking history, money) and the write see the same order and the
+        # kitchen -- which locks the order before its items -- waits its turn.
+        # Without this a cancel or a cooked item landing between validation
+        # and save surfaced as a 500 (PR #70 review).
+        match = getattr(request, "resolver_match", None)
+        if request.method == "POST" and match and match.url_name == "orders_order_change":
+            queryset = queryset.select_for_update()
+        return queryset
+
     def save_model(self, request, obj, form, change):
-        # The change view runs in one transaction; hold the row for all of it
-        # so the status decision and the line recompute see one order (6B).
+        # Already locked by get_queryset for this POST; locking again in the
+        # same transaction is a no-op and keeps this method honest on its own.
         locked = status_service.locked(obj.pk)
         previous = locked.status
         if status_service.change(locked, obj.status):
