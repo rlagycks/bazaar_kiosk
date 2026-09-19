@@ -20,6 +20,27 @@
   `phase-7a-payment-validation`으로 변경됐다. 해당 세션의 앱/마이그레이션/테스트 변경은 건드리지 않았다.
   이번 작업에서는 애플리케이션 수정, 커밋, push/merge, 운영 배포를 하지 않았다.
 
+## 2026-09-20 — 7B 관리자 쓰기와 불변 조건 연결 (D-052)
+
+- PR #69 머지(develop `e53b32c`) 뒤 사용자 지시 “7B 시작하자”. 결정 관문 D-011을 선택지로 물어 **D-052로 확정**했다:
+  “품목 수정 허용, 서비스 경유”(권장은 “읽기 전용 + 상태만 서비스 경유”, 권장과 다름). 브랜치 `phase-7b-admin-invariants`.
+- **고친 것:** 관리자에서 수량을 바꾸면 저장 합계가 그대로였고(BK-R008), 단가·번호·수납을 폼으로 덮어쓸 수 있었고,
+  취소된 주문을 준비중으로 되살릴 수 있었으며, 주문 생성도 관리자에서 가능했다.
+- 구현: `orders/services/order_edits.py`(검사 `check_lines`, 적용 `apply_line_changes`), `OrderEventKind.ITEMS`(0027,
+  choices만), 관리자 인라인 formset의 `clean()`이 서비스 검사를 먼저 돌려 문장으로 거부, `save_model`은 행을 잠근 채
+  주방 전이표를 지나고, `save_related`가 합계·거스름돈 재계산과 이력·상태 동기화를 실행. 단가·번호·수납·합계·거스름돈
+  읽기 전용, 새 품목 단가는 저장 시점 메뉴 가격, 주문 생성 불가.
+- 에이전트 판단(D-052에 표시): 거스름돈 재계산, 수납 부족 시 거부(D-048), 조리 수량 미만·이력 있는 삭제 거부,
+  품목 변경 후 상태 재동기화, 취소 주문 편집 거부, 행위자 NULL.
+- TDD: `test_admin_integrity.py`(실제 admin form POST 14개)를 먼저 썼다. 첫 실행 17/18, 조리 이력 삭제 거부는 Django의
+  보호 객체 검사가 먼저 걸려 문구가 달랐고 우리 검사를 앞으로 옮겼다.
+- 검증: 전용 PG `check`·`makemigrations --check` 무결, **마이그레이션 24 + 앱 284 통과, skip 0**, `git diff --check` 깨끗.
+- 문서: [ADMIN_EDITS.md](ADMIN_EDITS.md) 신설, DECISIONS D-052·D-011, BLUEPRINT 7B, RISK BK-R008, README.
+- **PR #70 리뷰:** 코드·보안 에이전트 2개. HIGH 1건(검증과 저장 사이 경합에서 거부 예외가 500) → 변경 폼 POST의 첫
+  읽기부터 `select_for_update`로 닫음. MEDIUM 3건(읽기 전용 집합 회귀, 비활성·비주방 메뉴 추가, 수량 상한) 반영, LOW 3건
+  반영. test_admin_integrity 19개 등 35개 재실행 통과. 상세는 ADMIN_EDITS.md.
+- 남은 것: 관리자 사용자와 `Account` 연결(행위자), 브라우저 admin 폼 여정.
+
 ## 2026-09-20 — 7A 서버 결제 검증과 금액 의미 (D-048 구현)
 
 - PR #68 머지(develop `7e99436`) 뒤 사용자 지시 “7A 시작하자”로 착수. 브랜치 `phase-7a-payment-validation`.

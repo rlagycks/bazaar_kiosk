@@ -17,3 +17,10 @@ def record_status(order: Order, actor: Account | None, *, previous: str) -> Orde
 def record_progress(order: Order, item: OrderItem, actor: Account | None) -> OrderEvent:
     return OrderEvent.objects.create(order=order, actor=actor, kind=OrderEventKind.PROGRESS,
                                      item=item, prepared_qty=item.prepared_qty)
+
+
+def record_items(order: Order, actor: Account | None) -> OrderEvent:
+    """The lines were changed after the fact (7B); the order row carries the
+    new total, this row carries that it happened and by whom."""
+    return OrderEvent.objects.create(order=order, actor=actor, kind=OrderEventKind.ITEMS,
+                                     to_status=order.status)
