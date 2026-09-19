@@ -46,6 +46,15 @@ class AmountParsingTests(SimpleTestCase):
                 with self.assertRaises(payments.AmountError):
                     payments.parse_amount(raw, "금액")
 
+    def test_only_ascii_digit_strings_count_as_numbers(self):
+        """`str.isdigit()` is wider than `int()`: a superscript two passes it
+        and then crashes `int()`, and a 5000-digit string trips `int()`'s own
+        limit. Both used to surface as a 500 (PR #69 review)."""
+        for raw in ("\u00b2", "\u0661\u0662\u0663", "9" * 5000, "9" * 13, "５０００"):
+            with self.subTest(raw=raw):
+                with self.assertRaises(payments.AmountError):
+                    payments.parse_amount(raw, "금액")
+
     def test_the_error_names_the_field_in_a_sentence(self):
         with self.assertRaises(payments.AmountError) as caught:
             payments.parse_amount(1.5, "현금")
@@ -191,7 +200,7 @@ class OrderCreationMoneyTests(TestCase):
                 self.assertNothingSaved()
 
     def test_malformed_amounts_are_refused_not_truncated(self):
-        for raw in (-1, 1.5, True, "1.9", "abc", 10 ** 9, [5000]):
+        for raw in (-1, 1.5, True, "1.9", "abc", 10 ** 9, [5000], "\u00b2", "9" * 5000):
             with self.subTest(raw=raw):
                 response = self.post(payment_method="CASH", received_cash_amount=raw)
                 self.assertEqual(response.status_code, 400, response.content)

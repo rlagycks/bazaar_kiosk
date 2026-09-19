@@ -36,6 +36,10 @@
 - 검증: 전용 PG `manage.py check`·`makemigrations --check` 무결, 마이그레이션 24 통과(0026 정·역방향 포함), 앱 270
   중 위 5건 수정 후 test_audit·test_payments 33개 재실행 통과. 전체 재실행 결과는 PR에 기록.
 - 문서: [PAYMENTS.md](PAYMENTS.md) 신설, BLUEPRINT 7A, DECISIONS D-048·D-005, RISK BK-R014/R030, README.
+- 전체 재실행: 마이그레이션 24 + 앱 270 통과, skip 0. CI 통과.
+- **PR #69 리뷰:** 코드·DB 에이전트 2개. HIGH 1건(`str.isdigit()`가 유니코드 숫자·4300자 초과 문자열을 통과시켜
+  500)을 ASCII 숫자 1~12자 제한으로 고치고 회귀를 추가했다(77개 재실행 통과). MEDIUM 2건(단일 결제 교차 검증 문서화,
+  6A 지문의 금액 정규화 불일치)은 PAYMENTS.md에 기록. DB: 0026 안전, 인덱스 불필요.
 - 남은 것: 환불 기록(D-048 미결), 취소 주문 매출 제외(8C), 레거시 수납 필드 정합(7C), 브라우저 여정.
 
 ## 2026-09-20 — 주문 생성 POST 서빙 한정 (D-051 판단 5 확정)

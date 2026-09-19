@@ -19,6 +19,7 @@ Every amount passes through here now, and the rules are the user's (D-048):
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -31,6 +32,11 @@ MAX_AMOUNT = 10_000_000
 MAX_TOTAL = MAX_AMOUNT
 # One line's quantity ceiling. Two digits is what the screen shows.
 MAX_QTY = 99
+# ASCII digits only. `str.isdigit()` also says yes to superscripts and other
+# scripts' digits, some of which `int()` then refuses with a ValueError that is
+# not ours (PR #69 review). The length bound keeps `int()` away from its own
+# 4300-digit limit; MAX_AMOUNT has eight digits.
+_DIGITS = re.compile(r"[0-9]{1,12}")
 
 
 class AmountError(ValueError):
@@ -79,7 +85,7 @@ def parse_amount(raw, field: str) -> int | None:
         text = raw.strip().replace(",", "")
         if text == "":
             return None
-        if not text.isdigit():
+        if not _DIGITS.fullmatch(text):
             raise AmountError(f"{field} 값이 올바르지 않습니다.")
         value = int(text)
     else:
