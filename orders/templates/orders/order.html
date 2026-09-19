@@ -141,7 +141,14 @@
       });
       if(!r.ok){
         const t = await r.text().catch(()=> '');
-        throw new Error(t || ('HTTP '+r.status));
+        // Refusals that are about state (409) answer in JSON; showing the raw
+        // body would put braces and escapes in front of the volunteer.
+        let message = t;
+        try{
+          const parsed = JSON.parse(t);
+          if(parsed && parsed.detail) message = parsed.detail;
+        }catch(e){ /* plain-text refusal, already readable */ }
+        throw new Error(message || ('HTTP '+r.status));
       }
       return r.json();
     }

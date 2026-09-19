@@ -1,5 +1,8 @@
 # 단계 3 — API 역할 인가와 CSRF 경계
 
+> **2026-09-19:** 아래 3계정 매트릭스는 [D-051](DECISIONS.md)로 권한 4종 매트릭스에 대체될 예정이다.
+> 구현은 [4A4](BLUEPRINT.md#phase-4a4)이며 그 전까지는 이 문서의 매트릭스가 현재 동작이다.
+
 > **2026-09-15 현재 계약:** JWT 인증을 로컬 구현했다. 아래 본문은 이전 단계의 역사적
 > 기록이며, PIN 세션/ROLE_PINS/JWT 미구현 표현은 현재 상태가 아니다.
 > [JWT_AUTHENTICATION.md](JWT_AUTHENTICATION.md)의 설정·API·회전 계약을 우선한다.

@@ -123,6 +123,18 @@ class Order(models.Model):
                     | Q(order_type=OrderType.TAKEOUT, floor=FloorChoices.B1, table__isnull=False)
                 ),
             ),
+            # 포장 번호표는 한 번에 한 손님 것이다 (D-050). 아직 넘겨주지 않은
+            # 포장 주문이 그 번호를 쥐고 있으면 같은 번호로 새 주문을 만들 수 없다.
+            # 취소된 주문은 번호를 놓아준다. 뷰에서 미리 확인하지만 두 요청이
+            # 동시에 확인하면 둘 다 비어 있다고 보므로, 경계는 DB에 둔다.
+            models.UniqueConstraint(
+                fields=["table"],
+                condition=Q(
+                    order_type=OrderType.TAKEOUT,
+                    status__in=[OrderStatus.PREPARING, OrderStatus.READY],
+                ),
+                name="uq_active_takeout_slot",
+            ),
             # 층+계열+연도+번호 유니크(번호가 있을 때만). D-047로 초기화 주기가
             # 날짜에서 연도로 바뀌었으므로 고유 범위도 연도다. 연도는 주문일에서
             # 끌어내 별도 컬럼과 어긋날 여지를 남기지 않는다.
