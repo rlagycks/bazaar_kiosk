@@ -109,7 +109,7 @@ class AuthorizationMatrixTests(TestCase):
                     "items": [{"menu_item_id": self.menu.id, "qty": 1}],
                 },
                 "content_type": "application/json",
-            }, ()),
+            }, ("SERVING",)),
             "order-status": (
                 "patch", reverse("orders:order-status", args=[self.order.id]),
                 {"data": {"status": "READY"}, "content_type": "application/json"},

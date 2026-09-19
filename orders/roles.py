@@ -34,6 +34,7 @@ PERMISSION_TO_URLNAME = {code: urlname for code, _, _, urlname in PERMISSION_DEF
 
 MONITOR_PERMISSIONS = (HALL_MONITOR, TAKEOUT_MONITOR)
 STATS_PERMISSIONS = (STATS,)
+SERVING_PERMISSIONS = (SERVING,)
 
 # Reading an order exposes its money: total_price, payment_method, the cash and
 # ticket split, change, and per-item unit_price. Those are the same figures the

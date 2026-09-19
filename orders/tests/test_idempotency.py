@@ -145,9 +145,9 @@ class ConflictTests(OrderPostFixture, TestCase):
         on another. A collision between two devices is a conflict, not a hit."""
         key = self.new_key()
         created = self.post(self.payload(request_id=key)).json()
-        counter = self.client_class()
-        login_client(counter, "B1_COUNTER")
-        response = self.post(self.payload(request_id=key), client=counter)
+        other = self.client_class()
+        login_client(other, "SERVING")  # a second serving account, not the one that created
+        response = self.post(self.payload(request_id=key), client=other)
         self.assertEqual(response.status_code, 409, response.content)
         # Nothing about the stored order comes back -- not its id, not its
         # contents. (Checked structurally: the escaped Korean detail string
