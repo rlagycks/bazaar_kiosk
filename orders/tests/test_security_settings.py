@@ -17,7 +17,7 @@ from django.utils.log import AdminEmailHandler
 from django.views.debug import ExceptionReporter, get_default_exception_reporter_filter
 
 from orders.views import auth
-from orders.tests.auth_support import ROLE_ACCOUNTS
+from orders.tests.auth_support import make_account
 
 
 def report_failure(request, *args, **kwargs):
@@ -48,8 +48,9 @@ class SecurityErrorReportTests(TestCase):
         self.configured_hash = PBKDF2PasswordHasher().encode(uuid.uuid4().hex, "synthetic-redaction-salt", iterations=1)
         self.submitted_password = uuid.uuid4().hex
         self.secret = uuid.uuid4().hex
+        make_account("order", "SERVING")
         self.config = override_settings(
-            ROLE_ACCOUNTS={"ORDER": {**ROLE_ACCOUNTS["ORDER"], "password_hash": self.configured_hash}}, SECRET_KEY=self.secret,
+            EVENT_PASSWORD_HASH=self.configured_hash, SECRET_KEY=self.secret,
         )
         self.config.enable()
         self.addCleanup(self.config.disable)
@@ -73,7 +74,7 @@ class SecurityErrorReportTests(TestCase):
                 # failure after the submitted password has been read.
                 with patch.object(auth, "render", report_failure):
                     response = self.client.post(
-                        "/login/", {"account_id": "order", "password": self.submitted_password},
+                        "/login/", {"name": "order", "password": self.submitted_password},
                         HTTP_ACCEPT=accept,
                     )
             else:
@@ -97,7 +98,7 @@ class SecurityErrorReportTests(TestCase):
                 response, _ = self.request_failure(accept=accept)
                 text = response.content.decode()
                 self.assertIn("synthetic error-report failure", text)
-                self.assertIn("ROLE_ACCOUNTS", text)
+                self.assertIn("EVENT_PASSWORD_HASH", text)
                 self.assert_no_credentials(text)
                 # Django uses its text error report for a non-HTML client;
                 # this patch does not invent a JSON exception response contract.
@@ -120,7 +121,7 @@ class SecurityErrorReportTests(TestCase):
                 self.assertIn("password", variables)
                 self.assertEqual(record.request.POST["password"], self.submitted_password)
                 filtered = dict(data["filtered_POST_items"])
-                self.assertEqual(filtered["account_id"], "order")
+                self.assertEqual(filtered["name"], "order")
                 # Absence of the secret plus presence of the marker: without the
                 # second half, blanking every field would also pass.
                 self.assertEqual(filtered["password"], self.cleansed())
@@ -143,7 +144,7 @@ class SecurityErrorReportTests(TestCase):
         post_data = dict(frame["vars"])["post_data"]
         self.assert_no_credentials(post_data)
         # The traceback local must be cleansed field by field, not blanked whole.
-        self.assertIn("'account_id'", post_data)
+        self.assertIn("'name'", post_data)
         self.assertIn("order", post_data)
         self.assertIn(self.cleansed(), post_data)
         self.assertEqual(
@@ -169,7 +170,7 @@ class SecurityErrorReportTests(TestCase):
         self.assertIn("password", record.request.sensitive_post_parameters)
         data = ExceptionReporter(record.request, *record.exc_info).get_traceback_data()
         filtered = dict(data["filtered_POST_items"])
-        self.assertEqual(filtered["account_id"], "order")
+        self.assertEqual(filtered["name"], "order")
         self.assertEqual(filtered["password"], self.cleansed())
         self.assertEqual(record.request.POST["password"], self.submitted_password)
 

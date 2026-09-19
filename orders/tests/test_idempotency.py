@@ -24,7 +24,7 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
 from orders.models import MenuItem, Order, OrderRequest, Table
-from orders.tests.auth_support import ROLE_ACCOUNTS, login_client
+from orders.tests.auth_support import AUTH_SETTINGS, login_client
 from orders.services import idempotency
 from orders.views import api
 
@@ -59,7 +59,7 @@ class OrderPostFixture:
         return str(uuid.uuid4())
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class ReplayTests(OrderPostFixture, TestCase):
     def setUp(self):
         super().setUp()
@@ -111,7 +111,7 @@ class ReplayTests(OrderPostFixture, TestCase):
         self.assertEqual(replay.json()["items"][0]["unit_price"], 8000)
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class ConflictTests(OrderPostFixture, TestCase):
     def setUp(self):
         super().setUp()
@@ -234,7 +234,7 @@ class FingerprintTests(TestCase):
         )
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class RequestIdValidationTests(OrderPostFixture, TestCase):
     def setUp(self):
         super().setUp()
@@ -284,7 +284,7 @@ class RequestIdValidationTests(OrderPostFixture, TestCase):
         self.assertEqual(replay.json()["id"], created["id"])
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class ParallelSubmissionTests(OrderPostFixture, TransactionTestCase):
     """A double tap sends both requests before either answers."""
 
@@ -326,7 +326,7 @@ class ParallelSubmissionTests(OrderPostFixture, TransactionTestCase):
         self.assertEqual(list(Order.objects.values_list("order_no", flat=True)), [1])
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class OrderScreenWiringTests(TestCase):
     """The screen has to mint and send an id, or the whole boundary is dead
     weight: every real order would be refused with 400."""

@@ -9,7 +9,8 @@ cases still assert failure and row preservation until that policy is decided.
 import importlib
 import inspect
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
+from django.utils import timezone
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -28,6 +29,7 @@ M21 = ("orders", "0021_auth_device")
 M22 = ("orders", "0022_eventday_ordernumbercounter_and_more")
 M23 = ("orders", "0023_orderrequest")
 M24 = ("orders", "0024_order_uq_active_takeout_slot")
+M25 = ("orders", "0025_account_permissions_audit")
 
 
 class MigrationPathTests(TestCase):
@@ -165,7 +167,7 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = M24
+        leaf = M25
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
@@ -314,6 +316,46 @@ class MigrationPathTests(TestCase):
         self.migrate(M23)
         self.assert_head(M23)
         self.assertEqual(self.snapshot(apps), before)
+
+    def test_0025_revokes_every_shared_account_device_and_keeps_orders(self):
+        """D-051: nobody keeps a session across the change to personal
+        accounts, and nothing that was ordered goes missing."""
+        apps = self.migrate(M24)
+        alias = self.connection.alias
+        order = self.fixture(apps, order_no=3)
+        apps.get_model("orders", "OrderRequest").objects.using(alias).create(
+            key="attempt-0000-0001", role="ORDER", fingerprint="f" * 64, order_id=order.pk,
+        )
+        device_model = apps.get_model("orders", "AuthDevice")
+        device_model.objects.using(alias).create(
+            role="ORDER", account_id="order", credential_fingerprint="a" * 64,
+            refresh_jti_hash="b" * 64, expires_at=timezone.now() + timedelta(hours=1),
+        )
+        after = self.migrate(M25)
+        self.assert_head(M25)
+        device = after.get_model("orders", "AuthDevice").objects.using(alias).get()
+        self.assertIsNotNone(device.revoked_at)
+        self.assertIsNone(device.account_id)
+        kept = after.get_model("orders", "Order").objects.using(alias).get(pk=order.pk)
+        self.assertEqual(kept.order_no, 3)
+        self.assertIsNone(kept.created_by_id)
+        request = after.get_model("orders", "OrderRequest").objects.using(alias).get()
+        self.assertEqual(request.actor, "ORDER")
+        columns = {
+            column.name for column in
+            self.connection.introspection.get_table_description(
+                self.connection.cursor().cursor, "orders_authdevice")
+        }
+        self.assertNotIn("role", columns)
+        self.assertIn("account_id", columns)
+        self.assertIn("orders_account", self.connection.introspection.table_names())
+        self.assertIn("orders_orderevent", self.connection.introspection.table_names())
+        # Schema reversibility only: the old application must not be restored.
+        self.migrate(M24)
+        self.assert_head(M24)
+        self.assertEqual(
+            apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk).order_no, 3
+        )
 
     def test_original_0020_still_fails_on_an_empty_database(self):
         # Pins why D-P07 changed the SQL: the pre-repair statement is the cause.

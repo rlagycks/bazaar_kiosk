@@ -4,7 +4,7 @@
   const nativeFetch = window.fetch.bind(window);
   const refreshURL = '/orders/auth/refresh/';
   const pageIdentity = document.currentScript?.dataset || {};
-  const expectedRole = pageIdentity.authRole;
+  const expectedAccount = pageIdentity.authAccount;
   const expectedSession = pageIdentity.authSession;
   let accessToken = null;
   let pendingRefresh = null;
@@ -40,7 +40,7 @@
       }
       // Cookies are shared across tabs. Never carry this page's pending actions
       // into an account or login session selected in a different tab.
-      if (data.role !== expectedRole || data.session_id !== expectedSession) {
+      if (data.account_id !== expectedAccount || data.session_id !== expectedSession) {
         return loginRequired();
       }
       accessToken = data.access_token;
@@ -63,7 +63,7 @@
     if (url.origin !== window.location.origin) {
       throw new TypeError('인증 요청은 같은 출처에만 전송할 수 있습니다.');
     }
-    if (authenticationLost || !expectedRole || !expectedSession) return loginRequired();
+    if (authenticationLost || !expectedAccount || !expectedSession) return loginRequired();
     // Clone before sending so an explicit 401 can safely replay a request body.
     // Network errors propagate unchanged; a possibly accepted write is not replayed.
     const source = new Request(input instanceof Request ? input : url, Object.assign({}, options, {

@@ -18,8 +18,9 @@ from orders.models import (
 )
 from orders.services import allocate_floor_order_no, series_for, idempotency
 from orders.services import status as status_service
-from orders.roles import COUNTER_ROLES, KITCHEN_ROLES, ORDER_READ_ROLES
-from orders.views.guards import require_api_roles
+from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, STATS_PERMISSIONS
+from orders.services import audit, scope
+from orders.views.guards import require_api_permissions
 
 
 # ---------- 공용 ----------
@@ -117,7 +118,7 @@ def _get_table_by_number(number: int) -> Table:
 
 
 # ---------- 메뉴/테이블 ----------
-@require_api_roles()
+@require_api_permissions()
 @cache_page(60)
 @require_http_methods(["GET"])
 def tables_list(request: HttpRequest):
@@ -126,7 +127,7 @@ def tables_list(request: HttpRequest):
     return JsonResponse({"items": items})
 
 
-@require_api_roles()
+@require_api_permissions()
 @cache_page(60)
 @require_http_methods(["GET"])
 def menus_list(request: HttpRequest):
@@ -151,7 +152,7 @@ def menus_list(request: HttpRequest):
 
 
 # ---------- 주문 목록/생성 ----------
-@require_api_roles(by_method={"GET": ORDER_READ_ROLES})
+@require_api_permissions(by_method={"GET": ORDER_READ_PERMISSIONS})
 @require_http_methods(["GET", "POST"])
 def orders_collection(request: HttpRequest):
     if request.method == "GET":
@@ -165,7 +166,8 @@ def orders_collection(request: HttpRequest):
             limit = 50
         limit = max(1, min(limit, 200))
 
-        qs = _order_base_queryset().order_by("-created_at", "-id")
+        # D-051: a monitor sees only the orders of its own classification.
+        qs = scope.visible(_order_base_queryset(), request.auth_permissions).order_by("-created_at", "-id")
         if floor and floor != FloorChoices.B1:
             return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
         if floor == FloorChoices.B1:
@@ -192,7 +194,8 @@ def orders_collection(request: HttpRequest):
     except idempotency.RequestIdError as exc:
         return HttpResponseBadRequest(str(exc))
     request_digest = idempotency.fingerprint(p)
-    acting_role = getattr(request, "auth_role", "")
+    actor = request.auth_account
+    acting_role = str(actor.id)
     replayed = _replay_if_known(request_key, acting_role, request_digest)
     if replayed is not None:
         return replayed
@@ -342,6 +345,7 @@ def orders_collection(request: HttpRequest):
                 received_cash_amount=cash_value or None,
                 received_ticket_amount=ticket_value or None,
                 note=note[:200],
+                created_by=actor,
             )
             item_objects = [
                 OrderItem(
@@ -362,6 +366,7 @@ def orders_collection(request: HttpRequest):
             order.total_price = total_price
 
             allocate_floor_order_no(order)  # 계열·연도별 번호 부여 (D-047)
+            audit.record_created(order, actor)
 
             created_items = list(
                 OrderItem.objects.select_related("menu_item")
@@ -442,7 +447,7 @@ def _replay_if_known(key: str, role: str, digest: str):
 
 
 # ---------- 상태 변경 ----------
-@require_api_roles(*KITCHEN_ROLES)
+@require_api_permissions(*MONITOR_PERMISSIONS)
 @require_http_methods(["PATCH"])
 def order_status(request: HttpRequest, order_id: int):
     try:
@@ -459,7 +464,15 @@ def order_status(request: HttpRequest, order_id: int):
     try:
         # 6B: lock, decide and write as one step (D-050). Reading first and
         # saving afterwards is how a cancel used to be overwritten.
-        order = status_service.change_by_id(order_id, new_status)
+        with transaction.atomic():
+            order = status_service.locked(order_id)
+            # D-051: the lock is taken first so the classification read here
+            # cannot change under the decision.
+            if not scope.may_change(order, request.auth_permissions):
+                return JsonResponse({"detail": "권한이 없습니다."}, status=403)
+            previous = order.status
+            if status_service.change(order, new_status):
+                audit.record_status(order, request.auth_account, previous=previous)
     except Order.DoesNotExist:
         raise Http404("주문이 존재하지 않습니다.")
     except status_service.TransitionRefused as refused:
@@ -471,7 +484,7 @@ def order_status(request: HttpRequest, order_id: int):
     return JsonResponse({"id": order.id, "status": order.status}, status=200)
 
 
-@require_api_roles(*KITCHEN_ROLES)
+@require_api_permissions(*MONITOR_PERMISSIONS)
 @require_http_methods(["PATCH"])
 def order_item_progress(request: HttpRequest, item_id: int):
     try:
@@ -498,6 +511,8 @@ def order_item_progress(request: HttpRequest, item_id: int):
             if order_id is None:
                 raise OrderItem.DoesNotExist
             order = status_service.locked(order_id)
+            if not scope.may_change(order, request.auth_permissions):
+                return JsonResponse({"detail": "권한이 없습니다."}, status=403)
             item = (
                 OrderItem.objects.select_related("order", "menu_item")
                 .select_for_update()
@@ -528,9 +543,13 @@ def order_item_progress(request: HttpRequest, item_id: int):
             if prepared_qty != item.prepared_qty:
                 item.prepared_qty = prepared_qty
                 item.save(update_fields=["prepared_qty"])
+                audit.record_progress(order, item, request.auth_account)
 
             # 상태 동기화: 수량이 말하는 상태가 이긴다 (D-050)
+            previous = order.status
             status_service.sync_from_items(order)
+            if order.status != previous:
+                audit.record_status(order, request.auth_account, previous=previous)
             order.refresh_from_db()
     except OrderItem.DoesNotExist:
         raise Http404("주문 품목이 존재하지 않습니다.")
@@ -539,7 +558,7 @@ def order_item_progress(request: HttpRequest, item_id: int):
 
 
 # ---------- 간이 통계(카운터용) ----------
-@require_api_roles(*COUNTER_ROLES)
+@require_api_permissions(*STATS_PERMISSIONS)
 @require_http_methods(["GET"])
 def stats_menu_counts(request: HttpRequest):
     floor = (request.GET.get("floor") or FloorChoices.B1).upper()
@@ -573,17 +592,19 @@ def stats_menu_counts(request: HttpRequest):
     return JsonResponse({"items": data}, status=200)
 
 
-@require_api_roles(*ORDER_READ_ROLES)
+@require_api_permissions(*ORDER_READ_PERMISSIONS)
 @require_http_methods(["GET"])
 def order_detail(request: HttpRequest, order_id: int):
     try:
         order = _order_base_queryset().get(id=order_id)
     except Order.DoesNotExist:
         raise Http404("주문이 존재하지 않습니다.")
+    if not scope.may_read(order, request.auth_permissions):
+        return JsonResponse({"detail": "권한이 없습니다."}, status=403)
     return JsonResponse(_serialize_order(order), status=200)
 
 
-@require_api_roles(*COUNTER_ROLES)
+@require_api_permissions(*STATS_PERMISSIONS)
 @require_http_methods(["GET"])
 def stats_dashboard(request: HttpRequest):
     orders_qs, start_date, end_date = _filtered_orders(request)

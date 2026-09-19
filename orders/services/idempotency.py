@@ -99,14 +99,15 @@ def matches(record: OrderRequest, *, role: str, digest: str) -> bool:
     The role is part of it: two screens colliding on one id is a conflict, and
     answering with the other screen's order would hand it data it never took.
     """
-    return record.role == (role or "") and record.fingerprint == digest
+    # `role` keeps the 6A parameter name; since D-051 it carries the account id.
+    return record.actor == (role or "") and record.fingerprint == digest
 
 
 def remember(key: str, *, role: str, digest: str, order) -> OrderRequest:
     """Record the attempt. Called inside the order's own transaction, so a
     conflict here must roll that transaction back rather than be swallowed."""
     return OrderRequest.objects.create(
-        key=key, role=role or "", fingerprint=digest, order=order
+        key=key, actor=role or "", fingerprint=digest, order=order
     )
 
 

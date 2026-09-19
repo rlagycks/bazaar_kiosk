@@ -19,7 +19,7 @@ import sys
 import tempfile
 
 from django.test import SimpleTestCase
-from orders.tests.auth_support import ROLE_ACCOUNTS
+from orders.tests.auth_support import EVENT_PASSWORD_HASH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -28,7 +28,7 @@ DEPLOYMENT = {
     "SECRET_KEY": "synthetic-deployment-secret-long-enough-to-clear-the-length-floor",
     "ALLOWED_HOSTS": "deployment.invalid",
     "CSRF_TRUSTED_ORIGINS": "https://deployment.invalid",
-    "ROLE_ACCOUNTS": json.dumps(ROLE_ACCOUNTS),
+    "EVENT_PASSWORD_HASH": EVENT_PASSWORD_HASH,
     "JWT_SIGNING_KEY": "synthetic-jwt-signing-key-distinct-and-at-least-fifty-characters",
     "DATABASE_URL": "postgresql://runner:synthetic-probe-password@127.0.0.1:5432/synthetic",
 }
@@ -45,7 +45,7 @@ else:
         "started": True,
         "secret_key": s.SECRET_KEY,
         "jwt_signing_key": s.JWT_SIGNING_KEY,
-        "roles": sorted(s.ROLE_ACCOUNTS),
+        "event_password_hash": s.EVENT_PASSWORD_HASH,
         "db_name": s.DATABASES["default"]["NAME"],
         "db_user": s.DATABASES["default"]["USER"],
     }))
@@ -91,15 +91,15 @@ class SecretFileSettingsTests(SimpleTestCase):
             files={
                 "SECRET_KEY": DEPLOYMENT["SECRET_KEY"],
                 "JWT_SIGNING_KEY": DEPLOYMENT["JWT_SIGNING_KEY"],
-                "ROLE_ACCOUNTS": DEPLOYMENT["ROLE_ACCOUNTS"],
+                "EVENT_PASSWORD_HASH": DEPLOYMENT["EVENT_PASSWORD_HASH"],
                 "DATABASE_URL": DEPLOYMENT["DATABASE_URL"],
             },
-            SECRET_KEY=None, JWT_SIGNING_KEY=None, ROLE_ACCOUNTS=None, DATABASE_URL=None,
+            SECRET_KEY=None, JWT_SIGNING_KEY=None, EVENT_PASSWORD_HASH=None, DATABASE_URL=None,
         )
         self.assertTrue(result.get("started"), result)
         self.assertEqual(result["secret_key"], DEPLOYMENT["SECRET_KEY"])
         self.assertEqual(result["jwt_signing_key"], DEPLOYMENT["JWT_SIGNING_KEY"])
-        self.assertEqual(result["roles"], sorted(ROLE_ACCOUNTS))
+        self.assertEqual(result["event_password_hash"], EVENT_PASSWORD_HASH)
         self.assertEqual(result["db_name"], "synthetic")
         self.assertEqual(result["db_user"], "runner")
 
@@ -184,12 +184,12 @@ class DeploymentCandidateTests(SimpleTestCase):
     def test_no_secret_value_is_written_into_the_candidate(self):
         """The file is committed. D-046 delivers secrets as mounted files, so
         the compose file names paths and never values."""
-        for name in ("SECRET_KEY=", "JWT_SIGNING_KEY=", "ROLE_ACCOUNTS=",
+        for name in ("SECRET_KEY=", "JWT_SIGNING_KEY=", "EVENT_PASSWORD_HASH=",
                      "DATABASE_URL=", "POSTGRES_PASSWORD:"):
             with self.subTest(fragment=name):
                 self.assertNotIn(name, self.text)
         for name in ("SECRET_KEY_FILE", "JWT_SIGNING_KEY_FILE",
-                     "ROLE_ACCOUNTS_FILE", "DATABASE_URL_FILE"):
+                     "EVENT_PASSWORD_HASH_FILE", "DATABASE_URL_FILE"):
             with self.subTest(variable=name):
                 self.assertIn(name, self.text)
 

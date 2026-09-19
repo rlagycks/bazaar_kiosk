@@ -24,7 +24,7 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
 from orders.models import MenuItem, Order, OrderItem, OrderStatus, Table
-from orders.tests.auth_support import ROLE_ACCOUNTS, login_client
+from orders.tests.auth_support import AUTH_SETTINGS, login_client
 
 PREPARING, READY, CANCELLED = (
     OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.CANCELLED
@@ -64,7 +64,7 @@ class StatusFixture:
         )
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class TransitionTableTests(StatusFixture, TestCase):
     def assert_status(self, order, expected):
         order.refresh_from_db()
@@ -121,7 +121,7 @@ class TransitionTableTests(StatusFixture, TestCase):
                 self.assertEqual(response.status_code, 400, response.content)
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class CancelledOrdersAreClosedTests(StatusFixture, TestCase):
     def test_cooking_progress_on_a_cancelled_order_is_refused(self):
         order, item = self.make_order(status=CANCELLED)
@@ -140,7 +140,7 @@ class CancelledOrdersAreClosedTests(StatusFixture, TestCase):
         self.assertEqual(order.status, CANCELLED)
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class ItemProgressDrivesStatusTests(StatusFixture, TestCase):
     def test_finishing_every_item_makes_the_order_ready(self):
         order, item = self.make_order(qty=2)
@@ -168,7 +168,7 @@ class ItemProgressDrivesStatusTests(StatusFixture, TestCase):
         self.assertEqual(order.status, PREPARING)
 
 
-@override_settings(ROLE_ACCOUNTS=ROLE_ACCOUNTS, JWT_COOKIE_SECURE=False)
+@override_settings(**AUTH_SETTINGS)
 class ConcurrentStatusTests(StatusFixture, TransactionTestCase):
     """Neither writer locked the order, so a cancel could be overwritten."""
 

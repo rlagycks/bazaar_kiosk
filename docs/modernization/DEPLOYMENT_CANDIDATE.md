@@ -26,8 +26,8 @@ D-046이 정한 형태(Compose 한 스택, 파일 비밀값, 내부 네트워크
 ## 비밀값 전달 (D-046)
 
 운영 비밀값은 환경 변수가 아니라 **파일**로 전달한다. 설정은 `<NAME>_FILE` 환경 변수가
-가리키는 파일을 읽는다. 대상은 `SECRET_KEY`, `JWT_SIGNING_KEY`, `ROLE_ACCOUNTS`,
-`DATABASE_URL`이다.
+가리키는 파일을 읽는다. 대상은 `SECRET_KEY`, `JWT_SIGNING_KEY`, `EVENT_PASSWORD_HASH`
+(2026-09-20 D-051로 `ROLE_ACCOUNTS`를 대체), `DATABASE_URL`이다.
 
 - 환경 변수와 `_FILE`을 **둘 다** 설정하면 시작을 거부한다. 하나를 조용히 무시하면
   교체한 쪽이 반영되지 않았는지 알 수 없다.

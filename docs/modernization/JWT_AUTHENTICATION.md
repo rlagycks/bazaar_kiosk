@@ -1,13 +1,17 @@
 # JWT 인증 구현과 운영 전환
 
 상태: 구현 설명. 운영 배포 완료를 의미하지 않는다.
-D-035의 공용 ID/비밀번호 계정, D-042/043의 토큰 수명·갱신 구조, D-045의 회수·실패 제한·조회 정책을 다룬다.
+D-042/043의 토큰 수명·갱신 구조, D-045의 회수·실패 제한·조회 정책을 다룬다.
+
+> **2026-09-20 (4A4, D-051):** 주체가 공용 계정 3개에서 **개인 계정 + 행사 공용 비밀번호 + 권한 4종**으로
+> 바뀌었다. 아래 본문에서 `ROLE_ACCOUNTS`, 역할(`ORDER`/`B1_COUNTER`/`KITCHEN`), `account_id`,
+> `role` 클레임·응답 필드는 이전 계약이다. 현재 계정·권한·경계·행위자 계약은 [ACCOUNTS.md](ACCOUNTS.md)를
+> 따르고, 토큰 수명·회전·회수·쿠키·CSRF 계약은 이 문서가 그대로 유효하다.
 
 ## 계정과 요청 흐름
 
-계정 역할은 `ORDER`, `B1_COUNTER`, `KITCHEN`이다. 각 역할의 공용 ID와 비밀번호 해시를
-환경변수 `ROLE_ACCOUNTS`에 JSON으로 공급한다. 로그인 화면은 역할 선택이나 PIN 대신
-`account_id`, `password`를 받는다. 폐기된 주방 역할은 허용하지 않는다.
+(4A4 이후) 계정은 `orders_account` 표의 개인 계정이고 로그인은 `name` + 행사 비밀번호다.
+아래 흐름의 "역할"은 "계정과 권한 집합"으로 읽는다.
 
 1. `POST /orders/login/`은 CSRF 검증 후 ID·비밀번호와 실패 횟수를 검사한다.
 2. 성공하면 기존 브라우저의 refresh 디바이스를 폐기하고 Django 세션을 비운다.
@@ -105,7 +109,7 @@ JWT는 `HS256`만 허용하고, issuer `bazaar-kiosk`, audience `bazaar-kiosk-br
 
 | 설정 | 현재 계약 |
 | --- | --- |
-| `ROLE_ACCOUNTS` | 알려진 역할 → `{"id": "공용 계정 ID", "password_hash": "Django PBKDF2 인코딩 해시"}` JSON |
+| `EVENT_PASSWORD_HASH` | (4A4) 행사 공용 비밀번호의 Django PBKDF2 인코딩 해시. `ROLE_ACCOUNTS`는 제거됐다 |
 | `JWT_SIGNING_KEY` | `SECRET_KEY`와 별도인 충분히 긴 비밀 값; 시작 검사에서 최소 50자 등 검증 |
 | `JWT_ACCESS_MINUTES` / `JWT_REFRESH_HOURS` | 코드 설정 15 / 12 |
 | `JWT_REFRESH_COOKIE_NAME` / `JWT_REFRESH_COOKIE_PATH` | `bk_refresh` / `/orders/` |

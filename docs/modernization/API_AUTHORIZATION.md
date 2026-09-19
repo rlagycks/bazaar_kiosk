@@ -1,13 +1,14 @@
 # 단계 3 — API 역할 인가와 CSRF 경계
 
-> **2026-09-19:** 아래 3계정 매트릭스는 [D-051](DECISIONS.md)로 권한 4종 매트릭스에 대체될 예정이다.
-> 구현은 [4A4](BLUEPRINT.md#phase-4a4)이며 그 전까지는 이 문서의 매트릭스가 현재 동작이다.
+> **2026-09-20:** 아래 3계정 매트릭스는 [4A4](BLUEPRINT.md#phase-4a4)에서 권한 4종 매트릭스로
+> **대체됐다.** 현재 동작은 [ACCOUNTS.md](ACCOUNTS.md)의 표다. 이 문서는 단계3의 구현 기록이며
+> 401/403 형식·CSRF 경계·캐시 앞 인가 순서는 그대로 유효하다.
 
 > **2026-09-15 현재 계약:** JWT 인증을 로컬 구현했다. 아래 본문은 이전 단계의 역사적
 > 기록이며, PIN 세션/ROLE_PINS/JWT 미구현 표현은 현재 상태가 아니다.
 > [JWT_AUTHENTICATION.md](JWT_AUTHENTICATION.md)의 설정·API·회전 계약을 우선한다.
 > 현재 API는 access Bearer와 DB 디바이스를 검증하며 legacy 세션을 인증 수단으로 받지 않는다.
-> 운영은 ROLE_ACCOUNTS와 별도 JWT_SIGNING_KEY가 필요하다. 운영 배포를 뜻하지 않는다.
+> 운영은 EVENT_PASSWORD_HASH(D-051 이후, 이전 ROLE_ACCOUNTS)와 별도 JWT_SIGNING_KEY가 필요하다. 운영 배포를 뜻하지 않는다.
 > 2026-09-17 D-045로 비밀번호 교체 시 전체 디바이스 종료, 5분 10회/5분 잠금(코드 고정),
 > menus·tables의 인증된 세 계정 허용이 확정됐다.
 

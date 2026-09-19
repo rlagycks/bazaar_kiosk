@@ -115,7 +115,7 @@
     </div>
   </div>
 
-  <script src="{% static 'orders/ui/auth.js' %}" data-auth-role="{{ request.auth_role }}" data-auth-session="{{ request.auth_session_id }}"></script>
+  <script src="{% static 'orders/ui/auth.js' %}" data-auth-account="{{ request.auth_account.id }}" data-auth-session="{{ request.auth_session_id }}"></script>
   <script src="{% static 'orders/ui/dom.js' %}"></script>
   <script src="{% static 'orders/ui/request_id.js' %}"></script>
   <script>

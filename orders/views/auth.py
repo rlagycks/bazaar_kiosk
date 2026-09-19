@@ -1,4 +1,4 @@
-"""Shared-account login and device-scoped JWT refresh/logout endpoints."""
+"""Name + event password login (D-051) and device-scoped JWT refresh/logout endpoints."""
 from django.conf import settings
 from django.middleware.csrf import rotate_token
 from django.http import JsonResponse
@@ -11,11 +11,11 @@ from django.views.decorators.debug import sensitive_post_parameters, sensitive_v
 from django.views.decorators.http import require_http_methods, require_POST
 
 from orders.authentication import (
-    AuthError, RefreshInProgress, issue_tokens, rotate_refresh, revoke_refresh,
+    AuthError, RefreshInProgress, clean_name, issue_tokens, rotate_refresh, revoke_refresh,
 )
 from orders.client_ip import client_ip
 from orders.login_security import attempt_login
-from orders.roles import ROLE_TO_URLNAME
+from orders.roles import landing_urlname
 
 
 @sensitive_variables()
@@ -38,20 +38,21 @@ def _refresh_cookie(request):
 @ensure_csrf_cookie
 @require_http_methods(['GET', 'POST'])
 @sensitive_variables()
-@sensitive_post_parameters('password', 'pin')
+@sensitive_post_parameters('password')
 def login_view(request):
     if request.method == 'GET':
         return render(request, 'orders/login.html')
-    account_id = request.POST.get('account_id', '').strip()
+    name = clean_name(request.POST.get('name', ''))
     password = request.POST.get('password', '')
-    if not settings.ROLE_ACCOUNTS:
+    if not settings.EVENT_PASSWORD_HASH:
         return render(request, 'orders/login.html', {'error': '로그인 설정을 확인해 주세요.'}, status=503)
-    if not account_id or len(account_id) > 128 or len(password) > 1024:
-        return render(request, 'orders/login.html', {'error': '계정 또는 비밀번호가 올바르지 않습니다.'}, status=200)
+    if name is None or len(password) > 1024:
+        return render(request, 'orders/login.html', {'error': '이름 또는 비밀번호가 올바르지 않습니다.'}, status=200)
     # The peer address, or the forwarded client address when the peer is a
     # configured proxy. Never an arbitrary X-Forwarded-For (issue #61).
-    role, retry = attempt_login(account_id, password, client_ip(request))
-    if role:
+    account, retry = attempt_login(name, password, client_ip(request))
+    landing = landing_urlname(account.permissions) if account else None
+    if account and landing:
         # Switching accounts in a browser retires its previous device credential.
         try:
             revoke_refresh(_refresh_cookie(request))
@@ -59,13 +60,15 @@ def login_view(request):
             pass
         request.session.flush()
         rotate_token(request)
-        pair = issue_tokens(role)
-        response = redirect(reverse(ROLE_TO_URLNAME[role]))
+        pair = issue_tokens(account)
+        response = redirect(reverse(landing))
         _set_refresh_cookie(response, pair)
         return response
+    # An account with no permissions is refused with the same sentence as an
+    # unknown name: the screen does not say which names are registered.
     response = render(request, 'orders/login.html', {
         'error': ('로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.' if retry
-                  else '계정 또는 비밀번호가 올바르지 않습니다.'),
+                  else '이름 또는 비밀번호가 올바르지 않습니다.'),
     }, status=429 if retry else 200)
     if retry:
         response['Retry-After'] = str(retry)
@@ -84,7 +87,9 @@ def refresh_view(request):
         response = JsonResponse({'detail': '로그인이 필요합니다.'}, status=401)
         response['WWW-Authenticate'] = 'Bearer'
         return response
-    response = JsonResponse({'access_token': pair.access_token, 'role': pair.role, 'session_id': pair.session_id,
+    response = JsonResponse({'access_token': pair.access_token,
+                             'account_id': str(pair.account.id), 'account_name': pair.account.name,
+                             'permissions': sorted(pair.permissions), 'session_id': pair.session_id,
                              'expires_in': min(900, max(0, int((pair.expires_at - timezone.now()).total_seconds())))})
     _set_refresh_cookie(response, pair)
     return response

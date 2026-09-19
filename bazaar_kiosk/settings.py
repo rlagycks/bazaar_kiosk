@@ -5,7 +5,7 @@ from django.core.exceptions import ImproperlyConfigured
 from ipaddress import ip_network
 from urllib.parse import urlparse, parse_qs, unquote
 
-from .auth_config import parse_role_accounts
+from .auth_config import parse_password_hash
 
 # --- 기본 경로/디버그 ---
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -84,7 +84,9 @@ ALLOWED_HOSTS = ["*"] if DEBUG else _split_csv("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = [] if DEBUG else _split_csv("CSRF_TRUSTED_ORIGINS")
 
 
-ROLE_ACCOUNTS = parse_role_accounts(_secret("ROLE_ACCOUNTS", "{}"))
+# D-051: one event password for everyone; names are looked up in the
+# Account table. Supplied as a PBKDF2 hash, never as plaintext.
+EVENT_PASSWORD_HASH = parse_password_hash(_secret("EVENT_PASSWORD_HASH", ""))
 JWT_SIGNING_KEY = _secret("JWT_SIGNING_KEY")
 JWT_ACCESS_MINUTES = 15
 JWT_REFRESH_HOURS = 12
@@ -149,8 +151,8 @@ def _refuse_deployment_defaults() -> None:
     # and silently rejects the origins it was configured to trust.
     if not CSRF_TRUSTED_ORIGINS or not all("://" in o for o in CSRF_TRUSTED_ORIGINS):
         missing.append("CSRF_TRUSTED_ORIGINS")
-    if not ROLE_ACCOUNTS:
-        missing.append("ROLE_ACCOUNTS")
+    if not EVENT_PASSWORD_HASH:
+        missing.append("EVENT_PASSWORD_HASH")
     if (len(JWT_SIGNING_KEY.strip()) < 50 or JWT_SIGNING_KEY == SECRET_KEY
             or JWT_SIGNING_KEY.lower() in {k.lower() for k in _PUBLISHED_SECRET_KEYS}):
         missing.append("JWT_SIGNING_KEY")
@@ -169,8 +171,8 @@ def _refuse_deployment_defaults() -> None:
 
 if not DEBUG:
     _refuse_deployment_defaults()
-elif ROLE_ACCOUNTS and (len(JWT_SIGNING_KEY.strip()) < 50 or JWT_SIGNING_KEY == SECRET_KEY):
-    raise ImproperlyConfigured("JWT_SIGNING_KEY must be configured separately before enabling ROLE_ACCOUNTS.")
+elif EVENT_PASSWORD_HASH and (len(JWT_SIGNING_KEY.strip()) < 50 or JWT_SIGNING_KEY == SECRET_KEY):
+    raise ImproperlyConfigured("JWT_SIGNING_KEY must be configured separately before enabling EVENT_PASSWORD_HASH.")
 
 LANGUAGE_CODE = "ko-kr"
 TIME_ZONE = "Asia/Seoul"
