@@ -24,8 +24,6 @@ from orders.views import api
 class TakeoutFixture:
     def setUp(self):
         super().setUp()
-        api._get_table_by_number.cache_clear()
-        self.addCleanup(api._get_table_by_number.cache_clear)
         for number in (7, 105, 106):
             Table.objects.create(number=number)
         self.menu = MenuItem.objects.create(name="Bowl", price=8000)

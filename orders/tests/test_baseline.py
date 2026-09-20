@@ -6,7 +6,6 @@ Run with bazaar_kiosk.settings_test_pg and the dedicated Compose test database.
 import uuid
 from unittest.mock import patch
 
-from django.core.cache import cache
 from django.db import connection
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
@@ -28,10 +27,6 @@ ROLE_PAGES = (
 class BaselineMixin:
     def setUp(self):
         super().setUp()
-        cache.clear()
-        api._get_table_by_number.cache_clear()
-        self.addCleanup(cache.clear)
-        self.addCleanup(api._get_table_by_number.cache_clear)
 
     def login_role(self, role="ORDER"):
         response = login_client(self.client, role)

@@ -184,8 +184,8 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 2 | [BK-R030 — 수납·거스름돈·취소 환불·순매출 계약 미확정](ANALYSIS_REPORT.md#bk-r030) | High | Code-supported | 부분 해결(7A: 거스름돈 저장·부족 거부; 환불 기록·취소 집계는 Open) | D-005,D-012; 단계 6 | 재무·제품 담당 | 7 | 초과현금·과다식권·혼합거스름·취소전후·부분환불·레거시미분류 |
 | 2 | [BK-R031 — 과거 삭제·재추가 필드와 카테고리의 복구 원천 미확인](ANALYSIS_REPORT.md#bk-r031) | High | Production-dependent | 부분 해결(7C: 점검 명령으로 탐지. 복구 원천은 백업뿐, Open) | D-008,D-012,D-017; 단계 1 | 데이터·재무 담당 | 7 | 정제된과거버전fixture·행수/금액대조·백업복원·정방향완화 |
 | 2 | [BK-R006 — 통계 기간이 2025-10-18로 고정](ANALYSIS_REPORT.md#bk-r006) | High | Reproduced | 저장소 해결(8C, 2026-09-20; [REPORTING.md](REPORTING.md)) | D-013; BK-R016 | 조회·보고 담당 | 8 | 무기간/하루/범위/잘못된 날짜/자정/양 끝 경계 |
-| 2 | [BK-R009 — 최신 80개 이후 오래된 주방 대기 작업 누락](ANALYSIS_REPORT.md#bk-r009) | High | Reproduced | Open | D-003,D-010,D-014; 단계 3,6 | 조회 담당 | 8 | 혼합·단일모드 81/200초과 backlog의 초기/폴링/재접속 |
-| 2 | [BK-R010 — 프로세스별 테이블 객체 캐시가 비활성화를 무시](ANALYSIS_REPORT.md#bk-r010) | High | Reproduced | Open | D-014; 단계 3,6 | 조회 담당 | 8 | 관리자 수정 전/후·다중 워커·TTL·삭제/비활성 재조회 |
+| 2 | [BK-R009 — 최신 80개 이후 오래된 주방 대기 작업 누락](ANALYSIS_REPORT.md#bk-r009) | High | Reproduced | 완화 (8B, D-055: 오래된 순 전부·총계 표시) | D-003,D-010,D-014; 단계 3,6 | 조회 담당 | 8 | 혼합·단일모드 81/200초과 backlog의 초기/폴링/재접속 |
+| 2 | [BK-R010 — 프로세스별 테이블 객체 캐시가 비활성화를 무시](ANALYSIS_REPORT.md#bk-r010) | High | Reproduced | 해소 (8B, D-055: 캐시 제거) | D-014; 단계 3,6 | 조회 담당 | 8 | 관리자 수정 전/후·다중 워커·TTL·삭제/비활성 재조회 |
 | 2 | [BK-R016 — 통계 aggregate alias 충돌로 SQLite·PG 모두 500](ANALYSIS_REPORT.md#bk-r016) | High | Repo-fixed | Open (2B 이후 인수 대기) | BK-R004; D-013,D-012 | 조회·보고 담당 | 8 | 빈DB/한행/동명메뉴/기간/취소/레거시 데이터의 endpoint200와 정확한 합계 |
 | 2 | [BK-R020 — Realtime 연결 상실 후 폴링 복귀·재동기화 부재](ANALYSIS_REPORT.md#bk-r020) | High | Code-supported | Open | D-010,D-007; 단계 4B,8,9 | 실시간 담당 | 10 | SUBSCRIBED이후 CLOSED/ERROR/TIMEOUT, duplicate/out-of-order/drop, 느린응답·재접속 |
 | 2 | [BK-R033 — 주방 목록·단건 응답 순서 역전 방어 부족](ANALYSIS_REPORT.md#bk-r033) | High | Code-supported | Open | D-010; 단계 8,9 | 실시간 담당 | 10 | 완료단건뒤stale목록,진행2뒤0응답,삭제뒤늦은응답·중복ID이벤트 |

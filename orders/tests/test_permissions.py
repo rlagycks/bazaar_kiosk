@@ -15,7 +15,6 @@ from importlib import import_module
 import uuid
 
 from django.conf import settings
-from django.core.cache import cache
 from django.http import JsonResponse
 from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
@@ -50,10 +49,6 @@ REFUSED = "REFUSED"
 @override_settings(**AUTH_SETTINGS)
 class AuthorizationMatrixTests(TestCase):
     def setUp(self):
-        cache.clear()
-        api._get_table_by_number.cache_clear()
-        self.addCleanup(cache.clear)
-        self.addCleanup(api._get_table_by_number.cache_clear)
         self.table = Table.objects.create(number=7)
         self.menu = MenuItem.objects.create(name="Meal", price=1000)
         self.order = self.make_order()
@@ -223,17 +218,16 @@ class AuthorizationMatrixTests(TestCase):
 
     # --- ordering guarantees --------------------------------------------
 
-    def test_authorization_runs_before_the_cached_response_is_served(self):
-        """`tables` and `menus` are cache_page views. If the guard sat inside
-        the cache, a body warmed by an authorised caller would then be handed
-        to anyone. Warm it first, then check an anonymous caller."""
+    def test_a_served_answer_does_not_make_the_next_caller_authorised(self):
+        """These two were `cache_page` views until 8B (D-055), and the point
+        of this case was that the guard sat outside the cache. The cache is
+        gone, so the mechanism it guarded against is gone with it; what has to
+        stay true is the plain version -- serving one caller never leaves
+        anything behind that answers the next one."""
         for name in ("orders:tables", "orders:menus"):
             with self.subTest(endpoint=name):
-                cache.clear()
-                warm = self.client_as("SERVING").get(reverse(name))
-                self.assertEqual(warm.status_code, 200)
-                cached = self.client_as("SERVING").get(reverse(name))
-                self.assertEqual(cached.status_code, 200)
+                for _ in range(2):
+                    self.assertEqual(self.client_as("SERVING").get(reverse(name)).status_code, 200)
                 refused = self.client_as("anonymous").get(reverse(name))
                 self.assertEqual(refused.status_code, 401)
                 self.assertTrue(refused["Content-Type"].startswith("application/json"))
@@ -322,10 +316,10 @@ class AuthorizationMatrixTests(TestCase):
             self.assertEqual(stats.get(reverse("orders:stats-dashboard")).status_code, 401)
             self.assertEqual(stats.get(reverse("orders:b1-counter")).status_code, 302)
 
-    def test_withdrawal_reaches_the_cached_endpoints_too(self):
-        """tables and menus wear the guard OUTSIDE @cache_page, so the guard
-        runs before the cache lookup, for the revoked-but-still-has-a-token
-        case as well as the anonymous one."""
+    def test_withdrawal_reaches_the_picker_endpoints_too(self):
+        """The revoked-but-still-holding-a-token case, on the two endpoints
+        that used to be cached (8B removed that cache, D-055). A successful
+        earlier read must not carry the withdrawn account through."""
         stats = self.client_as("STATS")
         for name in ("orders:tables", "orders:menus"):
             with self.subTest(endpoint=name):
