@@ -44,7 +44,10 @@ class SettingsIsolationTests(SimpleTestCase):
                 assert settings.DEBUG is False
                 assert settings.ALLOWED_HOSTS == ['testserver', 'localhost', '127.0.0.1']
                 assert settings.CSRF_TRUSTED_ORIGINS == []
-                assert settings.SUPABASE_URL == settings.SUPABASE_ANON_KEY == ''
+                # 4B2 removed these settings; the probe proves they cannot
+                # come back through the environment.
+                assert not hasattr(settings, 'SUPABASE_URL')
+                assert not hasattr(settings, 'SUPABASE_ANON_KEY')
                 assert settings.CACHES['default']['BACKEND'].endswith('.LocMemCache')
                 assert settings.STORAGES['default']['BACKEND'].endswith('.InMemoryStorage')
                 call_command('check', verbosity=0)
