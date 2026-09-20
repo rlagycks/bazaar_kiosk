@@ -183,7 +183,7 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 2 | [BK-R014 — 부족 결제·소수 입력을 정상 주문으로 승인](ANALYSIS_REPORT.md#bk-r014) | High | Reproduced | 저장소 해결(7A, 2026-09-20; [PAYMENTS.md](PAYMENTS.md)) | D-005,D-012; 단계 6 | 재무 담당 | 7 | 0/부족/초과/음수/float/bool/오버플로/복합 필드/메뉴 가격 변경 |
 | 2 | [BK-R030 — 수납·거스름돈·취소 환불·순매출 계약 미확정](ANALYSIS_REPORT.md#bk-r030) | High | Code-supported | 부분 해결(7A: 거스름돈 저장·부족 거부; 환불 기록·취소 집계는 Open) | D-005,D-012; 단계 6 | 재무·제품 담당 | 7 | 초과현금·과다식권·혼합거스름·취소전후·부분환불·레거시미분류 |
 | 2 | [BK-R031 — 과거 삭제·재추가 필드와 카테고리의 복구 원천 미확인](ANALYSIS_REPORT.md#bk-r031) | High | Production-dependent | Open | D-008,D-012,D-017; 단계 1 | 데이터·재무 담당 | 7 | 정제된과거버전fixture·행수/금액대조·백업복원·정방향완화 |
-| 2 | [BK-R006 — 통계 기간이 2025-10-18로 고정](ANALYSIS_REPORT.md#bk-r006) | High | Reproduced | Open | D-013; BK-R016 | 조회·보고 담당 | 8 | 무기간/하루/범위/잘못된 날짜/자정/양 끝 경계 |
+| 2 | [BK-R006 — 통계 기간이 2025-10-18로 고정](ANALYSIS_REPORT.md#bk-r006) | High | Reproduced | 저장소 해결(8C, 2026-09-20; [REPORTING.md](REPORTING.md)) | D-013; BK-R016 | 조회·보고 담당 | 8 | 무기간/하루/범위/잘못된 날짜/자정/양 끝 경계 |
 | 2 | [BK-R009 — 최신 80개 이후 오래된 주방 대기 작업 누락](ANALYSIS_REPORT.md#bk-r009) | High | Reproduced | Open | D-003,D-010,D-014; 단계 3,6 | 조회 담당 | 8 | 혼합·단일모드 81/200초과 backlog의 초기/폴링/재접속 |
 | 2 | [BK-R010 — 프로세스별 테이블 객체 캐시가 비활성화를 무시](ANALYSIS_REPORT.md#bk-r010) | High | Reproduced | Open | D-014; 단계 3,6 | 조회 담당 | 8 | 관리자 수정 전/후·다중 워커·TTL·삭제/비활성 재조회 |
 | 2 | [BK-R016 — 통계 aggregate alias 충돌로 SQLite·PG 모두 500](ANALYSIS_REPORT.md#bk-r016) | High | Repo-fixed | Open (2B 이후 인수 대기) | BK-R004; D-013,D-012 | 조회·보고 담당 | 8 | 빈DB/한행/동명메뉴/기간/취소/레거시 데이터의 endpoint200와 정확한 합계 |
@@ -200,8 +200,8 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 | 3 | [BK-R019 — 역할 로그인 세션 교체·만료 정책 부재와 GET 로그아웃](ANALYSIS_REPORT.md#bk-r019) | Medium | Repo-fixed (GET 로그아웃·역할 회수만) | Open (교체 미구현; 인증 방식 미변경; 운영 인수 미확인) | D-002,D-003,D-035,D-042 | 보안 담당 | 4A | 로그인 전후 session id(구현됨), **PIN 회수** 후 기존 세션 거부(구현됨·재시작 필요), **PIN 교체** 후 거부(미구현), logout method(구현됨), 역할변경·만료·공유기기는 4A2 JWT 대기 |
 | 3 | [BK-R029 — 가변 CDN 스크립트와 콘텐츠 보안 정책 검증 부재](ANALYSIS_REPORT.md#bk-r029) | Medium | Code-supported | Open | D-010; BK-R011 | 보안·프런트 담당 | 4B | D-018 외부 CDN/SDK·키 제거, 자체 SSE/폴링만으로 주방 여정·CSP |
 | 3 | [BK-R027 — 테이블 슬롯·항목 mode·포장 flag 의미 불명확](ANALYSIS_REPORT.md#bk-r027) | Medium | Code-supported | Open | D-014,D-008; 단계 5 | 제품·주문 담당 | 6 | 101~120/일반테이블 경계·혼합항목·flag조합 |
-| 3 | [BK-R026 — order_date와 created_at·자정 주방 집계 경계 불일치](ANALYSIS_REPORT.md#bk-r026) | Medium | Code-supported | Open | D-004,D-013; 단계 5 | 조회·도메인 담당 | 8 | Seoul23:59:59→00:00,할당지연,전일대기,같은시각다른날짜 보고 |
-| 3 | [BK-R034 — 현재 메뉴명으로 과거 주문 표시·동명 메뉴 합산](ANALYSIS_REPORT.md#bk-r034) | Medium | Code-supported | Open | D-008,D-012; 단계 7 | 조회·재무 담당 | 8 | 동명서로다른ID·이름변경·가격변경·레거시집계·취소 |
+| 3 | [BK-R026 — order_date와 created_at·자정 주방 집계 경계 불일치](ANALYSIS_REPORT.md#bk-r026) | Medium | Code-supported | 부분 해결(8C: 보고는 order_date 기준·서울 시간별. 주방 화면 경계는 Open) | D-004,D-013; 단계 5 | 조회·도메인 담당 | 8 | Seoul23:59:59→00:00,할당지연,전일대기,같은시각다른날짜 보고 |
+| 3 | [BK-R034 — 현재 메뉴명으로 과거 주문 표시·동명 메뉴 합산](ANALYSIS_REPORT.md#bk-r034) | Medium | Code-supported | 부분 해결(8C: 메뉴 ID로 집계. 이름 스냅샷은 D-008로 Open) | D-008,D-012; 단계 7 | 조회·재무 담당 | 8 | 동명서로다른ID·이름변경·가격변경·레거시집계·취소 |
 | 3 | [BK-R015 — JSON 입력 타입·테이블 분기 불일치가 500으로 노출](ANALYSIS_REPORT.md#bk-r015) | Medium | Reproduced | Open | D-014,D-008; 단계 6,7 | API 담당 | 9 | 누락/null/list/dict/정수/문자열/UTF8/메서드별 오류 계약 |
 | 3 | [BK-R024 — API 뷰에 전송·쿼리·금액·명령이 집중](ANALYSIS_REPORT.md#bk-r024) | Medium | Code-supported | Open | D-008; 단계 8 | 백엔드 담당 | 9 | 현재/목표 응답 schema·예외 분류·쿼리수 회귀·관리자 writer 매핑 |
 | 3 | [BK-R032 — 이벤트 단건 조회·전체 보드 렌더의 부하 상한 미측정](ANALYSIS_REPORT.md#bk-r032) | Medium | Hypothesis | Open | D-007,D-006,D-010; 단계 8,9 | 성능 담당 | 10 | 화면1/5/20,적체20/80/201,항목1/5/20,이벤트폭주·워커1/4 |
