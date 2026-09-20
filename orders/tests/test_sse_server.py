@@ -262,6 +262,59 @@ class RevocationEndsAnOpenStreamTests(StreamFixture, TransactionTestCase):
         self.assertEqual(closed[-1].get("reason"), "reauthenticate")
 
 
+    async def test_rotating_the_event_password_cuts_every_stream_off(self):
+        """D-045's "rotate the password, log every device out", on a stream.
+
+        There is no sweep that sets `revoked_at`: the fingerprint comparison
+        *is* the revocation. The first version of the hub re-listed the
+        conditions by hand and left that one out, so a rotation stopped every
+        request and none of the open streams -- a device that should have been
+        cut off kept learning that the kitchen was busy. A security review
+        found it; this is what would have.
+        """
+        client = await sync_to_async(self.watcher)("STATS")
+
+        async def rotate_then_change():
+            await asyncio.sleep(0.15)
+            with override_settings(EVENT_PASSWORD_HASH="a-different-hash"):
+                await sync_to_async(self.make_order, thread_sensitive=True)()
+                await asyncio.sleep(0.4)
+
+        task = asyncio.ensure_future(rotate_then_change())
+        events = await self.listen(client, want=50, timeout=2.0)
+        await task
+        self.assertEqual(
+            self.named(events, "change"), [],
+            "a device whose credential was rotated was told about a change",
+        )
+        self.assertTrue(self.named(events, "closed"))
+
+    async def test_a_revoked_screen_is_dropped_even_when_nothing_is_cooking(self):
+        """"Before every event" is no bound at all on a quiet board.
+
+        The change-triggered pass is still the first one to run; this is the
+        floor underneath it, so a logged-out screen does not sit there
+        receiving heartbeats until somebody happens to cook something.
+        """
+        client = await sync_to_async(self.watcher)("STATS")
+
+        async def revoke_and_change_nothing():
+            await asyncio.sleep(0.15)
+            from orders.authentication import revoke_refresh
+            from django.conf import settings as live
+
+            await sync_to_async(revoke_refresh, thread_sensitive=True)(
+                client.cookies[live.JWT_REFRESH_COOKIE_NAME].value
+            )
+
+        task = asyncio.ensure_future(revoke_and_change_nothing())
+        events = await self.listen(client, want=50, timeout=3.0)
+        await task
+        closed = self.named(events, "closed")
+        self.assertTrue(closed, f"a revoked screen stayed attached: {events}")
+        self.assertEqual(closed[-1]["reason"], "revoked")
+
+
 @override_settings(**AUTH_SETTINGS, **FAST_HUB)
 class TheAuthenticationStoreFailingFailsClosedTests(
     StreamFixture, TransactionTestCase
@@ -387,3 +440,44 @@ class ASlowScreenIsResetNotBufferedTests(StreamFixture, TransactionTestCase):
             subscription.overflowed,
             "the screen fell behind and nothing recorded it",
         )
+
+
+class GivingASlotBackTwiceDoesNotLowerTheCeilingTests(TransactionTestCase):
+    """Two paths end a stream and both must be safe to take.
+
+    The generator's `finally` runs on the ordinary path; the response's
+    resource closer runs when the response is closed without ever being
+    iterated. An earlier version registered `lambda: None` as that closer, so
+    the net was inert and a dropped connection leaked a slot for the life of
+    the worker. Making the closer real then makes double release possible, and
+    a slot returned twice lowers the ceiling permanently -- the same failure,
+    just slower to notice. So the test is for both halves at once.
+    """
+
+    def test_releasing_twice_counts_once(self):
+        from orders.views import stream
+
+        before = stream._open_streams
+        self.assertTrue(stream._claim())
+        give_back = stream._releaser(
+            hub.Subscription(session_id="never-subscribed", permissions=())
+        )
+        give_back()
+        give_back()
+        self.assertEqual(stream._open_streams, before)
+
+    def test_giving_back_works_outside_an_event_loop(self):
+        """Where the inert closer would have been replaced by a raising one.
+
+        A response's resource closer can run outside the loop that opened the
+        stream. Looking the hub up by the *running* loop would raise there and
+        leave the slot claimed -- swapping a silent leak for a noisy one.
+        """
+        from orders.views import stream
+
+        before = stream._open_streams
+        self.assertTrue(stream._claim())
+        stream._releaser(
+            hub.Subscription(session_id="never-subscribed", permissions=())
+        )()
+        self.assertEqual(stream._open_streams, before)

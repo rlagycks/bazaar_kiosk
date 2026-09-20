@@ -91,7 +91,29 @@ def _opening_version(permissions) -> str:
     return snapshots.version_for(permissions)
 
 
-async def _events(subscription, permissions, opening_version):
+def _releaser(subscription):
+    """Give the slot and the subscription back, exactly once.
+
+    Two paths end a stream and both must be safe to take: the generator's
+    `finally` on the ordinary path, and the response's resource closer when
+    the response is closed without ever being iterated. A slot returned twice
+    would lower this worker's ceiling by one for good, which is the same
+    failure as leaking it -- just slower to notice.
+    """
+    done = False
+
+    def give_back():
+        nonlocal done
+        if done:
+            return
+        done = True
+        hub.unsubscribe(subscription)
+        _release()
+
+    return give_back
+
+
+async def _events(subscription, opening_version, give_back):
     """Frames, until the caller goes away or the hub ends the subscription."""
     try:
         yield _frame("ready", {
@@ -123,8 +145,7 @@ async def _events(subscription, permissions, opening_version):
                 continue
             yield _frame("change", event)
     finally:
-        hub.unsubscribe(subscription)
-        _release()
+        give_back()
 
 
 async def kitchen_stream(request):
@@ -148,25 +169,35 @@ async def kitchen_stream(request):
         _release()
         raise
     subscription = hub.subscribe(identity.session_id, permissions)
-    response = StreamingHttpResponse(
-        _events(subscription, permissions, opening),
-        content_type="text/event-stream",
-    )
-    # Authentication read the database on this request's own thread. For a
-    # streaming response "the end of the request" is when the screen closes,
-    # so releasing here is what keeps the connection count from following the
-    # number of open screens (10A).
-    await sync_to_async(_release_connection, thread_sensitive=True)()
-    response["X-Accel-Buffering"] = "no"
-    patch_cache_control(response, private=True, no_store=True)
-
-    def give_back():
-        hub.unsubscribe(subscription)
-        _release()
+    give_back = _releaser(subscription)
+    try:
+        response = StreamingHttpResponse(
+            _events(subscription, opening, give_back),
+            content_type="text/event-stream",
+        )
+        # Authentication read the database on this request's own thread. For a
+        # streaming response "the end of the request" is when the screen
+        # closes, so releasing here is what keeps the connection count from
+        # following the number of open screens (10A).
+        await sync_to_async(_release_connection, thread_sensitive=True)()
+        response["X-Accel-Buffering"] = "no"
+        patch_cache_control(response, private=True, no_store=True)
+    except Exception:
+        # Nothing between the claim and the first `yield` may fail silently: a
+        # generator that is never advanced never enters its own `try`, so its
+        # `finally` is not a safety net for this window. Without this the slot
+        # and the subscription are lost for the life of the worker.
+        give_back()
+        raise
 
     # The generator's `finally` covers the ordinary path; this covers a
-    # response that is closed without ever being iterated, where it never runs.
-    response._resource_closers.append(lambda: None)
+    # response closed without ever being iterated, where it never runs. Django
+    # only auto-registers a closer for streaming content exposing a *sync*
+    # `close()`, and an async generator has only `aclose()`, so this is the
+    # only net. An earlier version defined `give_back` and then registered
+    # `lambda: None` beside it, which left the net inert -- enough dropped
+    # connections would have pinned the worker at 503 until it restarted.
+    response._resource_closers.append(give_back)
     return response
 
 

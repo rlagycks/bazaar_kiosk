@@ -168,21 +168,26 @@ def _still_allowed(session_ids):
     This is the batching that makes "revalidate before every event"
     affordable. `validate_access` answers the same question for one caller and
     one request; this asks it for everyone about to be told the same thing.
+
+    The condition itself is `authentication.device_is_current`, deliberately
+    not a copy of it. The first version of this function listed the conditions
+    again and left out the credential fingerprint, which is the entire
+    mechanism by which rotating the shared event password logs every device
+    out (D-045) -- so a rotation stopped every request and none of the open
+    streams. A security review caught it; sharing the predicate is what stops
+    the next divergence.
     """
     from django.utils import timezone
+    from orders.authentication import device_is_current
     from orders.models import AuthDevice
 
     now = timezone.now()
     rows = (AuthDevice.objects.select_related("account")
             .filter(pk__in=list(session_ids)))
-    allowed = {}
-    for device in rows:
-        account = device.account
-        if (device.revoked_at is not None or device.expires_at <= now
-                or account is None or not account.is_active):
-            continue
-        allowed[str(device.id)] = tuple(sorted(account.permissions))
-    return allowed
+    return {
+        str(device.id): tuple(sorted(device.account.permissions))
+        for device in rows if device_is_current(device, now)
+    }
 
 
 def _scope_view(permissions):
@@ -211,6 +216,7 @@ class _Hub:
         self.state = None
         self.views: dict[tuple, str] = {}
         self.last_ok: float | None = None
+        self.last_checked: float | None = None
         self.failures = 0
 
     def health(self) -> Health:
@@ -257,7 +263,46 @@ class _Hub:
                         await self._dispatch()
                     else:
                         await self._prime()
+                elif self._revalidation_is_due():
+                    # "Before every event" bounds revocation by the *next
+                    # event*, which on a quiet board is not a bound at all: a
+                    # logged-out screen would stay attached, receiving
+                    # heartbeats, until somebody happened to cook something.
+                    # So the same check also runs on the heartbeat cadence.
+                    # It costs one query per beat for the whole worker, and it
+                    # is the user's chosen policy made true rather than
+                    # weakened -- the change-triggered pass still runs first.
+                    await self._revalidate()
             await asyncio.sleep(poll_seconds())
+
+    def _revalidation_is_due(self) -> bool:
+        if not self.subscriptions:
+            return False
+        due = heartbeat_seconds()
+        return (self.last_checked is None
+                or time.monotonic() - self.last_checked >= due)
+
+    async def _revalidate(self) -> None:
+        """Drop anyone who may no longer watch. Sends nothing to the rest."""
+        self.last_checked = time.monotonic()
+        watching = list(self.subscriptions)
+        if not watching:
+            return
+        try:
+            fresh = await sync_to_async(_still_allowed, thread_sensitive=True)(
+                [s.session_id for s in watching]
+            )
+        except Exception:
+            self._close_all(CLOSED_UNVERIFIED)
+            return
+        for subscription in watching:
+            held = fresh.get(subscription.session_id)
+            if held is None:
+                subscription.close(CLOSED_REVOKED)
+                self.remove(subscription)
+            elif held != subscription.scope_key():
+                subscription.close(CLOSED_REAUTH)
+                self.remove(subscription)
 
     def _close_all(self, reason: str) -> None:
         for subscription in list(self.subscriptions):
@@ -293,13 +338,14 @@ class _Hub:
             self._close_all(CLOSED_UNVERIFIED)
             return
 
+        self.last_checked = time.monotonic()
         survivors = []
         for subscription in watching:
             held = fresh.get(subscription.session_id)
             if held is None:
                 subscription.close(CLOSED_REVOKED)
                 self.remove(subscription)
-            elif held != tuple(sorted(str(c) for c in subscription.permissions)):
+            elif held != subscription.scope_key():
                 subscription.close(CLOSED_REAUTH)
                 self.remove(subscription)
             else:
@@ -365,7 +411,20 @@ def subscribe(session_id: str, permissions) -> Subscription:
 
 
 def unsubscribe(subscription: Subscription) -> None:
-    hub = _hubs.get(id(asyncio.get_running_loop()))
+    # Not `get_running_loop()`: a response's resource closer can run outside
+    # the loop that opened the stream, and raising there would leave the
+    # worker slot claimed -- the exact leak this call exists to prevent. So
+    # the subscription is found wherever it is.
+    hub = None
+    try:
+        hub = _hubs.get(id(asyncio.get_running_loop()))
+    except RuntimeError:
+        pass
+    if hub is None:
+        for candidate in list(_hubs.values()):
+            if subscription in candidate.subscriptions:
+                hub = candidate
+                break
     if hub is None:
         return
     hub.remove(subscription)
@@ -373,7 +432,9 @@ def unsubscribe(subscription: Subscription) -> None:
         # Nothing is watching, so nothing should be polling. The task notices
         # on its next tick; dropping the hub here keeps a test's loop from
         # being kept alive by a poller nobody asked for.
-        _hubs.pop(id(asyncio.get_running_loop()), None)
+        for key, candidate in list(_hubs.items()):
+            if candidate is hub:
+                _hubs.pop(key, None)
 
 
 def health() -> Health:
