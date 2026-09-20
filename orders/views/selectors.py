@@ -17,7 +17,7 @@ from orders.services import scope
 STATUSES = (OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.CANCELLED)
 
 
-def base():
+def base() -> QuerySet:
     return (
         Order.objects.select_related("table")
         .prefetch_related("items", "items__menu_item")

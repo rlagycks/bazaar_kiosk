@@ -15,13 +15,18 @@ already performed inline, with the crash replaced by a refusal.
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable
+from typing import Any
 
 from django.http import HttpRequest
 
 
 class InvalidInput(ValueError):
-    """Caller error. The message is shown to the caller, so it is a sentence."""
+    """Caller error. The message is shown to the caller, so it is a sentence.
+
+    Catch this exact class. A broad `except ValueError` around a validator
+    call would swallow it and answer with whatever that handler decided,
+    which is how a precise 400 turns into a vague one (PR #75 review).
+    """
 
 
 def body(request: HttpRequest) -> dict:
@@ -34,24 +39,37 @@ def body(request: HttpRequest) -> dict:
         raw = request.body.decode("utf-8")
     except UnicodeDecodeError:
         raise InvalidInput("요청 본문이 UTF-8이 아닙니다.")
-    if not raw.strip():
+    if raw == "":
         return {}
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         raise InvalidInput("JSON 파싱 실패")
+    except RecursionError:
+        # Nesting deep enough to exhaust the interpreter's stack. Python
+        # raises this instead of a decode error, so leaving it uncaught put
+        # back the very 500 this module exists to remove: about 20k opening
+        # brackets, well under Django's body-size limit (PR #75 security
+        # review).
+        raise InvalidInput("JSON 중첩이 너무 깊습니다.")
     if not isinstance(parsed, dict):
         raise InvalidInput("요청 본문은 JSON 객체여야 합니다.")
     return parsed
 
 
-def _present(payload: dict, field: str) -> Any:
+def _present(payload: dict[str, Any], field: str) -> Any:
+    """Absent, in the sense the views used before this module existed.
+
+    They read fields as `p.get(x) or default`, and `or` swallows every falsy
+    value, not just `None` and `""`. Matching that exactly is the point: a
+    body carrying `"note": 0` created an order before, and refusing it now
+    would be a behaviour change smuggled in as a bug fix (PR #75 review).
+    """
     value = payload.get(field)
-    return None if value == "" else value
+    return None if not value else value
 
 
-def text(payload: dict, field: str, *, default: str = "", limit: int | None = None,
-         strip: bool = True) -> str:
+def text(payload: dict[str, Any], field: str, *, default: str = "", strip: bool = True) -> str:
     """A string field. Absent and empty both mean the default.
 
     `True` is rejected although Python would accept it as a value: a boolean
@@ -65,38 +83,10 @@ def text(payload: dict, field: str, *, default: str = "", limit: int | None = No
         raise InvalidInput(f"{field}은(는) 문자열이어야 합니다.")
     if strip:
         value = value.strip()
-    if limit is not None:
-        value = value[:limit]
     return value
 
 
-def upper(payload: dict, field: str, *, default: str = "") -> str:
+def upper(payload: dict[str, Any], field: str, *, default: str = "") -> str:
     """Unstripped, because the views these came from did not strip either.
     Widening what is accepted is a behaviour change like any other (9)."""
     return text(payload, field, default=default, strip=False).upper()
-
-
-def flag(payload: dict, field: str, *, default: bool) -> bool:
-    value = payload.get(field)
-    if value is None:
-        return default
-    if not isinstance(value, bool):
-        raise InvalidInput(f"{field}은(는) true/false여야 합니다.")
-    return value
-
-
-def rows(payload: dict, field: str) -> list[dict]:
-    """A list of objects. Anything else is refused by shape, not by contents."""
-    value = payload.get(field) or []
-    if not isinstance(value, list) or not value:
-        raise InvalidInput(f"{field} 배열이 필요합니다.")
-    for row in value:
-        if not isinstance(row, dict):
-            raise InvalidInput("menu_item_id/qty 형식 오류")
-    return value
-
-
-def one_of(value: str, allowed: Iterable[str], message: str) -> str:
-    if value not in tuple(allowed):
-        raise InvalidInput(message)
-    return value

@@ -201,7 +201,14 @@ def orders_collection(request: HttpRequest):
             return HttpResponseBadRequest(str(exc))
         if mid is None:
             return HttpResponseBadRequest("menu_item_id/qty 형식 오류")
-        mode = (row.get("mode") or row.get("service_mode") or order_type).upper()
+        # 9 (PR #75 code review): these two reached `.upper()` unguarded, so
+        # `"mode": 5` in one item ended the whole request in a 500.
+        try:
+            mode = (validators.text(row, "mode", strip=False)
+                    or validators.text(row, "service_mode", strip=False)
+                    or order_type).upper()
+        except validators.InvalidInput as exc:
+            return HttpResponseBadRequest(str(exc))
         if mode not in (OrderType.DINE_IN, OrderType.TAKEOUT):
             return HttpResponseBadRequest("mode/service_mode 값이 유효하지 않습니다.")
         parsed.append((mid, qty, mode))
@@ -217,7 +224,10 @@ def orders_collection(request: HttpRequest):
         if not m.visible_kitchen:
             return HttpResponseBadRequest("주방 메뉴만 선택 가능합니다.")
 
-    source_raw = (p.get("source") or OrderSource.COUNTER).upper()
+    try:
+        source_raw = validators.upper(p, "source", default=OrderSource.COUNTER)
+    except validators.InvalidInput as exc:
+        return HttpResponseBadRequest(str(exc))
     if source_raw not in OrderSource.values:
         source_raw = OrderSource.COUNTER
 

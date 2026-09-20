@@ -8,7 +8,7 @@ as a change to this file rather than buried in a request handler.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from django.utils import timezone
 
@@ -16,7 +16,7 @@ from orders.models import NumberSeries, Order, PaymentMethod
 from orders.services import payments
 
 
-def order(o: Order) -> Dict[str, Any]:
+def order(o: Order) -> dict[str, Any]:
     cash_amount = o.received_cash_amount
     ticket_amount = o.received_ticket_amount
     if cash_amount is None:

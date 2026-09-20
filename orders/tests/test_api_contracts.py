@@ -62,6 +62,18 @@ class BodyShapeTests(TestCase):
                     self.assertLess(response.status_code, 500, response.content[:200])
                     self.assertGreaterEqual(response.status_code, 400)
 
+    def test_a_deeply_nested_body_is_refused_not_crashed(self):
+        """Python raises RecursionError here, not a decode error, so leaving
+        it uncaught put back the very 500 this module removes. About 20k
+        opening brackets, well under the body-size limit (PR #75 security
+        review)."""
+        deep = "[" * 20000 + "]" * 20000
+        for method, url, alias in self.endpoints():
+            with self.subTest(url=url):
+                response = self.send(method, url, alias, deep)
+                self.assertLess(response.status_code, 500, response.content[:200])
+                self.assertGreaterEqual(response.status_code, 400)
+
     def test_a_body_that_is_not_utf8_is_refused_not_crashed(self):
         for method, url, alias in self.endpoints():
             with self.subTest(url=url):
@@ -74,12 +86,27 @@ class BodyShapeTests(TestCase):
             with self.subTest(url=url):
                 response = self.send(method, url, alias, "{not json")
                 self.assertLess(response.status_code, 500, response.content[:200])
+                self.assertGreaterEqual(response.status_code, 400)
 
     def test_an_empty_body_is_refused_not_crashed(self):
+        """An empty body carries no fields, so every endpoint refuses it for
+        the field it needs. `< 500` alone would also pass if one of them
+        started answering 200 (PR #75 review)."""
         for method, url, alias in self.endpoints():
             with self.subTest(url=url):
                 response = self.send(method, url, alias, "")
                 self.assertLess(response.status_code, 500, response.content[:200])
+                self.assertGreaterEqual(response.status_code, 400)
+
+    def test_a_whitespace_only_body_reads_the_same_as_before(self):
+        """It is not an empty body: the old parser handed `"   "` to the
+        JSON decoder and answered 400. Treating it as `{}` would be a
+        widening this phase did not ask for (PR #75 security review)."""
+        for method, url, alias in self.endpoints():
+            with self.subTest(url=url):
+                response = self.send(method, url, alias, "   ")
+                self.assertLess(response.status_code, 500, response.content[:200])
+                self.assertGreaterEqual(response.status_code, 400)
 
     def test_every_refusal_says_something_in_words(self):
         for method, url, alias in self.endpoints():
@@ -128,6 +155,46 @@ class FieldTypeTests(TestCase):
                     self.assertLess(response.status_code, 500,
                                     f"{field}={value!r} -> {response.content[:200]}")
                     self.assertGreaterEqual(response.status_code, 400)
+
+    def test_a_wrong_typed_item_mode_or_source_is_refused_not_crashed(self):
+        """These two reached `.upper()` unguarded. One item carrying
+        `"mode": 5` ended the whole request in a 500 (PR #75 code review)."""
+        for value in (5, {"a": 1}, [1], True):
+            with self.subTest(mode=value):
+                response = self.create(
+                    items=[{"menu_item_id": self.menu.id, "qty": 1, "mode": value}])
+                self.assertLess(response.status_code, 500, response.content[:200])
+                self.assertGreaterEqual(response.status_code, 400)
+            with self.subTest(service_mode=value):
+                response = self.create(
+                    items=[{"menu_item_id": self.menu.id, "qty": 1, "service_mode": value}])
+                self.assertLess(response.status_code, 500, response.content[:200])
+            with self.subTest(source=value):
+                response = self.create(source=value)
+                self.assertLess(response.status_code, 500, response.content[:200])
+                self.assertGreaterEqual(response.status_code, 400)
+
+    def test_a_falsy_field_still_means_the_default_it_always_meant(self):
+        """The views read these as `p.get(x) or default`, and `or` swallows
+        every falsy value. An order carrying `"note": 0` was created before
+        this phase, so it is created now. Refusing it would be a behaviour
+        change smuggled in as a bug fix (PR #75 code review)."""
+        for field in ("note", "floor", "source"):
+            for value in (0, False, [], {}, ""):
+                with self.subTest(field=field, value=value):
+                    response = self.create(**{field: value})
+                    self.assertEqual(response.status_code, 201,
+                                     f"{field}={value!r} -> {response.content[:200]}")
+
+    def test_a_falsy_table_number_is_missing_not_mistyped(self):
+        """A dine-in order really does need a table, so a falsy value is
+        refused -- but for being absent, with the sentence it always had,
+        not for being the wrong type."""
+        for value in (0, False, [], {}, ""):
+            with self.subTest(value=value):
+                response = self.create(table_number=value)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("테이블 번호가 필요합니다", response.content.decode())
 
     def test_an_item_entry_missing_its_fields_is_refused(self):
         for entry in ({}, {"qty": 1}, {"menu_item_id": None, "qty": 1},
