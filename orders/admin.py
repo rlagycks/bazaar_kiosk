@@ -2,10 +2,80 @@ from __future__ import annotations
 from django import forms
 from django.contrib import admin
 
-from orders.services import audit, order_edits
+from django.db import transaction
+
+from orders.services import audit, order_edits, revisions
 from orders.services import status as status_service
 
 from .models import Account, Table, MenuItem, Order, OrderItem, OrderEvent, EventDay
+
+class MarksTheBoard:
+    """Say that a screen's contents changed, for admins that write directly.
+
+    `TableAdmin`, `MenuItemAdmin` and `EventDayAdmin` have no `save_model` of
+    their own, so Django's generic one writes the row and nothing tells the
+    screens. Each of these is display state: a price, a table's name, whether
+    an item is offered at all. `EventDay` is the sharpest -- registering a day
+    changes the series badge on every order shown, without writing to a single
+    order row, so no marker scoped to orders could ever notice it.
+
+    Django wraps the change form, the editable change list and the single
+    delete in transactions of its own, so the mark joins them. The bulk
+    "delete selected" action is not wrapped, so `delete_queryset` opens one
+    (PR #77 writer audit).
+
+    Marking happens in `save_related` rather than `save_model` because the
+    counter row has to be the last row this transaction locks, and Django
+    calls `save_related` after `save_model` on both routes that write --
+    the change form (`options.py:1895`) and the editable change list
+    (`options.py:2121`). One rule for every admin, with no exception to
+    remember (PR #77 security review).
+
+    The change list needs one more thing. Django edits every changed row in a
+    *single* transaction, one `save_model`/`save_related` pair per row, so
+    marking per row would take the counter after row one and then go on to
+    lock row two -- putting the counter in the middle of a cycle. Two
+    operators bulk-editing the same rows in different sort orders would
+    deadlock on it. So a change-list POST defers: it marks once, at the end,
+    in a transaction wrapped around the whole thing (PR #77 architecture
+    review).
+
+    That wrapper also gives the bulk "delete selected" action a transaction,
+    which Django does not provide. What it does not fix is Django's own
+    pre-existing hazard -- two operators editing the same rows in opposite
+    orders can still deadlock on the *rows*, with or without this mixin.
+    """
+
+    _DEFER = "_bk_defer_board_mark"
+
+    def changelist_view(self, request, extra_context=None):
+        if request.method != "POST":
+            return super().changelist_view(request, extra_context)
+        setattr(request, self._DEFER, True)
+        with transaction.atomic():
+            response = super().changelist_view(request, extra_context)
+            revisions.mark()
+        return response
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        if not getattr(request, self._DEFER, False):
+            revisions.mark()
+
+    def delete_model(self, request, obj):
+        super().delete_model(request, obj)
+        revisions.mark()
+
+    def delete_queryset(self, request, queryset):
+        if getattr(request, self._DEFER, False):
+            # Reached through the change list, which already holds a
+            # transaction and will mark once it closes.
+            super().delete_queryset(request, queryset)
+            return
+        with transaction.atomic():
+            super().delete_queryset(request, queryset)
+            revisions.mark()
+
 
 # ---- 공용 유틸: 모델에 실제 존재하는 필드만 골라서 사용 ----
 def _field_names(model):
@@ -18,7 +88,7 @@ def _present(model, *names):
 
 # ---- Table ----
 @admin.register(Table)
-class TableAdmin(admin.ModelAdmin):
+class TableAdmin(MarksTheBoard, admin.ModelAdmin):
     list_display = _present(Table, "number", "name", "is_active", "sort_index")
     list_filter  = _present(Table, "is_active",)
     search_fields = _present(Table, "number", "name")
@@ -26,7 +96,7 @@ class TableAdmin(admin.ModelAdmin):
 
 # ---- MenuItem ----
 @admin.register(MenuItem)
-class MenuItemAdmin(admin.ModelAdmin):
+class MenuItemAdmin(MarksTheBoard, admin.ModelAdmin):
     list_display = _present(
         MenuItem,
         "name", "price", "is_active",
@@ -161,6 +231,9 @@ class OrderAdmin(admin.ModelAdmin):
             audit.record_status(locked, None, previous=previous)
         locked.note = obj.note
         locked.save(update_fields=["note", "updated_at"])
+        # The note is on the screens, and it is written here rather than
+        # through a service. The mark for it happens in `save_related`, which
+        # Django calls after this and after the inline items -- see there.
         # Hand the locked, current row to the rest of the save.
         obj.status = locked.status
         obj.total_price = locked.total_price
@@ -177,15 +250,30 @@ class OrderAdmin(admin.ModelAdmin):
         formset.save_m2m()
 
     def save_related(self, request, form, formsets, change):
+        """The end of the admin's transaction, and where it marks.
+
+        An earlier version marked in `save_model`, which was wrong: Django
+        runs the inline item writes and the total recomputation *after*
+        `save_model`, so the counter row was locked and then held for the rest
+        of the form submission -- an operator editing a ten-line order would
+        have serialized every order in the building behind that one page. It
+        also made the lock order `Order -> ChangeRevision -> OrderItem`, the
+        reverse of every other writer, which is the shape this design exists
+        to forbid (PR #77 security review).
+
+        `save_model` writes the note unconditionally, so there is always
+        something to announce by the time this runs.
+        """
         super().save_related(request, form, formsets, change)
         if any(formset.has_changed() for formset in formsets):
             order = status_service.locked(form.instance.pk)
             order_edits.apply_line_changes(order, None)
+        revisions.mark()
 
 
 # ---- EventDay (D-047) ----
 @admin.register(EventDay)
-class EventDayAdmin(admin.ModelAdmin):
+class EventDayAdmin(MarksTheBoard, admin.ModelAdmin):
     """The operator's one control over numbering.
 
     A day registered here gives real order numbers; every other day is a
@@ -200,8 +288,17 @@ class EventDayAdmin(admin.ModelAdmin):
 
 # ---- Account (D-051) ----
 @admin.register(Account)
-class AccountAdmin(admin.ModelAdmin):
+class AccountAdmin(MarksTheBoard, admin.ModelAdmin):
     """The operator's control over who may do what.
+
+    Marks the board like the others, for a reason that is one step removed:
+    no screen draws an account, but `_identity` reads these permissions from
+    the database on every request and `scope.visible` narrows the orders a
+    caller may see by them. Switching `can_monitor_takeout` off changes what
+    that screen is allowed to hold, without writing to a single order row --
+    the same shape as an event day, and missed in the first pass because the
+    question asked was "does a screen draw it?" rather than "does it change
+    what a screen may see?" (PR #77 architecture review).
 
     One row per person. The event password is shared and lives in the
     deployment configuration, not here; this screen grants permissions and

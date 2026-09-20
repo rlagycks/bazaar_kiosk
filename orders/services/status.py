@@ -22,6 +22,7 @@ from django.db import transaction
 from django.db.models import F
 
 from orders.models import Order, OrderStatus
+from orders.services import revisions
 
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     OrderStatus.PREPARING: frozenset({OrderStatus.READY, OrderStatus.CANCELLED}),
@@ -95,7 +96,14 @@ def is_closed(order: Order) -> bool:
 
 @transaction.atomic
 def change_by_id(order_id: int, target: str) -> Order:
-    """Lock, decide, write. The transaction is what makes it one step."""
+    """Lock, decide, write. The transaction is what makes it one step.
+
+    No production caller today -- both endpoints lock the order themselves and
+    call `change` -- but it owns its transaction, so it owns the marker too
+    (10B). Leaving it unmarked would make it a trap for whoever wires it up:
+    the status would change and no screen would hear about it.
+    """
     order = locked(order_id)
-    change(order, target)
+    if change(order, target):
+        revisions.mark()
     return order
