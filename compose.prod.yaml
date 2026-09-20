@@ -83,13 +83,24 @@ services:
     # --timeout-graceful-shutdown bounds a restart. Without it uvicorn waits
     # for open connections to close, and a stream is a connection that has no
     # reason to.
-    command: >
-      python -m uvicorn bazaar_kiosk.asgi:application
-      --host 0.0.0.0 --port 8000
-      --workers 3
-      --no-proxy-headers
-      --timeout-graceful-shutdown 10
-      --log-level info
+    #
+    # `manage.py check` runs first because uvicorn does not. The system check
+    # that refuses a synchronous middleware (orders.E001) is the guard this
+    # whole runtime rests on, and without this line it would only ever run in
+    # CI -- a hotfix to MIDDLEWARE that skipped CI would start a worker whose
+    # request path is no longer async, with nothing failing (PR #76 review).
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        python manage.py check
+        exec python -m uvicorn bazaar_kiosk.asgi:application \
+          --host 0.0.0.0 --port 8000 \
+          --workers 3 \
+          --no-proxy-headers \
+          --timeout-graceful-shutdown 10 \
+          --log-level info
     depends_on:
       postgres:
         condition: service_healthy

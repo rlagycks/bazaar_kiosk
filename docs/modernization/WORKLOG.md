@@ -11,10 +11,17 @@
 - **운영이 WSGI로 돌고 있었다.** `compose.prod.yaml`이 `gunicorn ...wsgi:application`을 실행했고, WSGI 워커는
   스트리밍 응답을 모아서 한 번에 보낸다. `asgi.py`는 있었지만 아무도 실행하지 않았다. 이 구성에서 SSE는 느린
   것이 아니라 불가능했다(BK-R035).
-- **동기 미들웨어 하나가 ASGI를 무효로 만들고 있었다.** 미들웨어 8개 중 `WhiteNoiseMiddleware`만
+- **동기 미들웨어 하나가 요청 경로를 스레드로 끌어내리고 있었다.** 미들웨어 8개 중 `WhiteNoiseMiddleware`만
   `async_capable=False`였고, Django는 동기 전용 미들웨어 **안쪽 전체**를 `async_to_sync`로 감싼다. 체인 생성을
   계측해 `BRIDGE async_to_sync around middleware whitenoise...`를 확인했다. WhiteNoise는 최신 6.12에도 async
   경로가 없어 정적 파일을 프록시로 옮겼다(저장 백엔드는 유지). 되돌아오는 것은 시스템 검사 `orders.E001`이 막는다.
+- **대가를 재 보니 제가 처음 적은 것보다 작았고, 원인도 달랐다.** 초안은 동기 미들웨어가 async 뷰를
+  **다른 이벤트 루프**에서 돌린다고 적었다. 그것을 증명하려고 쓴 테스트가 **실패**했다. asgiref의
+  `AsyncToSync`는 `SyncToAsync` 스레드 안에서 호출되면 코루틴을 `main_event_loop`로 되돌린다 — 루프는 갈리지
+  않는다. 실제 `ASGIHandler`로 32 동시 × 128요청을 돌려 잰 값은 `async만 p90 36~39ms` 대 `동기 1개 p90 44~50ms`,
+  직렬로는 차이 없음(1.43 vs 1.41ms). 즉 **정확성이 아니라 꼬리 지연**이다. 테스트를 뒤집어
+  `OneLoopEitherWayTests`로 두 경우 모두 루프가 같음을 고정했고, `checks.py`·`settings.py`·probe의 근거를
+  측정값으로 전부 고쳐 적었다.
 - **`--no-proxy-headers`가 보안 경계다.** uvicorn의 프록시 헤더 처리는 기본 켜짐이고 gunicorn과 달리
   `REMOTE_ADDR`을 덮어쓴다. 켜 둔 채 전환했다면 이슈 #61의 판단이 `TRUSTED_PROXY_IPS`에서 명령줄로 조용히
   옮겨 갔을 것이다. 프록시 경유 실패 11회 `200×9, 429, 429`, 스푸핑한 `X-Forwarded-For`로도 429로 재확인했다.
@@ -23,19 +30,38 @@
   더한 것이 `Host`·`X-Forwarded-For`·`X-Forwarded-Proto`를 통째로 떨어뜨렸다. 공통 헤더를
   `scripts/nginx_proxy_headers.conf`로 빼고 프록시하는 모든 location이 include하도록 했고, 회귀 테스트로 묶었다.
 - V-STREAM(실제 `compose.prod.yaml` 스택, uvicorn 워커 3개, nginx, `curl -N`): 프레임 간격
-  `[506, 502, 501, 502, 502] ms`(요청 500ms), 첫 프레임 t+32ms, 응답 종료 t+2545ms. 열린 스트림 0/6/24/48에서
-  `GET /orders/menus/` 중앙값 28/19/19/20ms, **DB 연결은 항상 1**, 워커 스레드 9/15/33/57.
-  클라이언트를 죽이면 스레드 57→9, FD 70→64로 기준선 복귀. 스트림을 연 채 `stop -t 30 app`이 10.5초에 종료
+  `[503, 502, 501, 504, 502] ms`(요청 500ms), 첫 프레임 t+75ms, 응답 종료 t+2587ms. 열린 스트림 0/6/24/48에서
+  `GET /orders/menus/` 중앙값 20/21/22/19ms, DB 연결 1 고정, 워커 스레드 9/15/33/57, FD 63/69/87/111.
+  클라이언트가 모두 사라지면 스레드 9·FD 63·DB 1로 기준선 복귀. 스트림을 연 채 `stop -t 30 app`이 10.7초에 종료
   (`--timeout-graceful-shutdown 10`). 정적 파일은 프록시가 내고 **앱이 본 `/static/` 요청 0건**.
-- **인계(10D·D-007):** 스트림 1개가 워커 스레드 1개를 차지한다. CPU는 쓰지 않고 RSS는 스트림당 약 90kB지만
-  화면 수만큼 스레드가 생긴다. 동시 화면 상한과 목표는 D-007에 남는다.
+  측정 절차는 즉석 스크립트로 끝내지 않고 `scripts/stream_smoke.py`로 커밋해 재현 가능하게 했다.
+- **인계(10D·D-007):** 스트림 1개가 워커 스레드 1개를 차지한다. **원인을 처음에는 "인증이 DB를 읽으려고 만든
+  스레드"라고 적었는데 틀렸다.** `SyncToAsync.__call__`을 계측해 보니 요청당 첫 thread-sensitive 호출은
+  `Signal.asend.<locals>.sync_send`, 즉 `request_started`의 동기 리시버(`reset_queries`,
+  `close_old_connections`)이고 요청 객체·미들웨어·인증보다 **먼저** 스레드를 만든다. 그러므로 "인증을 async로"
+  같은 완화책으로는 스레드가 **하나도** 줄지 않는다 — 요청당 1개는 구조적이다. CPU는 쓰지 않고 RSS는 스트림당
+  약 90kB다. 동시 화면 상한과 목표는 D-007에 남는다.
+- **"DB 연결 1"은 런타임의 성질이 아니라 이 뷰의 성질이다.** probe는 첫 프레임 전에 연결을 놓고 다시 읽지 않는다.
+  이벤트마다 DB를 건드리는 10D1의 허브는 매번 놓지 않으면 연결 수가 열린 화면 수를 따라간다. `CONN_MAX_AGE=0`의
+  놓고-다시-여는 비용도 그때 드러나므로 연결 재사용·pooler는 10E에서 다시 본다.
+- **리뷰 반영(PR #76, code-reviewer·security-reviewer·architect).** 세 건은 제 주장을 반증한 지적이라 문서를
+  다시 썼고(위 두 항목), 나머지는 코드로 막았다. (1) probe에 동시 상한이 없어 인증된 기기 하나가 워커 스레드를
+  계속 늘릴 수 있었다 → 워커당 `MAX_OPEN_STREAMS = 32`, 초과는 `503 + Retry-After`, 슬롯 반납은 제너레이터의
+  `finally`와 `_resource_closers` 양쪽에서 멱등하게. (2) `orders.E001`이 CI에서만 살아 있었다 → 컨테이너 시작
+  명령이 `python manage.py check`를 먼저 돌리고 그다음 `exec uvicorn`(컨테이너 로그로 확인). (3) 정적 파일을
+  프록시로 옮기며 `nosniff`·`Referrer-Policy`·COOP가 사라졌다 → `scripts/nginx_static_headers.conf`,
+  실제 응답으로 확인. (4) `/static/staticfiles.json`이 그대로 나갔다 → `return 404`, 확인. (5) 프록시의
+  비버퍼링 location 밖에 스트리밍 경로를 하나라도 두면 조용히 WSGI처럼 보인다 → 뷰에 `streams = True`를 달고
+  URLconf를 훑어 nginx prefix와 대조하는 테스트. (6) `stream.py`라는 이름이 10D1의 자리를 먼저 차지했다 →
+  `stream_probe.py`로 `git mv`.
 - 변경 파일: `bazaar_kiosk/settings.py`(미들웨어·정적·`CONN_MAX_AGE`·probe 스위치), `orders/checks.py`(신규),
-  `orders/apps.py`, `orders/views/stream.py`(신규), `orders/views/guards.py`(async 경로), `orders/urls.py`,
+  `orders/apps.py`, `orders/views/stream_probe.py`(신규), `orders/views/guards.py`(async 경로), `orders/urls.py`,
   `requirements*.txt`(gunicorn→uvicorn), `Dockerfile`(app/proxy 두 타깃), `compose.prod.yaml`,
-  `scripts/nginx_prod.conf`, `scripts/nginx_proxy_headers.conf`(신규), `.env.example`,
+  `scripts/nginx_prod.conf`, `scripts/nginx_proxy_headers.conf`(신규), `scripts/nginx_static_headers.conf`(신규),
+  `scripts/stream_smoke.py`(신규), `.env.example`,
   테스트 `test_asgi_stream.py`(신규)·`test_runtime_config.py`, 문서 6개(`ASGI_RUNTIME.md` 신규,
   DECISIONS D-057·D-006, BLUEPRINT 10A, RISK BK-R035·BK-R039, README, DEPLOYMENT_CANDIDATE).
-- 검증: `.venv/bin/python scripts/test_postgres.py` -> 마이그레이션 24건, 애플리케이션 428건 통과.
+- 검증: `.venv/bin/python scripts/test_postgres.py` -> 마이그레이션 24건, 애플리케이션 435건 통과(리뷰 반영 후 재실행).
   `manage.py check` 이상 없음, `check --deploy` 경고는 이전과 동일, `makemigrations --check` 변경 없음.
   **스키마 변경과 마이그레이션 없음.** 측정 후 컨테이너·볼륨·합성 비밀 파일 제거.
 - 남은 것: 브라우저·HTTP/2·여러 탭·BFCache는 BK-R039로 12A1. 실제 SSE는 10B/10C/10D. D-019는 여전히 pending이며

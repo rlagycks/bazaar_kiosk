@@ -46,9 +46,9 @@ EXPOSE 8000
 # 10A: the proxy serves /static/ off disk. WhiteNoise's middleware is
 # synchronous and has no async version upstream, and Django adapts a
 # sync-only middleware by wrapping the whole chain inside it in
-# async_to_sync -- which would put every request, streaming or not, on a
-# borrowed thread in a second event loop. Moving the files out of the
-# application is what keeps the request path async.
+# async_to_sync -- which puts every request, streaming or not, through two
+# thread hops. Moving the files out of the application is what keeps the
+# request path async.
 FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 AS proxy
 
 # Built by `collectstatic` above: hashed names, a manifest, and .gz siblings
@@ -58,3 +58,4 @@ COPY scripts/nginx_prod.conf /etc/nginx/conf.d/default.conf
 # Included by every proxied location; kept out of conf.d so nginx does not
 # also load it into the http context on its own.
 COPY scripts/nginx_proxy_headers.conf /etc/nginx/bk_proxy_headers.conf
+COPY scripts/nginx_static_headers.conf /etc/nginx/bk_static_headers.conf

@@ -19,6 +19,7 @@ import sys
 import tempfile
 
 from django.test import SimpleTestCase
+from django.urls import reverse
 from orders.tests.auth_support import EVENT_PASSWORD_HASH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -215,7 +216,7 @@ class DeploymentCandidateTests(SimpleTestCase):
         absent for the same reason; it would read as a boundary that is not
         being enforced here.
         """
-        command = self.compose["services"]["app"]["command"]
+        command = self.app_command()
         self.assertIn("--no-proxy-headers", command)
         self.assertNotIn("--forwarded-allow-ips", command)
 
@@ -223,18 +224,31 @@ class DeploymentCandidateTests(SimpleTestCase):
         """BK-R035: a WSGI worker collects a streaming response and sends it
         as one body, so SSE cannot work on this stack at all. The entry point
         is the difference, and it is one word in a command."""
-        command = self.compose["services"]["app"]["command"]
+        command = self.app_command()
         self.assertIn("bazaar_kiosk.asgi:application", command)
         self.assertNotIn("wsgi", command)
+
+    def test_the_system_checks_run_before_the_server_does(self):
+        """Otherwise orders.E001 only ever runs in CI (PR #76 review).
+
+        uvicorn does not run Django's checks, so without this the guard that
+        refuses a synchronous middleware -- the one thing keeping the request
+        path async -- would not fire on a worker that starts from a change
+        which skipped CI."""
+        command = self.app_command()
+        self.assertIn("manage.py check", command)
+        self.assertLess(command.index("manage.py check"),
+                        command.index("uvicorn"))
+
+    def app_command(self):
+        command = self.compose["services"]["app"]["command"]
+        return command if isinstance(command, str) else " ".join(command)
 
     def test_a_restart_cannot_wait_forever_on_an_open_stream(self):
         """A graceful shutdown waits for connections to close. A stream is a
         connection with no reason to, so the wait has to be bounded or a
         deploy never finishes."""
-        self.assertIn(
-            "--timeout-graceful-shutdown",
-            self.compose["services"]["app"]["command"],
-        )
+        self.assertIn("--timeout-graceful-shutdown", self.app_command())
 
     def test_the_proxy_does_not_buffer_the_streaming_path(self):
         """nginx collects a proxied response by default and delivers it when
@@ -245,12 +259,64 @@ class DeploymentCandidateTests(SimpleTestCase):
         self.assertIn("proxy_buffering off;", stream)
         self.assertIn("proxy_read_timeout 1h;", stream)
 
+    def test_every_streaming_route_is_inside_that_location(self):
+        """The trap 10D1 walks into otherwise (PR #76 architecture review).
+
+        The non-buffering settings are attached to a URL prefix, not to the
+        views that need them. An SSE endpoint added at, say,
+        `/orders/api/kitchen/events` falls through to `location /` and gets
+        `proxy_buffering on` and a 60-second read timeout -- frames collected
+        and delivered at the end, connections dropped between quiet minutes.
+        Nothing fails; it just behaves like the WSGI stack 10A replaced.
+
+        So a streaming view says so (`streams = True`) and this checks the
+        routes against the configuration rather than against a comment.
+        """
+        conf = (REPO_ROOT / "scripts" / "nginx_prod.conf").read_text(encoding="utf-8")
+        prefixes = [
+            block.split("{")[0].strip()
+            for block in conf.split("location ")[1:]
+            if "proxy_buffering off;" in block.split("}")[0]
+        ]
+        self.assertTrue(prefixes, "No location turns proxy buffering off.")
+
+        streaming = [
+            pattern for pattern in self.url_patterns()
+            if getattr(pattern.callback, "streams", False)
+        ]
+        self.assertTrue(
+            streaming, "Nothing is marked `streams = True`; this test would pass "
+                       "silently forever once the probe is removed.",
+        )
+        for pattern in streaming:
+            url = reverse(f"orders:{pattern.name}")
+            with self.subTest(url=url):
+                self.assertTrue(
+                    any(url.startswith(prefix) for prefix in prefixes),
+                    f"{url} streams but is not under any non-buffering "
+                    f"location {prefixes}. The proxy would collect its frames.",
+                )
+
+    def url_patterns(self):
+        from django.urls import get_resolver
+        from django.urls.resolvers import URLPattern, URLResolver
+
+        def walk(resolver):
+            for entry in resolver.url_patterns:
+                if isinstance(entry, URLResolver):
+                    yield from walk(entry)
+                elif isinstance(entry, URLPattern):
+                    yield entry
+
+        return list(walk(get_resolver()))
+
     def test_static_files_are_served_by_the_proxy_from_this_build(self):
-        """10A: WhiteNoise's middleware is synchronous and Django adapts a
-        sync-only middleware by wrapping the request path in async_to_sync, so
-        the files moved to the proxy. They are copied from the application
-        image rather than shared through a volume: a volume is populated once
-        and would keep serving an old bundle against a new manifest."""
+        """10A: WhiteNoise's middleware is the only sync-only entry in the
+        chain, and Django adapts one by wrapping the request path in
+        async_to_sync, so the files moved to the proxy. They are copied from
+        the application image rather than shared through a volume: a volume is
+        populated once and would keep serving an old bundle against a new
+        manifest."""
         conf = (REPO_ROOT / "scripts" / "nginx_prod.conf").read_text(encoding="utf-8")
         self.assertIn("location /static/", conf)
         dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")

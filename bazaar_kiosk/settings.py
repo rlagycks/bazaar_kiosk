@@ -192,10 +192,11 @@ INSTALLED_APPS = [
 
 # --- 미들웨어 ---
 # 10A: every entry has to be async-capable. Django adapts a sync-only
-# middleware by wrapping everything inside it in `async_to_sync`, which moves
-# the view and any generator it returns onto a borrowed thread in a second
-# event loop -- the one thing an ASGI deployment exists to avoid. A system
-# check (orders/checks.py) refuses a list that breaks this.
+# middleware by wrapping everything inside it in `async_to_sync`, so one such
+# entry puts *every* request through two thread hops -- measured at 32-way
+# concurrency as a p90 of 44-50ms against 36-39ms. A system check
+# (orders/checks.py) refuses a list that breaks this, because nothing else
+# would: no test goes red and no request fails.
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -271,10 +272,14 @@ DATABASES = {"default": _parse_database_url(_secret("DATABASE_URL"))}
 # --- 정적 파일 ---
 # 10A: WhiteNoise stays as the *storage* backend and stops being middleware.
 # `collectstatic` still writes hashed names, a manifest and .gz/.br siblings;
-# the proxy serves those files off disk. Nothing static reaches the
-# application, which is both faster and the only way to keep the request path
-# async -- the middleware is sync-only and has no async version upstream
-# (whitenoise 6.12, the current release, still has none).
+# the proxy serves those files off disk.
+#
+# Two reasons, in order of weight. The middleware is the only sync-only entry
+# in the chain and has no async version upstream (none in 6.12, the current
+# release; this repository pins 6.10 for the storage backend), so it is what
+# stands between this deployment and an async request path. And an
+# application server carrying assets is what hid that for this long: the
+# proxy is already there and already better at it.
 #
 # The consequence to know: with DEBUG off and no proxy in front, /static/ is
 # not served at all. That is deliberate. An application server quietly serving
