@@ -29,6 +29,11 @@ LIVE_TEMPLATES = ("order.html", "b1_counter.html", "kitchen_supervisor.html")
 
 EXTERNAL_SCRIPT = re.compile(r"""<script[^>]*\ssrc\s*=\s*["'](?!\{%\s*static)[^"']*//""", re.I)
 FOREIGN = re.compile(r"supabase|createClient|postgres_changes|realtime|cdn\.|jsdelivr|unpkg", re.I)
+# Naming one vendor only closes one door. These two pin the property itself:
+# nothing in a live screen addresses another origin, by any API (PR #74
+# security review). `//` catches protocol-relative URLs too.
+ABSOLUTE_URL = re.compile(r"""["'`](?:https?:)?//[^"'`\s]+""", re.I)
+REMOTE_API = re.compile(r"new\s+(?:EventSource|WebSocket|SharedWorker|Worker)\s*\(|importScripts\s*\(", re.I)
 
 
 def read(name):
@@ -47,6 +52,23 @@ class NoExternalCodeOrKeysTests(TestCase):
             with self.subTest(template=name):
                 found = FOREIGN.findall(read(name))
                 self.assertEqual(found, [], f"{name} still refers to {set(found)}")
+
+    def test_no_live_template_writes_an_absolute_url_anywhere(self):
+        """Not just in a script tag. An inline `fetch("https://...")` or a
+        protocol-relative URL in any attribute would leave this server."""
+        for name in LIVE_TEMPLATES:
+            with self.subTest(template=name):
+                found = ABSOLUTE_URL.findall(read(name))
+                self.assertEqual(found, [], f"{name} addresses another origin: {found}")
+
+    def test_no_live_template_opens_a_stream_or_a_worker(self):
+        """The transports a URL check alone would not make obvious. When
+        10D adds SSE it will be to this server, and this test is where that
+        change has to be stated rather than slipped in."""
+        for name in LIVE_TEMPLATES:
+            with self.subTest(template=name):
+                found = REMOTE_API.findall(read(name))
+                self.assertEqual(found, [], f"{name} opens {found}")
 
     def test_the_view_layer_hands_no_external_configuration_to_a_page(self):
         source = (settings.BASE_DIR / "orders/views/pages.py").read_text(encoding="utf-8")
@@ -81,6 +103,17 @@ class RenderedPagesAreCleanTests(TestCase):
                 self.assertIsNone(EXTERNAL_SCRIPT.search(body), f"{name} still loads external code")
 
 
+SHARED_JS = "orders/static/orders/ui/"
+# 10D2 will add a single EventSource/polling scheduler, and this fence is
+# meant to expire then. Loosening it is how that change gets stated out loud
+# instead of slipping in (PR #74 architecture review).
+RESCHEDULING_TIMEOUT = re.compile(r"setTimeout\s*\(\s*(?:loadOrders|tick|poll|schedule)", re.I)
+
+
+def read_js(name):
+    return (settings.BASE_DIR / SHARED_JS / name).read_text(encoding="utf-8")
+
+
 class TheBoardDoesNotPretendToBeLiveTests(TestCase):
     """No timer, and the screen says as much."""
 
@@ -89,6 +122,46 @@ class TheBoardDoesNotPretendToBeLiveTests(TestCase):
         for pattern in ("setInterval", "AUTO_MS", "startPolling", "stopPolling"):
             with self.subTest(pattern=pattern):
                 self.assertNotIn(pattern, source)
+
+    def test_no_shared_script_schedules_a_reload_either(self):
+        """The fence has to cover the files the page also loads, or a timer
+        moved one directory over would pass."""
+        import os
+
+        for name in sorted(os.listdir(settings.BASE_DIR / SHARED_JS)):
+            if not name.endswith(".js"):
+                continue
+            with self.subTest(script=name):
+                source = read_js(name)
+                self.assertNotIn("setInterval", source)
+                self.assertIsNone(RESCHEDULING_TIMEOUT.search(source))
+
+    def test_a_timeout_does_not_reschedule_the_list_read(self):
+        """A `setTimeout` that re-arms itself is a timer under another name."""
+        self.assertIsNone(RESCHEDULING_TIMEOUT.search(read("kitchen_supervisor.html")))
+
+    def test_the_read_time_shown_is_the_list_read_not_the_redraw(self):
+        """A single-card refresh redraws without reading the list. Stamping
+        that moment made this notice claim a freshness it did not have
+        (PR #74 architecture review)."""
+        source = read("kitchen_supervisor.html")
+        self.assertIn("LAST_LIST_READ_AT", source)
+        render = source.split("function renderFromStore", 1)[1].split("function ", 1)[0]
+        self.assertIn("LAST_LIST_READ_AT", render)
+        self.assertNotIn("new Date()", render)
+
+    def test_a_failed_read_keeps_the_cards_and_says_so(self):
+        """Nothing retries now, so wiping the board on one dropped request
+        would leave the kitchen with an empty screen."""
+        source = read("kitchen_supervisor.html")
+        failure = source.split("console.error('주문 불러오기 실패'", 1)[1][:600]
+        self.assertNotIn("BOARD.innerHTML", failure)
+        self.assertIn("STATUS.textContent", failure)
+
+    def test_the_only_refresh_control_shows_that_it_heard_the_press(self):
+        source = read("kitchen_supervisor.html")
+        self.assertIn("RELOAD_BUTTON.disabled = true", source)
+        self.assertIn("RELOAD_BUTTON.disabled = false", source)
 
     def test_the_screen_says_it_does_not_refresh_itself(self):
         """A stale board must not read as a quiet kitchen."""

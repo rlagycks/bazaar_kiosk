@@ -614,7 +614,7 @@ BK-R043/044는 Open을 유지한다.
 - **작업:** 주방의 CDN/구독·키 주입을 자체 인증 API 폴링으로 교체하고 단일 타이머·오류 backoff·인증 종료·탭 복귀를 준비한다. 외부 publication/RLS 조치 목록은 실행과 분리한다.
 - **인수 기준·기대 결과:** 브라우저 외부 Realtime/CDN 요청0·키0, API만으로 기존 여정 유지. 외부 노출 종료와 최종 SSE 검증이 없으면 BK-R018 전체 종료 금지.
 - **검증 명령·환경:** V-BROWSER: 정상/단절/권한회수 네트워크 기록; rg로 Realtime 참조 지도. 폴링 하위 기능회귀.
-- **마이그레이션·롤백:** 롤백은 보호된 자체 폴링. 외부 SDK·익명 API 재활성화 금지.
+- **마이그레이션·롤백:** 롤백은 보호된 자체 폴링. 외부 SDK·익명 API 재활성화 금지. **2026-09-20(D-056): 보호된 자체 폴링은 4B2에서 실행되지 않았으므로 이 롤백 대상은 아직 없다. 10D2가 신규 작성한다.**
 - **관측·보안·인계:** 외부 제거 증거·운영 정리 필요 목록 인계. 전체 요청/늦은 응답 순서는10D2가 종료 담당.
 
 <a id="phase-9"></a>
@@ -654,7 +654,7 @@ BK-R043/044는 Open을 유지한다.
 - **작업:** 도메인 변경과 영속 변경표시를 같은 transaction에 연결한다. 메뉴/테이블·삭제·old/new 범위·외부 SQL 포함 writer 목록을 대조한다.
 - **인수 기준·기대 결과:** 모든 writer와 rollback·commit 직후 kill·다른 워커 조회·missing revision 행 실패·ID10/11 커밋 역전 검증.
 - **검증 명령·환경:** V-PG: test orders.tests.test_change_tracking; test orders.tests.test_writer_coverage; 도메인/revision 잠금 역순 재현.
-- **마이그레이션·롤백:** 새 변경표시를 쓰지 않는 구앱으로 돌아가면 SSE 비활성·보호 폴링 유지. migration 기록 임의 삭제 금지.
+- **마이그레이션·롤백:** 새 변경표시를 쓰지 않는 구앱으로 돌아가면 SSE 비활성·보호 폴링 유지. migration 기록 임의 삭제 금지. **2026-09-20(D-056): 보호된 자체 폴링은 4B2에서 실행되지 않았으므로 이 롤백 대상은 아직 없다. 10D2가 신규 작성한다.**
 - **관측·보안·인계:** writer coverage·공통 잠금 순서·실패 계측 인계. trigger/Redis/Channels/NOTIFY 도입을 자동 승인하지 않음.
 
 <a id="phase-10c"></a>
@@ -668,7 +668,7 @@ BK-R043/044는 Open을 유지한다.
 - **인수 기준·기대 결과:** 조회 도중 commit에도 데이터와 버전의 동일 시점 보장;81/201건 완전 snapshot;이전 scope cursor 거부;복원 generation 변경 계약의 서버 격리 검증.
 - **후속 위험 종료 증거:** 실제 구독 등록 경합은10D1, 동일세대43→42 응답 역전·화면 전체 복구는10D2, 실제 DB 복원은12A3에서 검증한다. 이 통합 증거는10C 코드 단위 완료의 선행 조건이 아니며 BK-R037 최종 종료에 합류한다.
 - **검증 명령·환경:** V-PG: test orders.tests.test_snapshot_consistency; barrier 기반 동시 commit/read 검사.
-- **마이그레이션·롤백:** 일관성 없는 데이터에 새 버전을 붙이지 않음. 안전한 보호 폴링/완전 조회로 후퇴.
+- **마이그레이션·롤백:** 일관성 없는 데이터에 새 버전을 붙이지 않음. 안전한 보호 폴링/완전 조회로 후퇴. **2026-09-20(D-056): 보호된 자체 폴링은 4B2에서 실행되지 않았으므로 이 롤백 대상은 아직 없다. 10D2가 신규 작성한다.**
 - **관측·보안·인계:** snapshot 버전·적용 실패·재시도 상한 증거,12A3 복원 generation 계약 인계.
 
 <a id="phase-10d1"></a>
@@ -681,7 +681,7 @@ BK-R043/044는 Open을 유지한다.
 - **작업:** 워커당 수명 관리 허브·제한된 queue와 실제 저장소의 신선한 세션/권한 조회를 구현한다. 허브 DB 확인 실패와 heartbeat 성공을 구분한다.
 - **인수 기준·기대 결과:** writer와 다른 워커 전달; 로그아웃/만료/PIN회수/역할변경·인증저장소 오류 상한; 구 범위 queue 폐기; 범위 밖 cursor·발생 빈도 정보 노출 거부.
 - **검증 명령·환경:** V-PG + V-STREAM: test orders.tests.test_sse_auth; test orders.tests.test_sse_server; commit 직후 kill·reload·slow consumer 검사.
-- **마이그레이션·롤백:** 인증·CSRF·안전한 DOM 유지한 자체 폴링. 외부 SDK 복원 금지; 새 schema/구writer는10B 규칙 준수.
+- **마이그레이션·롤백:** 인증·CSRF·안전한 DOM 유지한 자체 폴링. 외부 SDK 복원 금지; 새 schema/구writer는10B 규칙 준수. **2026-09-20(D-056): 보호된 자체 폴링은 4B2에서 실행되지 않았으므로 이 롤백 대상은 아직 없다. 10D2가 신규 작성한다.**
 - **관측·보안·인계:** BK-R038 주 담당. 허브 마지막 DB 확인·연결수·reset/권한회수 지표와 서버 프로토콜 인계.
 
 <a id="phase-10d2"></a>
@@ -694,7 +694,7 @@ BK-R043/044는 Open을 유지한다.
 - **작업:** 단일 EventSource/폴링 scheduler와 appliedRevision·인증세대 검사를 적용한다. PATCH 즉시 재조회도 같은 스케줄러에서 합친다.
 - **인수 기준·기대 결과:** CONNECTING/CLOSED·BFCache·네트워크 단절·HTTP 재조회 실패 후 재접속·같은세대43→42 응답·삭제/취소 뒤 늦은 목록 거부. 인증 상실 시 queue/진행 요청/화면 폐기. 허브 실패 heartbeat만으로 폴링 중단 금지.
 - **검증 명령·환경:** V-PG + V-STREAM + V-BROWSER: test orders.tests.test_sse_auth; test orders.tests.test_realtime; HTTP 실패 후 재접속·진행 PATCH와 늦은 목록 경합.
-- **마이그레이션·롤백:** 인증·CSRF·안전한 DOM 유지한 자체 폴링. 외부 SDK 복원 금지; 새 schema/구writer는10B 규칙 준수.
+- **마이그레이션·롤백:** 인증·CSRF·안전한 DOM 유지한 자체 폴링. 외부 SDK 복원 금지; 새 schema/구writer는10B 규칙 준수. **2026-09-20(D-056): 보호된 자체 폴링은 4B2에서 실행되지 않았으므로 이 롤백 대상은 아직 없다. 10D2가 신규 작성한다.**
 - **관측·보안·인계:** BK-R020/033 주 담당. 연결과 적용 버전·fallback/표시 지연 계측, 브라우저 전환 및 복구 증거 인계.
 
 <a id="phase-10e"></a>

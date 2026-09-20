@@ -101,11 +101,17 @@
       return m?decodeURIComponent(m.pop()):'';
     };
     const BOARD = document.getElementById('board');
+    const RELOAD_BUTTON = document.getElementById('btnReload');
     const STATUS = document.getElementById('status');
     // 8B: no limit. Waiting orders are a queue, so the server returns all of
     // them, oldest first, and says if its own safety bound ever bit.
     const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT";
     let LAST_PAGE = {total: null, has_more: false};
+    // When the LIST was last read. Not when the board was last drawn: a
+    // single-card refresh redraws without reading the list, and stamping that
+    // moment made the one notice this phase relies on tell a lie
+    // (PR #74 architecture review).
+    let LAST_LIST_READ_AT = null;
     const ORDER_DETAIL_URL = "{% url 'orders:order-detail' 0 %}";
     const ITEM_URL = "{% url 'orders:order-item-progress' 0 %}";
     const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
@@ -294,8 +300,10 @@
         .filter(includeOrder)
         .sort((a,b)=> new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       renderOrders(ordered);
-      const stamp = new Date();
-      let line = '읽은 시각 ' + stamp.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+      const read = LAST_LIST_READ_AT
+        ? LAST_LIST_READ_AT.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+        : '아직 없음';
+      let line = '목록 읽은 시각 ' + read
         + ' · 대기 주문 ' + ordered.length + '건 · 자동 갱신 안 함, 새로고침을 눌러 주세요';
       if (LAST_PAGE.has_more){
         // Say it rather than let the board go quiet about the rest.
@@ -313,17 +321,30 @@
     async function loadOrders(){
       if (isLoading) return;
       isLoading = true;
+      RELOAD_BUTTON.disabled = true;
+      // Nothing retries for us any more, so the one button has to show that
+      // it heard the press (PR #74 architecture review).
+      RELOAD_BUTTON.textContent = '읽는 중…';
       try{
         const data = await fetchJSON(ORDERS_URL);
         const results = data.results || [];
         LAST_PAGE = {total: data.total, has_more: !!data.has_more};
+        LAST_LIST_READ_AT = new Date();
         replaceOrders(results);
       }catch(e){
         console.error('주문 불러오기 실패', e);
-        BOARD.innerHTML = '<div class="empty">주문을 불러오지 못했습니다.</div>';
-        STATUS.textContent = '주문 로드 실패';
+        // Keep what is on the board. A dropped connection used to cost five
+        // seconds; with nothing retrying, wiping the cards would leave the
+        // kitchen with an empty screen until someone noticed the button.
+        LAST_PAGE = {total: null, has_more: false};
+        STATUS.textContent = LAST_LIST_READ_AT
+          ? '읽기 실패 · 화면은 ' + LAST_LIST_READ_AT.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+            + ' 목록입니다 · 새로고침을 다시 눌러 주세요'
+          : '주문을 불러오지 못했습니다 · 새로고침을 다시 눌러 주세요';
       }finally{
         isLoading = false;
+        RELOAD_BUTTON.disabled = false;
+        RELOAD_BUTTON.textContent = '새로고침';
       }
     }
 
@@ -347,6 +368,10 @@
       }
     }
 
+    // Kept after 4B2 removed the subscription that first justified it. A
+    // volunteer tapping several items of one order in quick succession still
+    // produces a burst, and this collapses it into one fetch per order
+    // (PR #74 code review).
     function queueOrderRefresh(orderId){
       if (!orderId) return;
       if (ORDER_REFRESH_QUEUE.has(orderId)) return;
@@ -400,7 +425,7 @@
       }
     }
 
-    document.getElementById('btnReload').addEventListener('click', ()=>{
+    RELOAD_BUTTON.addEventListener('click', ()=>{
       loadOrders();
     });
 
