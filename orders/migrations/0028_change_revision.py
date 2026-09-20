@@ -61,7 +61,7 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.CheckConstraint(
                         condition=models.Q(("value__gte", 0)),
-                        name="change_revision_never_decreases",
+                        name="change_revision_is_not_negative",
                     )
                 ],
             },

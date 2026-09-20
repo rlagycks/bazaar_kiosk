@@ -467,11 +467,19 @@ def order_item_progress(request: HttpRequest, item_id: int):
             status_service.sync_from_items(order)
             if order.status != previous:
                 audit.record_status(order, request.auth_account, previous=previous)
-            # 10B: the write most easily missed. It is saved here rather than in
-            # a service, and a partly-cooked order keeps its status -- so a
-            # marker wired to the status change alone would sit still while the
-            # board went stale (PR #77 writer audit).
-            if changed:
+            # 10B: the write most easily missed, in both directions. It is
+            # saved here rather than in a service, and *either* half can move
+            # without the other.
+            #
+            # An earlier version asked only `if changed`, and that was wrong.
+            # `sync_from_items` writes the order row whenever the quantities
+            # imply a different status, including when this request changed no
+            # quantity at all: an order manually set READY while an item is
+            # still outstanding drops back to PREPARING the moment anyone
+            # re-taps a finished item. The order row committed and no screen
+            # was told -- with polling gone (4B2), permanently (PR #77 review,
+            # reproduced against PostgreSQL).
+            if changed or order.status != previous:
                 revisions.mark()
             order.refresh_from_db()
     except OrderItem.DoesNotExist:

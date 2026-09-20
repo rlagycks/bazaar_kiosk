@@ -12,10 +12,17 @@ change it never fetched. `OrderNumberCounter` (D-047) uses the same mechanism
 for order numbers, for a related reason.
 
 `scope` exists so this can be split later without changing shape. Today there
-is exactly one row, and that is deliberate: an event day being registered
-changes what every order on every screen displays without writing to a single
-order row, so a marker scoped per order -- or per floor -- would not notice it.
-One number for one board is the honest granularity while there is one board.
+is exactly one row.
+
+Two arguments, and only the second one reaches the conclusion. An event day
+being registered changes what every order on every screen displays without
+writing to a single order row, so a marker scoped *per order* cannot work --
+but that rules out per-order, not per-screen; a `{hall, takeout, stats}` split
+where cross-cutting edits bump all three would have handled it too. The reason
+there is one row is the plainer one: there is one board, the screens are few,
+and waking a screen that did not need waking costs a refetch nobody notices at
+this size. That cost has not been measured, and it is what decides when to
+split (PR #77 architecture review).
 """
 
 from __future__ import annotations
@@ -38,8 +45,15 @@ class ChangeRevision(models.Model):
         verbose_name = "변경 표시"
         verbose_name_plural = "변경 표시"
         constraints = [
+            # Named for what it does. An earlier name said "never decreases",
+            # which `value >= 0` does not enforce at all -- `SET value = 3` on
+            # a row holding 5 passes it. Monotonicity is a property of
+            # `revisions.mark()` being the only writer, which a test pins;
+            # promising it here would have left the next reader trusting the
+            # database for something the database was not checking
+            # (PR #77 architecture review).
             models.CheckConstraint(
-                name="change_revision_never_decreases",
+                name="change_revision_is_not_negative",
                 condition=models.Q(value__gte=0),
             ),
         ]

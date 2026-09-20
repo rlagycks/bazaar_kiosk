@@ -22,6 +22,11 @@ from orders.services import revisions
 
 def recalc_totals(order: Order) -> None:
     with transaction.atomic():
+        # Locked first, like every other writer: the sum below is read from the
+        # lines and written to the order, and without the lock a concurrent
+        # line edit lands between the two and the rescue stores a total that
+        # was never true (PR #77 code review).
+        Order.objects.select_for_update().get(pk=order.pk)
         agg = order.items.aggregate(total=Sum(F("qty") * F("unit_price")))
         total = int(agg["total"] or 0)
         Order.objects.filter(pk=order.pk).update(total_price=total)

@@ -6,18 +6,28 @@ Three rules, each of which a test pins:
    it from code that then fails would send every screen to refetch a change
    that does not exist, and nothing would ever undo it.
 
-2. **Locked last.** The counter row is taken at the *end* of the writer's
-   transaction, never at the start. Order creation locks the number counter;
-   cooking progress locks the order and then its item. If the marker were
-   taken first, two writers acquiring in opposite directions would deadlock --
-   which is exactly the reversal the blueprint asked to be reproduced. Taken
-   last, nothing is acquired after it, so it cannot be the middle of a cycle.
+2. **Locked last.** The counter row is the last row a writer locks that any
+   other writer could also be holding. Order creation locks the number
+   counter; cooking progress locks the order and then its item. If the marker
+   were taken first, two writers acquiring in opposite directions would
+   deadlock -- exactly the reversal the blueprint asked to be reproduced.
+   Taken last, it cannot be the middle of a cycle.
+
+   Stated precisely, because the first version of this sentence said "nothing
+   is acquired after it" and that was not true: Django writes an admin
+   `LogEntry` after `save_related` returns, and `marker_contention.py` is not
+   the only thing that could add a write later. What matters is narrower and
+   is what holds -- no row another writer contends for is taken afterwards.
+   The admin used to break even the narrow version by marking in `save_model`
+   and then writing inline items; that is fixed in `orders/admin.py` and the
+   reason is recorded there (PR #77 security review).
 
 3. **The value is opaque.** It is not a count of changes and nothing should
-   read it as one. One admin save moves it twice (the order, then its lines);
-   one order moves it once. A reader compares it with the one it holds and
-   refetches when they differ -- that is the entire protocol, and it is what
-   "latest state converges" (D-019) means as opposed to replaying transitions.
+   read it as one: one admin save that rewrites the note, three lines and the
+   total moves it by one, and so does one new order. A reader compares it with
+   the value it holds and refetches when they differ -- that is the entire
+   protocol, and it is what "latest state converges" (D-019) means as opposed
+   to replaying transitions.
 
 What this deliberately does *not* do is stamp a revision onto each order row.
 Rule 2 forbids it: the marker's value does not exist until the end of the
@@ -29,7 +39,7 @@ protocol is ever wanted, that is a new decision and a new column.
 
 from __future__ import annotations
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from orders.models import BOARD, ChangeRevision
 
@@ -73,9 +83,13 @@ def _counter() -> ChangeRevision:
     try:
         with transaction.atomic():
             ChangeRevision.objects.create(scope=BOARD, value=0)
-    except Exception:
+    except IntegrityError:
         # Someone else created it between the read and the insert. Their row is
-        # the one to lock.
+        # the one to lock. Only this one exception is expected here: catching
+        # anything else would swallow a missing table, a missing INSERT grant
+        # or a connection failure, and re-raise it one line later as an opaque
+        # DoesNotExist -- from *every* write endpoint at once, since nearly all
+        # of them mark. The cause has to stay visible (PR #77 security review).
         pass
     return ChangeRevision.objects.select_for_update().get(scope=BOARD)
 
@@ -101,10 +115,17 @@ def save_and_mark(instance, **fields) -> int:
     task, a shell, a future endpoint -- so that neither route is the one that
     quietly leaves the board stale.
     """
+    if not fields:
+        # `update_fields=None` is a full-row save, so calling this with nothing
+        # to change would write every field from whatever the in-memory object
+        # happens to hold -- overwriting a concurrent edit with stale values
+        # while looking like a no-op. Say so instead (PR #77 code review).
+        raise ValueError("save_and_mark() needs at least one field to change; "
+                         "to announce a change without writing, call mark().")
     with transaction.atomic():
         for name, value in fields.items():
             setattr(instance, name, value)
-        instance.save(update_fields=list(fields) or None)
+        instance.save(update_fields=list(fields))
         return mark()
 
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 import ast
 import pathlib
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 ORDERS = pathlib.Path(__file__).resolve().parent.parent
 
@@ -31,16 +31,27 @@ ORDERS = pathlib.Path(__file__).resolve().parent.parent
 WRITE_CALLS = frozenset({
     "save", "create", "bulk_create", "bulk_update", "update", "delete",
     "get_or_create", "update_or_create",
-    # async ORM writes: none today, and this is where they would appear
+    # async ORM writes: none today, and this is where they would appear.
+    # 10D1 is an async hub, so this half of the list is the half that will
+    # start mattering (PR #77 review: three of these were missing).
     "acreate", "asave", "aupdate", "adelete", "abulk_create",
+    "abulk_update", "aget_or_create", "aupdate_or_create",
 })
 
 # Receivers whose `.save()`/`.update()`/`.delete()` is not a database write.
+#
+# Kept as short as it can be. Every name here is a name this scanner will not
+# look at again, and a missed writer fails silently while a false alarm fails
+# loudly and gets fixed in a minute -- so the two errors are not worth the same
+# and the list only holds names that cannot plausibly be a model. An earlier
+# version had `results`, `counts`, `totals`, `seen`, `errors` and `context` in
+# it, which are ordinary names for an ordinary variable holding a row
+# (PR #77 review). `form` and `request` came out for the same reason:
+# `form.instance.save()` is the commonest way in Django to write a model.
 NOT_A_MODEL = frozenset({
-    "formset", "form", "request", "response", "session", "cache", "payload",
-    "defaults", "flags", "self.client", "client", "counts", "totals", "seen",
-    "results", "codes", "outcomes", "errors", "connection", "connections",
-    "os", "sys", "shutil", "pathlib", "json", "settings", "context",
+    "formset", "response", "session", "cache",
+    "self.client", "client", "connection", "connections",
+    "os", "sys", "shutil", "pathlib", "json", "settings",
 })
 
 # Directories that are not the request path. Migrations write rows too, but
@@ -148,19 +159,23 @@ INVENTORY: dict[str, tuple[str, str]] = {
     ),
     # ---- the admin -----------------------------------------------------------
     "admin:OrderAdmin.save_model": (
-        Classification.MARKS,
-        "Order note and status. Django wraps the change form in a transaction; "
-        "the mark joins it.",
+        Classification.INSIDE_A_MARKED_WRITE,
+        "Order note and status, written directly rather than through a "
+        "service. Django calls save_related after this, in the same "
+        "transaction, and that is where the mark happens -- so the counter "
+        "row is not held across the inline writes (PR #77 security review).",
     ),
     "admin:OrderAdmin.save_formset": (
-        Classification.MARKS,
+        Classification.INSIDE_A_MARKED_WRITE,
         "Order lines added, edited and removed -- direct instance writes, not "
-        "through a service (PR #77 audit, bypasses 5 and 6).",
+        "through a service (PR #77 audit, bypasses 5 and 6). Called by "
+        "save_related, which marks after it returns.",
     ),
     # `MarksTheBoard` (TableAdmin, MenuItemAdmin, EventDayAdmin) is not listed:
     # it delegates the write to Django's generic ModelAdmin through super() and
-    # marks afterwards, so it is not itself a write call site. The scan cannot
-    # see it, which is why the admin paths are exercised for real in
+    # marks in `save_related`, so it is not itself a write call site. The scan
+    # cannot see it, which is why the admin paths -- change form, editable
+    # change list, single delete and bulk delete -- are exercised for real in
     # test_change_tracking.py rather than asserted here.
     # ---- authentication: not display state -----------------------------------
     "authentication:issue_tokens": (
@@ -209,7 +224,15 @@ def _module_name(path: pathlib.Path) -> str:
 
 
 def _enclosing(tree: ast.AST) -> dict[int, str]:
-    """Line number -> the function (or Class.method) that contains it."""
+    """Line number -> the innermost function (or Class.method) containing it.
+
+    Innermost, not outermost. The first version claimed each function's whole
+    line range before recursing, so a write inside a closure was credited to
+    the function around it -- and if that outer function was already in
+    INVENTORY, the new writer passed silently. That is precisely the case this
+    file exists to fail on (PR #77 review, reproduced). Recursing first and
+    letting the inner name win fixes it.
+    """
     owner: dict[int, str] = {}
 
     def walk(node, prefix=""):
@@ -219,9 +242,9 @@ def _enclosing(tree: ast.AST) -> dict[int, str]:
                 continue
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 name = f"{prefix}{child.name}"
+                walk(child, f"{name}.")
                 for line in range(child.lineno, (child.end_lineno or child.lineno) + 1):
                     owner.setdefault(line, name)
-                walk(child, prefix)
                 continue
             walk(child, prefix)
 
@@ -235,7 +258,10 @@ def find_writers() -> dict[str, set[int]]:
     for path in sorted(ORDERS.rglob("*.py")):
         if any(part in SKIPPED for part in path.relative_to(ORDERS).parts):
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError as exc:  # pragma: no cover - a broken file fails earlier
+            raise AssertionError(f"{path} does not parse: {exc}") from None
         owner = _enclosing(tree)
         module = _module_name(path)
         for node in ast.walk(tree):
@@ -250,6 +276,84 @@ def find_writers() -> dict[str, set[int]]:
                 continue  # module level; none today, and it would be a bug
             found.setdefault(f"{module}:{function}", set()).add(node.lineno)
     return found
+
+
+# Models whose rows change what a screen shows, or what a screen is allowed to
+# show. Every admin registered for one of these has to mark the board.
+#
+# The second half of that sentence is the half the first pass got wrong. The
+# question asked was "does a screen draw this?", which put `Account` in the
+# "no" column -- no screen draws an account. But `_identity` reads an account's
+# permissions from the database on every request and `scope.visible` narrows
+# the orders a caller may see by them, so switching one off changes what a
+# screen may hold without touching an order row (PR #77 architecture review).
+DISPLAY_STATE_MODELS = frozenset({
+    "Order", "OrderItem", "MenuItem", "Table", "EventDay", "Account",
+})
+
+# Registered admins for models that are deliberately not display state, with
+# the reason. Anything else registered for a model outside DISPLAY_STATE_MODELS
+# has to be named here, so "is this display state?" gets asked once per model
+# rather than never.
+ADMINS_THAT_NEED_NO_MARK = {
+    "OrderEvent": "Read-only in the admin (D-051); history, not state.",
+    "ChangeRevision": "The marker itself.",
+}
+
+
+class AdminCoverageTests(TestCase):
+    """The scanner is blind to admins, so this asks Django instead.
+
+    A new `@admin.register(...)` adds a writer without adding a single write
+    call to `orders/` -- Django's generic `ModelAdmin` does the saving, from
+    `django/contrib/admin/options.py`. The AST scan cannot see that, and
+    `AccountAdmin` went in through exactly that gap. This walks the live
+    registry instead of the source.
+    """
+
+    def registered(self):
+        from django.contrib import admin
+
+        return {
+            model: admin_class
+            for model, admin_class in admin.site._registry.items()
+            if model._meta.app_label == "orders"
+        }
+
+    def test_every_admin_for_display_state_marks_the_board(self):
+        from orders.admin import MarksTheBoard
+
+        unmarked = []
+        for model, admin_class in self.registered().items():
+            name = model.__name__
+            if name not in DISPLAY_STATE_MODELS:
+                continue
+            marks = isinstance(admin_class, MarksTheBoard) or any(
+                name in type(admin_class).__dict__
+                for name in ("save_related", "save_model", "changelist_view")
+            )
+            if not marks:
+                unmarked.append(name)
+        self.assertEqual(
+            unmarked, [],
+            "These admins write state a screen depends on without telling it. "
+            "Add the MarksTheBoard mixin, or mark explicitly: " + ", ".join(unmarked),
+        )
+
+    def test_every_other_registered_admin_has_been_considered(self):
+        unclassified = sorted(
+            model.__name__ for model in self.registered()
+            if model.__name__ not in DISPLAY_STATE_MODELS
+            and model.__name__ not in ADMINS_THAT_NEED_NO_MARK
+        )
+        self.assertEqual(
+            unclassified, [],
+            "A model was registered in the admin and nobody said whether "
+            "changing it changes what a screen shows -- or what a screen is "
+            "allowed to show, which is the part that was missed once already. "
+            "Add it to DISPLAY_STATE_MODELS or to ADMINS_THAT_NEED_NO_MARK "
+            "with a reason: " + ", ".join(unclassified),
+        )
 
 
 class WriterInventoryTests(SimpleTestCase):

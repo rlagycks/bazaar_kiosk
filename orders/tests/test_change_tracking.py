@@ -86,8 +86,14 @@ class ScreenVisibleWritesMoveTheMarkerTests(MarkerFixture, TestCase):
         """One order, one step -- not one per row the transaction wrote.
 
         Order creation writes the order, its lines, the number and the audit
-        row. A screen sees one new order, so the marker moves once; a reader
-        never has to reconcile a number that grew with implementation detail.
+        row. A screen sees one new order, so the marker moves once.
+
+        This asserts an exact value, which readers are told not to do (the
+        value is opaque; only "same or different" is a contract). The
+        difference is who is being pinned: a *screen* must not do arithmetic
+        on it, but this suite is pinning the *implementation* -- that each
+        unit of work marks once and not once per writer. That is worth
+        holding, and it is how the admin's double mark was caught.
         """
         client = self.client_class()
         login_client(client, "SERVING")
@@ -139,6 +145,52 @@ class ScreenVisibleWritesMoveTheMarkerTests(MarkerFixture, TestCase):
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(self.marker(), before)
+
+    def test_progress_that_only_moves_the_status_still_moves_the_marker(self):
+        """The branch the first version of this phase got wrong (PR #77).
+
+        The mark was wired to `changed` -- whether the item's quantity moved --
+        but the order's status can move without it. Reachable in the kitchen:
+
+        1. two items, one already cooked, one not; the order is PREPARING;
+        2. a monitor marks the whole order READY, which the transition table
+           allows and which never looks at the items;
+        3. someone taps the already-finished item again. `done: true` sets
+           `prepared_qty` to the value it already had, so `changed` is False;
+        4. `sync_from_items` sees the second item outstanding and puts the
+           order back to PREPARING -- a real, committed write;
+        5. the mark was skipped.
+
+        The order went READY -> PREPARING in the database and every screen kept
+        showing READY, with no polling left to correct it (4B2). That is the
+        exact failure this phase exists to remove.
+        """
+        order, cooked = self.make_order(qty=1, prepared=1)
+        waiting = OrderItem.objects.create(
+            order=order, menu_item=self.menu, qty=1, unit_price=9000, prepared_qty=0,
+        )
+        ready = self.client_kitchen.patch(
+            reverse("orders:order-status", args=[order.id]),
+            {"status": OrderStatus.READY}, content_type="application/json",
+        )
+        self.assertEqual(ready.status_code, 200, ready.content)
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.READY)
+
+        before = self.marker()
+        response = self.client_kitchen.patch(
+            reverse("orders:order-item-progress", args=[cooked.id]),
+            {"done": True}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.PREPARING, "the status did move")
+        self.assertEqual(waiting.qty, 1)
+        self.assertGreater(
+            self.marker(), before,
+            "the order row was written; every screen is now showing a stale status",
+        )
 
     def test_progress_that_changes_nothing_does_not_move_the_marker(self):
         order, item = self.make_order(qty=2, prepared=1)
@@ -210,6 +262,41 @@ class AdminWritesMoveTheMarkerTests(MarkerFixture, TestCase):
         )
         self.client.force_login(self.operator)
 
+    def test_a_whole_admin_save_moves_the_marker_exactly_once(self):
+        """Note, lines and recomputed total are one edit, so one step.
+
+        This also pins where the mark happens. It used to be in `save_model`,
+        which runs *before* Django writes the inline items -- so the counter
+        row was locked and then held for the rest of the form submission, and
+        the lock order was the reverse of every other writer's. Moving it to
+        `save_related` made it one mark instead of two, which is why this
+        asserts the exact value rather than just an increase.
+        """
+        order, item = self.make_order(qty=2)
+        before = self.marker()
+        response = self.client.post(
+            reverse("admin:orders_order_change", args=[order.pk]),
+            {
+                "status": order.status,
+                "note": "창가 자리",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "1",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-id": str(item.pk),
+                "items-0-order": str(order.pk),
+                "items-0-menu_item": str(self.menu.pk),
+                "items-0-qty": "1",
+                "items-0-service_mode": item.service_mode,
+                "items-0-prepared_qty": "0",
+                "_save": "Save",
+            },
+        )
+        self.assertEqual(response.status_code, 302, response.content[:600])
+        order.refresh_from_db()
+        self.assertEqual(order.note, "창가 자리")
+        self.assertEqual(self.marker(), before + 1)
+
     def test_editing_a_menu_price_in_the_admin_moves_the_marker(self):
         before = self.marker()
         response = self.client.post(
@@ -230,6 +317,34 @@ class AdminWritesMoveTheMarkerTests(MarkerFixture, TestCase):
         )
         self.assertEqual(response.status_code, 302, response.content[:400])
         self.assertTrue(EventDay.objects.filter(date="2026-09-20").exists())
+        self.assertGreater(self.marker(), before)
+
+    def test_editing_a_price_in_the_admin_list_moves_the_marker(self):
+        """The other route to the same edit, and a separate code path.
+
+        `list_editable` puts the price straight in the change list, so an
+        operator never opens the change form. Django handles that at
+        `options.py:2114` with its own transaction and its own call to
+        `save_model` -- which the mixin covers, but only because it overrides
+        `save_model` rather than the change form's view.
+        """
+        before = self.marker()
+        response = self.client.post(
+            reverse("admin:orders_menuitem_changelist"),
+            {
+                "form-TOTAL_FORMS": "1",
+                "form-INITIAL_FORMS": "1",
+                "form-MIN_NUM_FORMS": "0",
+                "form-MAX_NUM_FORMS": "1000",
+                "form-0-id": str(self.menu.pk),
+                "form-0-price": "11000",
+                "form-0-sort_index": str(self.menu.sort_index),
+                "_save": "Save",
+            },
+        )
+        self.assertEqual(response.status_code, 302, response.content[:400])
+        self.menu.refresh_from_db()
+        self.assertEqual(self.menu.price, 11000)
         self.assertGreater(self.marker(), before)
 
     def test_deleting_a_table_in_the_admin_moves_the_marker(self):
@@ -305,9 +420,14 @@ class MarkerIsHandedOutInCommitOrderTests(MarkerFixture, TransactionTestCase):
                 with transaction.atomic():
                     results["slow"] = revisions.mark()
                     took_first.set()
-                    # Hold the transaction open well past the point where the
-                    # other writer has tried to take its own number.
-                    second_committed.wait(timeout=3)
+                    # Hold the transaction open past the point where the other
+                    # writer has tried to take its own number. This wait always
+                    # runs out: the other thread cannot set the event until it
+                    # has the row lock, which it cannot get until this
+                    # transaction ends. The row lock is the real
+                    # synchronisation, so the timeout only has to be long
+                    # enough for the other thread to reach and block on it.
+                    second_committed.wait(timeout=0.5)
             except Exception as exc:  # pragma: no cover - surfaced below
                 errors.append(exc)
             finally:
@@ -358,6 +478,33 @@ class MarkerIsHandedOutInCommitOrderTests(MarkerFixture, TransactionTestCase):
         self.assertEqual(errors, [])
         self.assertEqual(seen.get("value"), written)
 
+    def test_nothing_but_mark_writes_the_counter(self):
+        """Monotonicity lives here, not in a database constraint.
+
+        The CHECK on the row only says the value is not negative -- it cannot
+        say "never decreases", and an earlier version of its *name* claimed it
+        could. What actually keeps the value going up is that `mark()` is the
+        only thing that writes it, and it only ever adds one. So that is what
+        is pinned, and a future writer that sets the value directly has to
+        come here and change this test on purpose (PR #77 review).
+        """
+        from orders.models import BOARD, ChangeRevision
+
+        with transaction.atomic():
+            revisions.mark()
+        start = revisions.current()
+        self.assertGreater(start, 0)
+
+        # The service offers no way to set it, only to advance it.
+        self.assertFalse(hasattr(revisions, "set"))
+        with self.assertRaises(ValueError):
+            revisions.save_and_mark(ChangeRevision.objects.get(scope=BOARD))
+
+        for _ in range(3):
+            with transaction.atomic():
+                revisions.mark()
+        self.assertEqual(revisions.current(), start + 3)
+
     def test_marking_outside_a_transaction_is_refused(self):
         """The marker says "something committed".
 
@@ -396,6 +543,70 @@ class ConcurrentOrderWritesDoNotDeadlockTests(MarkerFixture, TransactionTestCase
     instead -- nothing is acquired after it -- so it cannot be the middle of a
     cycle.
     """
+
+    def test_an_admin_save_and_a_kitchen_update_at_once_both_finish(self):
+        """The path the first version of this design got wrong.
+
+        `OrderAdmin` marked in `save_model` and then let Django write the
+        inline items, so it locked `Order -> ChangeRevision -> OrderItem`
+        while the kitchen locks `Order -> OrderItem -> ChangeRevision`. No
+        test ran the two together, so nothing said so (PR #77 security
+        review). This runs them together.
+        """
+        order, item = self.make_order(qty=2)
+        operator = get_user_model().objects.create_superuser(
+            "op2", "op2@example.invalid", "synthetic-admin-password-for-tests"
+        )
+        start = threading.Barrier(2)
+        codes = {}
+        errors = []
+
+        def edit_in_the_admin():
+            try:
+                client = self.client_class()
+                client.force_login(operator)
+                start.wait(timeout=5)
+                codes["admin"] = client.post(
+                    reverse("admin:orders_order_change", args=[order.pk]),
+                    {
+                        "status": order.status, "note": "동시 편집",
+                        "items-TOTAL_FORMS": "1", "items-INITIAL_FORMS": "1",
+                        "items-MIN_NUM_FORMS": "0", "items-MAX_NUM_FORMS": "1000",
+                        "items-0-id": str(item.pk), "items-0-order": str(order.pk),
+                        "items-0-menu_item": str(self.menu.pk), "items-0-qty": "1",
+                        "items-0-service_mode": item.service_mode,
+                        "items-0-prepared_qty": "0", "_save": "Save",
+                    },
+                ).status_code
+            except Exception as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        def cook():
+            try:
+                client = self.client_class()
+                login_client(client, "KITCHEN")
+                start.wait(timeout=5)
+                codes["progress"] = client.patch(
+                    reverse("orders:order-item-progress", args=[item.id]),
+                    {"prepared_qty": 1}, content_type="application/json",
+                ).status_code
+            except Exception as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=edit_in_the_admin),
+                   threading.Thread(target=cook)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(codes.get("admin"), 302, codes)
+        self.assertEqual(codes.get("progress"), 200, codes)
 
     def test_a_new_order_and_a_progress_update_at_once_both_finish(self):
         order, item = self.make_order(qty=2)
