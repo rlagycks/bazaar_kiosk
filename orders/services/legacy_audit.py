@@ -31,10 +31,14 @@ INTERPRETABLE = UNSPLIT & Q(payment_method__in=(PaymentMethod.CASH, PaymentMetho
 UNATTRIBUTED = UNSPLIT & Q(payment_method=PaymentMethod.CASH_TICKET)
 
 _SPLIT_SUM = Coalesce(F("received_cash_amount"), Value(0)) + Coalesce(F("received_ticket_amount"), Value(0))
-# A row that carries both a total and a split, and they do not agree. Only
-# rows that have both are compared: a missing side is absence, not a conflict.
-_HAS_BOTH = Q(received_amount__isnull=False) & ~UNSPLIT
-_MISMATCH = _HAS_BOTH & ~Q(received_amount=_SPLIT_SUM)
+# A row that carries a total and at least one split figure, where the two do
+# not agree. A NULL on one side counts as zero, which is right because the
+# only writer sets the pair together (api.py): one side NULL means that
+# method took nothing, not that the figure is missing. A future writer that
+# filled one side alone would land here too, and should be read as a conflict
+# rather than passed over (PR #72 code review).
+_HAS_SPLIT = Q(received_amount__isnull=False) & ~UNSPLIT
+_MISMATCH = _HAS_SPLIT & ~Q(received_amount=_SPLIT_SUM)
 
 
 def survey() -> dict:

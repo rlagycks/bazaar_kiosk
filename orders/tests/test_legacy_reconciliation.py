@@ -148,6 +148,22 @@ class LegacySurveyTests(LegacyFixture, TestCase):
         self.assertEqual(before, after)
         self.assertEqual(Order.objects.count(), 1)
 
+    def test_the_survey_is_one_query_however_many_orders_there_are(self):
+        """The command runs against every order with no bound, so the cost has
+        to stay flat (PR #72 code review)."""
+        for _ in range(5):
+            self.legacy_order(method="CASH_TICKET", received=5000)
+        with self.assertNumQueries(1):
+            legacy_audit.survey()
+
+    def test_a_split_filled_on_one_side_only_is_still_compared(self):
+        """One NULL side means that method took nothing. A total that does not
+        match what the other side holds is a conflict, not an absence."""
+        self.legacy_order(method="CASH", received=9000, cash=5000, ticket=None)
+        survey = legacy_audit.survey()
+        self.assertEqual(survey["mismatched"], {"count": 1, "difference": 4000})
+        self.assertEqual(survey["unsplit"]["count"], 0)
+
     def test_the_command_prints_the_survey_and_changes_nothing(self):
         from io import StringIO
         self.legacy_order(method="CASH", received=5000)

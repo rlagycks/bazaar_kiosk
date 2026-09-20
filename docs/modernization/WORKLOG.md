@@ -60,6 +60,8 @@
 - 마이그레이션 없음. 백필 없음.
 - 검증: 전용 PG `check`·`makemigrations --check` 무결, **마이그레이션 24 + 앱 326 통과, skip 0**.
 - 문서: [LEGACY_AMOUNTS.md](LEGACY_AMOUNTS.md) 신설, DECISIONS D-054·D-012, BLUEPRINT 7C, RISK BK-R007/031, README.
+- **PR #72 리뷰:** 코드 에이전트 CRITICAL/HIGH 없음. MEDIUM 1건(쿼리 수 회귀 부재)과 LOW 1건(한쪽만 채워진
+  분할의 비교 동작이 주석과 다름)을 반영했다.
 - 남은 것: 운영 DB에 데이터가 발견되면 D-037 무효(이 명령이 근거), 삭제된 필드 복구는 백업뿐, 메뉴 이름 스냅샷(D-008).
 
 ## 2026-09-20 — 8C 통계 정확성: 기간·정산·과거 표시 (D-053)
