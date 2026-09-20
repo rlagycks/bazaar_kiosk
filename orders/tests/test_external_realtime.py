@@ -62,13 +62,20 @@ class NoExternalCodeOrKeysTests(TestCase):
                 self.assertEqual(found, [], f"{name} addresses another origin: {found}")
 
     def test_no_live_template_opens_a_stream_or_a_worker(self):
-        """The transports a URL check alone would not make obvious. When
-        10D adds SSE it will be to this server, and this test is where that
-        change has to be stated rather than slipped in."""
+        """The transports a URL check alone would not make obvious. 10D2
+        added the one SSE connection this project has, to this server, and
+        it lives in `kitchen_live.js` behind a same-origin check -- see
+        `test_realtime.py` and `scripts/test_kitchen_live.cjs`. No template
+        opens one, and no other shared script does either."""
         for name in LIVE_TEMPLATES:
             with self.subTest(template=name):
                 found = REMOTE_API.findall(read(name))
                 self.assertEqual(found, [], f"{name} opens {found}")
+        for name in shared_scripts():
+            if name == "kitchen_live.js":
+                continue
+            with self.subTest(script=name):
+                self.assertIsNone(REMOTE_API.search(read_js(name)), f"{name} opens a stream")
 
     def test_the_view_layer_hands_no_external_configuration_to_a_page(self):
         source = (settings.BASE_DIR / "orders/views/pages.py").read_text(encoding="utf-8")
@@ -104,46 +111,48 @@ class RenderedPagesAreCleanTests(TestCase):
 
 
 SHARED_JS = "orders/static/orders/ui/"
-# 10D2 will add a single EventSource/polling scheduler, and this fence is
-# meant to expire then. Loosening it is how that change gets stated out loud
-# instead of slipping in (PR #74 architecture review).
+# 4B2 fenced off every timer until 10D2 brought the one scheduler that may
+# arm them. The fence now says where a timer is allowed to live -- in
+# `kitchen_live.js`, one-shot, and stopped while the stream is healthy (the
+# node tests drive that) -- and that nothing else re-arms a read.
 RESCHEDULING_TIMEOUT = re.compile(r"setTimeout\s*\(\s*(?:loadOrders|tick|poll|schedule)", re.I)
+THE_SCHEDULER = "kitchen_live.js"
 
 
 def read_js(name):
     return (settings.BASE_DIR / SHARED_JS / name).read_text(encoding="utf-8")
 
 
-class TheBoardDoesNotPretendToBeLiveTests(TestCase):
-    """No timer, and the screen says as much."""
+def shared_scripts():
+    import os
 
-    def test_nothing_schedules_a_repeating_reload(self):
+    return sorted(n for n in os.listdir(settings.BASE_DIR / SHARED_JS) if n.endswith(".js"))
+
+
+class TheBoardSaysHowLiveItIsTests(TestCase):
+    """One scheduler, and the screen says which way it is being kept current."""
+
+    def test_nothing_in_the_template_schedules_a_repeating_reload(self):
         source = read("kitchen_supervisor.html")
-        for pattern in ("setInterval", "AUTO_MS", "startPolling", "stopPolling"):
+        for pattern in ("setInterval", "AUTO_MS", "startPolling", "stopPolling", "setTimeout"):
             with self.subTest(pattern=pattern):
                 self.assertNotIn(pattern, source)
 
-    def test_no_shared_script_schedules_a_reload_either(self):
+    def test_only_the_scheduler_arms_timers_and_never_a_repeating_one(self):
         """The fence has to cover the files the page also loads, or a timer
         moved one directory over would pass."""
-        import os
-
-        for name in sorted(os.listdir(settings.BASE_DIR / SHARED_JS)):
-            if not name.endswith(".js"):
-                continue
+        for name in shared_scripts():
             with self.subTest(script=name):
                 source = read_js(name)
                 self.assertNotIn("setInterval", source)
-                self.assertIsNone(RESCHEDULING_TIMEOUT.search(source))
-
-    def test_a_timeout_does_not_reschedule_the_list_read(self):
-        """A `setTimeout` that re-arms itself is a timer under another name."""
-        self.assertIsNone(RESCHEDULING_TIMEOUT.search(read("kitchen_supervisor.html")))
+                if name != THE_SCHEDULER:
+                    self.assertNotIn("setTimeout(", source.replace("window.setTimeout(resolve", ""))
+                    self.assertIsNone(RESCHEDULING_TIMEOUT.search(source))
 
     def test_the_read_time_shown_is_the_list_read_not_the_redraw(self):
-        """A single-card refresh redraws without reading the list. Stamping
-        that moment made this notice claim a freshness it did not have
-        (PR #74 architecture review)."""
+        """The scheduler stamps the moment a snapshot was applied or
+        confirmed; the status line shows that and nothing it made up while
+        drawing (PR #74 architecture review)."""
         source = read("kitchen_supervisor.html")
         self.assertIn("LAST_LIST_READ_AT", source)
         render = source.split("function renderFromStore", 1)[1].split("function ", 1)[0]
@@ -151,26 +160,33 @@ class TheBoardDoesNotPretendToBeLiveTests(TestCase):
         self.assertNotIn("new Date()", render)
 
     def test_a_failed_read_keeps_the_cards_and_says_so(self):
-        """Nothing retries now, so wiping the board on one dropped request
-        would leave the kitchen with an empty screen."""
+        """The scheduler keeps polling after a failed read, but the cards
+        must stay up meanwhile: wiping them would leave the kitchen with an
+        empty screen for the length of one poll."""
         source = read("kitchen_supervisor.html")
-        failure = source.split("console.error('주문 불러오기 실패'", 1)[1][:600]
-        self.assertNotIn("BOARD.innerHTML", failure)
-        self.assertIn("STATUS.textContent", failure)
+        handler = source.split("function onLiveStatus", 1)[1].split("\n    }\n", 1)[0]
+        self.assertNotIn("BOARD.innerHTML", handler)
+        self.assertNotIn("ORDER_STORE.clear", handler)
+        self.assertIn("주문 불러오기 실패", handler)
+        self.assertIn("읽기 실패", source.split("function describeFreshness", 1)[1][:600])
 
     def test_the_only_refresh_control_shows_that_it_heard_the_press(self):
         source = read("kitchen_supervisor.html")
-        self.assertIn("RELOAD_BUTTON.disabled = true", source)
-        self.assertIn("RELOAD_BUTTON.disabled = false", source)
+        self.assertIn("RELOAD_BUTTON.disabled = state.inFlight", source)
 
-    def test_the_screen_says_it_does_not_refresh_itself(self):
-        """A stale board must not read as a quiet kitchen."""
+    def test_the_screen_distinguishes_live_from_polling(self):
+        """A board polling because its hub is broken must not read as live,
+        and a live board must not tell the kitchen to press refresh."""
         source = read("kitchen_supervisor.html")
-        self.assertIn("자동 갱신", source)
+        self.assertIn("실시간", source)
+        self.assertIn("다시 읽음", source)
+        self.assertNotIn("자동 갱신 안 함", source)
 
-    def test_returning_to_the_tab_reads_once_rather_than_starting_a_timer(self):
-        source = read("kitchen_supervisor.html")
-        self.assertIn("visibilitychange", source)
-        handler = source.split("visibilitychange", 1)[1][:400]
-        self.assertIn("loadOrders", handler)
-        self.assertNotIn("setInterval", handler)
+    def test_tab_visibility_is_the_schedulers_business_not_the_templates(self):
+        """Hiding the tab closes the stream and stops the poll; showing it
+        opens a fresh stream and reads once. One place decides that."""
+        self.assertNotIn("visibilitychange", read("kitchen_supervisor.html"))
+        scheduler = read_js(THE_SCHEDULER)
+        for event in ("visibilitychange", "pagehide", "pageshow"):
+            with self.subTest(event=event):
+                self.assertIn(event, scheduler)
