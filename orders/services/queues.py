@@ -30,6 +30,11 @@ from django.db.models import QuerySet
 # count, and when it bites the remainder is reported, never dropped.
 MAX_QUEUE = 500
 
+# Which contract answered. The response carries it so a caller whose `limit`
+# was ignored learns that from the answer rather than from this file.
+QUEUE = "queue"
+PAGE = "page"
+
 DEFAULT_PAGE = 50
 MAX_PAGE = 200
 
@@ -44,9 +49,27 @@ class Page:
 
 
 def _page(queryset: QuerySet, ordering: tuple[str, ...], size: int) -> Page:
-    total = queryset.count()
-    orders = list(queryset.order_by(*ordering)[:size])
-    return Page(orders=orders, total=total, has_more=total > len(orders))
+    """One slice, and a count only when the slice did not hold everything.
+
+    Reading `size + 1` rows answers "is there more?" from the rows
+    themselves. When the answer is no -- the kitchen board's ordinary case,
+    and every history page shorter than its limit -- the total is the number
+    of rows in hand and no `COUNT(*)` runs at all. That matters because this
+    endpoint is polled, and counting means fully evaluating the `Exists`
+    semi-join over every order item rather than stopping at the limit
+    (measured at ~25-60ms on a 100k-order table; PR #73 DB review).
+
+    It also removes a race in that case. A separate count is its own
+    statement under READ COMMITTED, so a status change landing between the
+    two could report a total that disagreed with the rows beside it. Here the
+    two come from one statement. When the bound does bite the count still
+    runs separately, and then `total` is a figure for the screen to show, not
+    something the rows have to agree with.
+    """
+    rows = list(queryset.order_by(*ordering)[:size + 1])
+    if len(rows) <= size:
+        return Page(orders=rows, total=len(rows), has_more=False)
+    return Page(orders=rows[:size], total=queryset.count(), has_more=True)
 
 
 def waiting(queryset: QuerySet) -> Page:

@@ -221,8 +221,6 @@ class OrderApiNumberingTests(TestCase):
     """End to end: what the counter screen actually creates."""
 
     def setUp(self):
-        # The view caches table lookups by number across tests; a stale id would
-        # point at a table this case never created.
         self.table = Table.objects.create(number=4)
         self.menu = MenuItem.objects.create(name="Bowl", price=8000)
         login_client(self.client, "ORDER")

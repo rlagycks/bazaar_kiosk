@@ -88,6 +88,15 @@ class WaitingQueueTests(TestCase):
         self.assertEqual(self.board(limit="80")["count"], 90)
         self.assertEqual(self.board(limit="1")["count"], 90)
 
+    def test_the_answer_says_which_of_the_two_contracts_it_used(self):
+        """A caller whose `limit` was ignored should be able to see why from
+        the response, not from reading the service (PR #73 code review)."""
+        self.make(minutes_ago=1)
+        self.assertEqual(self.board()["mode"], "queue")
+        login_client(self.client, "KITCHEN")
+        response = self.client.get(reverse("orders:orders-collection"), {"status": "READY"})
+        self.assertEqual(response.json()["mode"], "page")
+
     def test_the_longest_wait_is_first(self):
         newest = self.make(minutes_ago=1)
         oldest = self.make(minutes_ago=300)
@@ -112,6 +121,17 @@ class WaitingQueueTests(TestCase):
         body = self.board()
         self.assertEqual([row["id"] for row in body["results"]], [waiting.id])
         self.assertEqual(body["total"], 1)
+
+    def test_an_ordinary_board_refresh_does_not_count_the_table(self):
+        """Counting means fully evaluating the scope semi-join over every
+        order item, and this endpoint is polled. Under the bound the rows in
+        hand are the answer, so no count runs (PR #73 DB review)."""
+        for minutes in range(120):
+            self.make(minutes_ago=minutes)
+        pending = Order.objects.filter(status=OrderStatus.PREPARING)
+        with self.assertNumQueries(1):
+            page = queues.waiting(pending)
+        self.assertEqual((page.total, page.has_more), (120, False))
 
     def test_past_the_safety_cap_the_remainder_is_named_not_dropped(self):
         """The queue is bounded so one query cannot grow without limit. When
@@ -183,6 +203,41 @@ class LookingBackTests(WaitingQueueTests):
         self.assertEqual(body["count"], 3)
         first = Order.objects.filter(status=OrderStatus.READY).order_by("-created_at").first()
         self.assertEqual(body["results"][0]["id"], first.id)
+
+    def test_without_a_limit_the_page_is_the_documented_default(self):
+        """50 and 200 are written down in D-055; pin them here so the numbers
+        and the document cannot drift apart (PR #73 code review)."""
+        for minutes in range(queues.DEFAULT_PAGE + 10):
+            self.make(minutes_ago=minutes, status=OrderStatus.READY)
+        body = self.history(status="READY")
+        self.assertEqual(body["count"], queues.DEFAULT_PAGE)
+        self.assertEqual(body["total"], queues.DEFAULT_PAGE + 10)
+        self.assertTrue(body["has_more"])
+
+    def test_a_limit_past_the_maximum_is_clamped_not_obeyed(self):
+        for minutes in range(queues.MAX_PAGE + 5):
+            self.make(minutes_ago=minutes, status=OrderStatus.READY)
+        body = self.history(status="READY", limit="1000")
+        self.assertEqual(body["count"], queues.MAX_PAGE)
+        self.assertTrue(body["has_more"])
+
+    def test_a_limit_that_is_not_a_number_falls_back_to_the_default(self):
+        for minutes in range(3):
+            self.make(minutes_ago=minutes, status=OrderStatus.READY)
+        for value in ("", "many", "3.5", "１０"):
+            with self.subTest(limit=value):
+                self.assertEqual(self.history(status="READY", limit=value)["count"], 3)
+
+    def test_a_limit_below_one_is_clamped_to_one(self):
+        """Unchanged from before 8B: a number out of range is bounded, not
+        treated as unreadable. Zero rows is not an answer anyone asked for."""
+        for minutes in range(3):
+            self.make(minutes_ago=minutes, status=OrderStatus.READY)
+        for value in ("0", "-4"):
+            with self.subTest(limit=value):
+                body = self.history(status="READY", limit=value)
+                self.assertEqual((body["count"], body["total"]), (1, 3))
+                self.assertTrue(body["has_more"])
 
     def test_history_says_how_many_there_are_beyond_the_page(self):
         for minutes in range(10):

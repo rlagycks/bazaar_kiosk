@@ -156,16 +156,19 @@ def orders_collection(request: HttpRequest):
             qs = qs.filter(order_type__in=types)
 
         # 8B (D-055): work still to do is a queue, everything else is a page.
+        # `mode` says which contract answered, so a caller whose `limit` was
+        # ignored can see that from the response (PR #73 code review).
         if status == OrderStatus.PREPARING:
-            page = queues.waiting(qs)
+            page, mode = queues.waiting(qs), queues.QUEUE
         else:
-            page = queues.looking_back(qs, request.GET.get("limit"))
+            page, mode = queues.looking_back(qs, request.GET.get("limit")), queues.PAGE
         data = [_serialize_order(o) for o in page.orders]
         return JsonResponse({
             "results": data,
             "count": len(data),
             "total": page.total,
             "has_more": page.has_more,
+            "mode": mode,
         })
 
     # POST
