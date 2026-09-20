@@ -52,13 +52,18 @@ def fingerprint(payload: dict) -> str:
     only in transport detail still counts as the same attempt, while a changed
     cart, table, payment or note does not.
     """
+    # 9 (BK-R015): a caller can send anything here, and iterating a number
+    # ended the request in a 500 before the view's own shape check was
+    # reached. The coercions below mirror what the view accepts; if one side
+    # changes, the other has to change with it (PR #75 review).
+    raw_items = payload.get("items")
     items = sorted(
         (
             str(item.get("menu_item_id")),
             str(item.get("qty")),
             str(item.get("mode") or item.get("service_mode") or "").upper(),
         )
-        for item in (payload.get("items") or [])
+        for item in (raw_items if isinstance(raw_items, list) else [])
         if isinstance(item, dict)
     )
     subject = {
