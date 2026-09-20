@@ -12,12 +12,30 @@ and the stats screen to refetch as well. The cost of that is
 (open screens) x (change rate) x (cost of one refetch), and the 10B review
 pointed out that nobody had measured the last two factors together.
 
+**What this harness fixes, and therefore cannot discover.** The change stream
+is 100% hall, and the screens rotate hall/takeout/stats -- so "one screen kind
+in three is woken pointlessly" is a property of that mix, not of the design.
+And `--polls-per-change` sets how often a poll follows a change; at the
+default of 1 every poll refetches *by construction*, because there is always a
+bump in between. Read the waste share as "what this deployment shape costs",
+not as a constant.
+
+Two more caveats about the cost figures. `DEBUG` is forced on below so that
+queries can be counted, which adds a wrapper to every statement; and the whole
+run reuses one connection, because nothing here is a request and
+`close_old_connections` never fires. In a deployment every poll is a request
+and pays a fresh connect plus a TLS handshake (`CONN_MAX_AGE` is 0). So the
+latencies here are inflated by the logging and deflated by the connection
+reuse, and the second is much the larger of the two.
+
 Two things are reported per screen count:
 
 * **wasted** -- refetches that returned data the screen already had, because
   the change that woke it was in a scope it cannot see. This is the number
   that argues for splitting the marker;
-* **cost** -- queries, and latency, for the refetch itself.
+* **cost** -- queries, and latency, for the refetch itself. The query count
+  includes BEGIN, the isolation level and COMMIT, so the four data statements
+  of a full fetch are reported as seven.
 
 Run it against a disposable database, never a deployment:
 
@@ -30,6 +48,7 @@ It creates its own test database, migrates it, and drops it at the end.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import statistics
 import sys
@@ -99,6 +118,11 @@ def poll_round(watchers, held):
     refetched = wasted = 0
     queries = 0
     latencies = []
+    # "wasted" means the id set came back identical, which is the right
+    # question for this harness because its only change is a status flip and
+    # the queue filters on status -- an order a screen can see always enters
+    # or leaves the list. It would be the wrong question for a `prepared_qty`
+    # change, where the ids stay put and the payload genuinely moves.
     for index, (_name, permissions) in enumerate(watchers):
         reset_queries()
         began = time.perf_counter()
@@ -126,7 +150,14 @@ def main():
                         help="hall changes to make per run (default 20)")
     parser.add_argument("--orders", type=int, default=40,
                         help="waiting orders of each classification (default 40)")
+    parser.add_argument("--polls-per-change", type=int, default=1,
+                        help="polls between changes (default 1). At 1 every "
+                             "poll follows a change, so every poll refetches "
+                             "by construction -- raise it to see the cheap "
+                             "`unchanged` path at a realistic duty cycle")
     args = parser.parse_args()
+    if args.polls_per_change < 1:
+        parser.error("--polls-per-change must be at least 1")
 
     setup_django()
     from django.conf import settings
@@ -143,9 +174,10 @@ def main():
 
         board = build_board(args.orders, args.orders)
         print(f"board: {args.orders} hall + {args.orders} takeout waiting, "
-              f"{args.changes} hall changes per run\n")
-        print(f"{'screens':>8} {'refetch':>8} {'wasted':>7} {'waste%':>7} "
-              f"{'q/poll':>7} {'median ms':>10} {'p90 ms':>8}")
+              f"{args.changes} hall changes per run, "
+              f"{args.polls_per_change} poll(s) per change\n")
+        print(f"{'screens':>8} {'polls':>7} {'refetch':>8} {'wasted':>7} "
+              f"{'waste%':>7} {'q/poll':>7} {'median ms':>10} {'p90 ms':>8}")
 
         for count in [int(value) for value in args.screens.split(",")]:
             watchers = screens(count)
@@ -164,19 +196,23 @@ def main():
                     revisions.mark()
                 order.status = target
 
-                got, waste, q, lat = poll_round(watchers, held)
-                refetched += got
-                wasted += waste
-                queries += q
-                polls += len(watchers)
-                latencies.extend(lat)
+                for _ in range(args.polls_per_change):
+                    got, waste, q, lat = poll_round(watchers, held)
+                    refetched += got
+                    wasted += waste
+                    queries += q
+                    polls += len(watchers)
+                    latencies.extend(lat)
 
             share = (wasted / refetched * 100) if refetched else 0.0
             ordered = sorted(latencies)
-            print(f"{count:>8} {refetched:>8} {wasted:>7} {share:>6.0f}% "
-                  f"{queries / polls:>7.1f} "
-                  f"{statistics.median(ordered):>10.2f} "
-                  f"{ordered[int(len(ordered) * 0.9) - 1]:>8.2f}")
+            # Nearest rank. `int(...)` truncates, which only agrees with p90
+            # when the sample is a multiple of ten -- true of this script's
+            # own defaults, and quietly false for any other run.
+            p90 = ordered[max(math.ceil(len(ordered) * 0.9), 1) - 1]
+            print(f"{count:>8} {polls:>7} {refetched:>8} {wasted:>7} "
+                  f"{share:>6.0f}% {queries / polls:>7.1f} "
+                  f"{statistics.median(ordered):>10.2f} {p90:>8.2f}")
     finally:
         connection.creation.destroy_test_db(
             connection.settings_dict["NAME"], verbosity=0

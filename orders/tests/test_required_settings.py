@@ -59,6 +59,12 @@ else:
         "csrf_cookie_secure": getattr(s, "CSRF_COOKIE_SECURE", None),
         "proxy_ssl_header": getattr(s, "SECURE_PROXY_SSL_HEADER", None),
         "login_policy": [s.LOGIN_MAX_FAILURES, s.LOGIN_WINDOW_SECONDS, s.LOGIN_BLOCK_SECONDS],
+        # 10C: whether a deployment wraps every view in a transaction. See
+        # `test_no_deployment_wraps_a_request_in_a_transaction` below.
+        "atomic_requests": {
+            alias: bool(config.get("ATOMIC_REQUESTS", False))
+            for alias, config in s.DATABASES.items()
+        },
     }))
 """
 
@@ -101,6 +107,27 @@ class RequiredSettingsTests(SimpleTestCase):
         self.assertIs(result["session_cookie_secure"], True)
         self.assertIs(result["csrf_cookie_secure"], True)
         self.assertEqual(result["proxy_ssl_header"], ["HTTP_X_FORWARDED_PROTO", "https"])
+
+    def test_no_deployment_wraps_a_request_in_a_transaction(self):
+        """10C's snapshot needs to open its own transaction to isolate it.
+
+        `ATOMIC_REQUESTS` would put every view inside one, and `SET
+        TRANSACTION` is then illegal: the snapshot silently drops to the
+        weaker contract, where the version and the orders beside it are no
+        longer one instant. The endpoint logs when that happens, but nothing
+        would have *failed*.
+
+        This lives here rather than beside the snapshot tests because those
+        run under `settings_test_pg`, which replaces `DATABASES` wholesale
+        with a literal that never had the key -- so asserting there proved
+        nothing at all. This module is the only place real settings boot.
+        """
+        result = self.boot()
+        self.assertTrue(result.get("started"), result)
+        self.assertTrue(result["atomic_requests"], "the probe found no databases")
+        for alias, wrapped in result["atomic_requests"].items():
+            with self.subTest(database=alias):
+                self.assertFalse(wrapped)
 
     def test_development_is_untouched(self):
         """The refusal is a deployment gate. DEBUG=1 with nothing else set must

@@ -22,8 +22,12 @@ beside it.
 and each part answers a way a screen could otherwise be wrong:
 
 * `generation` -- a restored database hands out values screens have already
-  seen. With `>` a screen would never refetch again; with a generation the
-  whole version differs and `!=` is all a screen needs (12A3 rotates it);
+  seen, and the hazard is the **collision**, not the repetition. Receiving a
+  change twice is harmless under a convergence contract; what is not harmless
+  is the counter climbing back up to a value a screen is still holding, so
+  that its next poll matches, answers `unchanged`, and leaves pre-restore
+  data on the wall indefinitely. A new generation makes the whole version
+  differ however the number lands (12A3 rotates it);
 * `value` -- 10B's marker;
 * `scope` -- permissions are read from the database on every request and
   decide which orders exist for a caller, so a version minted for one set of
@@ -45,6 +49,19 @@ from django.db import connection, transaction
 
 from orders.models import FloorChoices, OrderStatus
 from orders.services import queues, revisions
+
+# `selectors` lives under `views/` although it is a query module, so this
+# makes `orders.services` depend on `orders.views`. That is a layering debt
+# and step 11 moves the module; it is not an import cycle -- `orders.views`
+# imports nothing at package level and `selectors` reaches back only for
+# `services.scope`, which `services/__init__` binds before it binds this
+# module. An earlier version deferred this import into the function body and
+# blamed a cycle; there is none, and deferring did not change the direction.
+#
+# Calling it is right either way: the alternative is a second copy of the
+# kitchen board's query, and `test_snapshot_consistency.py` pins that this
+# endpoint and the board's own query string select the same orders.
+from orders.views import selectors
 
 CURSOR_ABSENT = "absent"
 CURSOR_ACCEPTED = "accepted"
@@ -68,9 +85,13 @@ def scope_digest(permissions) -> str:
     """A short, stable fingerprint of the permissions a snapshot was built for.
 
     Sorted, so the same set always gives the same digest whatever order it
-    arrived in. Hashed rather than listed because it travels to the browser in
-    a version string, and the set of permissions an account holds is not
-    something a version needs to spell out.
+    arrived in. Hashed rather than listed to keep the version short and
+    opaque-looking, **not as a secret**: the key space is a handful of
+    permission codes, the hash is unkeyed, and anyone can enumerate it. That
+    is fine because nothing is defended by it. The digest never narrows a
+    queryset -- `waiting()` filters by the caller's own server-checked
+    permissions -- so forging one buys an attacker nothing but a wrong
+    `unchanged` served to themselves.
     """
     material = ",".join(sorted(str(code) for code in permissions))
     return hashlib.blake2s(material.encode("utf-8"), digest_size=8).hexdigest()
@@ -111,17 +132,31 @@ def _isolate(ours: bool) -> None:
     query, so this only works when we opened the transaction ourselves. Nested
     inside someone else's, it cannot.
 
-    Nested it is also *moot*: an enclosing transaction has its own snapshot
-    already, and the commits this isolation level exists to keep out are not
-    visible inside one anyway. Which is why the answer is to report rather
-    than to refuse -- the first version raised, and the only thing that
-    achieved was making the endpoint unreachable from every `TestCase` in the
-    repository, a cost paid for a guarantee that was not being lost.
+    **Nested, the same-instant guarantee is genuinely lost.** An earlier
+    version of this docstring claimed it was moot because an enclosing
+    transaction "has its own snapshot"; that is false, and a review was right
+    to call it out. Nothing in this repository raises the isolation level, so
+    every `transaction.atomic()` here is READ COMMITTED, where PostgreSQL
+    takes a *new* snapshot at the start of every statement -- two successive
+    SELECTs in one such transaction can straddle a commit exactly as they
+    would under autocommit.
 
-    What must not happen is production quietly ending up here, so the caller
-    carries the answer out on the `Snapshot` and
-    `test_snapshot_consistency.py` pins that no deployment setting wraps a
-    request in a transaction.
+    What keeps that from mattering is not this function but `waiting()`'s
+    **read order**, which is therefore load-bearing rather than incidental.
+    The version is read first and the orders second, so the only way the pair
+    can be wrong is *data newer than its version* -- the screen refetches once
+    more than it needed to and converges. The reverse order would produce a
+    version newer than its data, which is permanent staleness: the screen
+    stores a version it does not yet show and stops asking. So nesting
+    degrades this from "one instant" to "at most one extra refetch", never to
+    a missed change. `test_snapshot_consistency.py` pins that direction.
+
+    That is why the answer is to report rather than refuse. The first version
+    raised, and the only thing it achieved was making the endpoint unreachable
+    from every `TestCase` in the repository. Still, the contract this module
+    sells is the stronger one, so `snapshot_waiting` logs when it is not being
+    met and `test_required_settings.py` pins that no deployment setting wraps
+    a request in a transaction.
     """
     # `ours` is decided *before* the transaction is opened. Asking
     # `in_atomic_block` here would always say yes -- we are inside the block we
@@ -142,8 +177,12 @@ def waiting(permissions, since: str | None = None, *, _pause=None) -> Snapshot:
     production passes it.
     """
     # Asked before the transaction is opened: once inside, `in_atomic_block`
-    # is true whoever opened it.
-    isolated = not connection.in_atomic_block
+    # is true whoever opened it. `get_autocommit()` is the second half --
+    # what PostgreSQL actually requires is that no data statement has run in
+    # this transaction, and autocommit being already off means one may have,
+    # with `in_atomic_block` still False. No request reaches that state today;
+    # without this the SET would raise `ActiveSqlTransaction` as a 500.
+    isolated = not connection.in_atomic_block and connection.get_autocommit()
 
     with transaction.atomic():
         _isolate(isolated)
@@ -168,14 +207,6 @@ def waiting(permissions, since: str | None = None, *, _pause=None) -> Snapshot:
             reached, released = _pause
             reached.set()
             released.wait(timeout=10)
-
-        # Imported here, not at module scope. `selectors` lives under `views/`
-        # although it is a query module, so a service importing it at import
-        # time would make `orders.services` depend on `orders.views` while
-        # both are still being set up. Calling it is right -- the alternative
-        # is a second copy of the kitchen board's query, which would drift --
-        # and moving it into `services/` belongs with step 11's cleanup.
-        from orders.views import selectors
 
         page = queues.waiting(selectors.visible_orders(
             permissions, floor=FloorChoices.B1,

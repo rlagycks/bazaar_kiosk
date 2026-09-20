@@ -21,8 +21,8 @@ Three more properties this file pins, each of which the reviews of 10B asked
 for or the phase card names:
 
 * **the version is compared, not ordered.** It carries a generation, so a
-  restored database hands out values a screen has already seen and the screen
-  still notices (`!=`, never `>`);
+  restored counter that climbs back to a number a screen is still holding
+  cannot answer `unchanged` and strand it there (`!=`, never `>`);
 * **a cursor from another scope is refused.** Permissions are read from the
   database on every request and decide which orders exist for a caller, so a
   version minted for one set of permissions says nothing about another;
@@ -38,9 +38,12 @@ from django.db import connection, transaction
 from django.test import TransactionTestCase, override_settings
 from django.urls import reverse
 
+from django.test.utils import CaptureQueriesContext
+
 from orders.models import (
     ChangeRevision, MenuItem, Order, OrderItem, OrderStatus, OrderType, Table,
 )
+from orders.views import serializers
 from orders.services import revisions, snapshots
 from orders.tests.auth_support import AUTH_SETTINGS, login_client, make_account
 from orders.roles import HALL_MONITOR, STATS, TAKEOUT_MONITOR
@@ -154,13 +157,13 @@ class OneInstantTests(SnapshotFixture, TransactionTestCase):
     def test_a_nested_snapshot_says_it_is_not_isolated(self):
         """Nested, `SET TRANSACTION` is illegal, so the snapshot says so.
 
-        An earlier version raised instead. That refusal cost more than it
-        bought: it made the endpoint unreachable from every `TestCase` in the
-        repository, for a guarantee that is not actually lost inside an
-        enclosing transaction -- such a transaction has its own snapshot, and
-        the commits this isolation level keeps out are not visible in one
-        anyway. So the answer is carried out rather than thrown, and the test
-        below is what keeps production from ever being in this branch.
+        An earlier version raised instead, and the only thing that achieved
+        was making the endpoint unreachable from every `TestCase` in the
+        repository. So the answer is carried out rather than thrown. The
+        guarantee *is* weaker here -- see the straddle test below for what it
+        degrades to and why that is survivable -- and the endpoint logs it;
+        `test_required_settings.py` is what keeps production out of this
+        branch in the first place.
         """
         self.make_order()
         with transaction.atomic():
@@ -168,18 +171,57 @@ class OneInstantTests(SnapshotFixture, TransactionTestCase):
         self.assertFalse(taken.isolated)
         self.assertEqual(len(taken.orders), 1, "it still answers, just weaker")
 
-    def test_no_deployment_setting_wraps_a_request_in_a_transaction(self):
-        """`ATOMIC_REQUESTS` would put every view inside a transaction.
+    def test_a_nested_snapshot_errs_toward_refetching_never_toward_staleness(self):
+        """What the nested branch actually degrades to, pinned.
 
-        Turning it on would silently drop every snapshot into the branch
-        above -- no error, no failing test, just versions that quietly stop
-        meaning what this module says they mean.
+        Nested, `SET TRANSACTION` is illegal and the enclosing transaction is
+        READ COMMITTED, where every statement takes a fresh snapshot. So a
+        commit landing between the two reads *is* seen by the second one --
+        the same-instant guarantee is genuinely gone, and an earlier version
+        of this file claimed otherwise.
+
+        What saves it is the order the two reads happen in, which is why that
+        order is load-bearing rather than incidental. The version is read
+        first, so the worst pair this can produce is *data newer than its
+        version*: the screen refetches once more than it needed to and
+        converges. The reverse would be permanent staleness. This test forces
+        the straddle and asserts the direction.
         """
-        from django.conf import settings
+        self.make_order()
+        reached, released = threading.Event(), threading.Event()
+        taken = {}
 
-        for alias, config in settings.DATABASES.items():
-            with self.subTest(database=alias):
-                self.assertFalse(config.get("ATOMIC_REQUESTS", False))
+        def read_nested():
+            try:
+                with transaction.atomic():           # READ COMMITTED, not ours
+                    taken["snapshot"] = snapshots.waiting(
+                        self.everything(), _pause=(reached, released)
+                    )
+            finally:
+                connection.close()
+
+        reader = threading.Thread(target=read_nested)
+        reader.start()
+        try:
+            self.assertTrue(reached.wait(timeout=10))
+            with transaction.atomic():               # commits inside the window
+                self.make_order()
+                revisions.mark()
+        finally:
+            released.set()
+            reader.join(timeout=10)
+
+        answer = taken["snapshot"]
+        self.assertFalse(answer.isolated)
+        self.assertEqual(
+            len(answer.orders), 2,
+            "READ COMMITTED: the second read does see the new commit",
+        )
+        self.assertNotEqual(
+            answer.version, snapshots.version_for(self.everything()),
+            "and the version it carries is the older one -- so the screen "
+            "refetches, which is the safe direction",
+        )
 
     def test_the_endpoint_answers_an_isolated_snapshot(self):
         """The path that matters, checked where it actually runs.
@@ -220,29 +262,60 @@ class VersionIsComparedNotOrderedTests(SnapshotFixture, TransactionTestCase):
             revisions.mark()
         self.assertNotEqual(snapshots.waiting(self.everything()).version, first)
 
-    def test_a_restored_database_hands_out_a_version_a_screen_cannot_mistake(self):
-        """A restore moves the counter *backwards*.
+    def test_a_restore_that_lands_on_a_value_a_screen_holds_is_still_noticed(self):
+        """The failure the generation exists for, which is the *collision*.
 
-        A screen holding 500 that is handed 300 would, comparing with `>`,
-        never refetch again. The generation is what makes that impossible to
-        get wrong: it changes when the lineage changes, so the whole version
-        differs and `!=` is all a screen ever needs.
+        An earlier version of this test moved the value as well as the
+        generation, and so would have passed with the generation removed from
+        the version entirely -- the two versions differed because the numbers
+        did. A review caught that, and it also named the hazard correctly:
+        receiving a change twice is harmless here, because the contract is
+        convergence. What is not harmless is a restored counter climbing back
+        to a number a screen is *still holding*, so that its next poll matches,
+        answers `unchanged`, and leaves pre-restore data on the wall until
+        somebody notices by eye.
+
+        So this rotates the generation and puts the value back exactly where
+        the screen left it. Drop the generation from `version_from()` and this
+        test fails, which is the only reason it is worth having.
         """
         self.make_order()
         for _ in range(5):
             with transaction.atomic():
                 revisions.mark()
         held = snapshots.waiting(self.everything()).version
+        value_the_screen_holds = revisions.current()
 
-        # What a restore looks like from here: the row goes back to an earlier
-        # value, and the operator rotates the generation (12A3's procedure).
+        restored = ChangeRevision.objects.get(scope="board")
+        restored.generation = uuid.uuid4()
+        restored.save(update_fields=["generation"])
+
+        self.assertEqual(
+            revisions.current(), value_the_screen_holds,
+            "the number is deliberately unchanged -- that is the hazard",
+        )
+        after = snapshots.waiting(self.everything(), since=held)
+        self.assertNotEqual(after.version, held)
+        self.assertFalse(after.unchanged, "a collision must not answer unchanged")
+        self.assertEqual(after.cursor, snapshots.CURSOR_REJECTED)
+        self.assertEqual(len(after.orders), 1, "and it hands over the whole list")
+
+    def test_a_restore_that_moves_the_counter_backwards_is_noticed_too(self):
+        """The other shape of a restore: the number goes down."""
+        self.make_order()
+        for _ in range(5):
+            with transaction.atomic():
+                revisions.mark()
+        held = snapshots.waiting(self.everything()).version
+
         restored = ChangeRevision.objects.get(scope="board")
         restored.value = 1
         restored.generation = uuid.uuid4()
         restored.save(update_fields=["value", "generation"])
 
-        after = snapshots.waiting(self.everything())
+        after = snapshots.waiting(self.everything(), since=held)
         self.assertNotEqual(after.version, held)
+        self.assertEqual(after.cursor, snapshots.CURSOR_REJECTED)
         self.assertLess(
             revisions.current(), 5,
             "the counter really did go backwards; the generation is what saves it",
@@ -406,3 +479,113 @@ class SnapshotEndpointTests(SnapshotFixture, TransactionTestCase):
         self.make_order(mode=OrderType.DINE_IN)
         response = self.monitor().get(self.url())
         self.assertIn("no-store", response["Cache-Control"])
+
+    def test_nothing_is_read_after_the_transaction_closes(self):
+        """The "same instant" claim covers what is serialized, not just read.
+
+        `snapshot_waiting` serializes outside the block, so a serializer field
+        that lazily reached for a row -- an account, an audit line, the event
+        series -- would be read at a different instant from everything beside
+        it, and no existing test would notice. This one does.
+        """
+        for _ in range(3):
+            self.make_order(mode=OrderType.DINE_IN)
+        client = self.monitor()
+        client.get(self.url())                      # warm the session lookup
+        taken = snapshots.waiting((HALL_MONITOR,))
+        with CaptureQueriesContext(connection) as captured:
+            [serializers.order(order) for order in taken.orders]
+        self.assertEqual(
+            len(captured.captured_queries), 0,
+            "serialization reached back to the database: " + repr(
+                [q["sql"] for q in captured.captured_queries]
+            ),
+        )
+
+
+class TheSnapshotAnswersTheSameThingTheBoardAsksForTests(
+    SnapshotFixture, TransactionTestCase
+):
+    """What 10D2 will swap, pinned before it swaps it.
+
+    The kitchen board fetches `orders-collection` with a literal query string
+    (`?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT`). This endpoint
+    hard-codes the equivalent filters instead of parsing them, and the two
+    agree today only because `OrderType` happens to have exactly two members
+    -- an accident nothing was pinning. 10D2 moves the board onto this
+    endpoint, so a drift between them is a silent change to what the kitchen
+    sees.
+    """
+
+    BOARD_QUERY = {"floor": "B1", "status": "PREPARING", "types": "DINE_IN,TAKEOUT"}
+
+    def test_every_order_type_is_included(self):
+        """The assumption the hard-coded `types=[]` rests on."""
+        self.assertEqual(
+            set(OrderType.values), set(self.BOARD_QUERY["types"].split(",")),
+            "OrderType gained a member: the board's query string now asks for "
+            "less than the snapshot returns",
+        )
+
+    def test_the_snapshot_and_the_board_select_the_same_orders(self):
+        cooking = [self.make_order(mode=OrderType.DINE_IN),
+                   self.make_order(mode=OrderType.TAKEOUT)]
+        self.make_order(status=OrderStatus.READY)       # not still cooking
+        self.make_order(status=OrderStatus.CANCELLED)
+
+        from orders.views import selectors as board_selectors
+        board = board_selectors.visible_orders(
+            self.everything(), floor=self.BOARD_QUERY["floor"],
+            status=self.BOARD_QUERY["status"],
+            types=self.BOARD_QUERY["types"].split(","),
+        )
+        taken = snapshots.waiting(self.everything())
+        self.assertEqual(
+            sorted(order.id for order in taken.orders),
+            sorted(board.values_list("id", flat=True)),
+        )
+        self.assertEqual(sorted(o.id for o in taken.orders),
+                         sorted(o.id for o in cooking))
+
+
+class ABusyKitchenStillGetsTheWholeQueueTests(SnapshotFixture, TransactionTestCase):
+    """BK-R009's edges, on the new path.
+
+    81 and 201 are the sizes at which the old listing quietly dropped the
+    longest-waiting work. `queues.waiting` is shared with the board endpoint
+    and already tested there, but the card claims completeness *for this
+    endpoint* and inferring it is cheaper than asserting it only until it is
+    wrong.
+    """
+
+    def bulk(self, count):
+        orders = Order.objects.bulk_create([
+            Order(table=self.table, floor="B1", order_type="DINE_IN",
+                  status=OrderStatus.PREPARING, total_price=9000,
+                  payment_method="CASH", received_cash_amount=9000)
+            for _ in range(count)
+        ])
+        OrderItem.objects.bulk_create([
+            OrderItem(order=order, menu_item=self.menu, qty=1, unit_price=9000,
+                      service_mode=OrderType.DINE_IN)
+            for order in orders
+        ])
+
+    def test_eighty_one_waiting_orders_all_arrive(self):
+        self.bulk(81)
+        taken = snapshots.waiting(self.everything())
+        self.assertEqual(len(taken.orders), 81)
+        self.assertEqual(taken.total, 81)
+        self.assertFalse(taken.has_more)
+        self.assertTrue(taken.complete)
+
+    def test_two_hundred_and_one_waiting_orders_all_arrive(self):
+        self.bulk(201)
+        taken = snapshots.waiting(self.everything())
+        self.assertEqual(len(taken.orders), 201)
+        self.assertEqual(taken.total, 201)
+        self.assertTrue(taken.complete)
+        self.assertEqual(
+            taken.version, snapshots.version_for(self.everything()),
+            "and the version still describes exactly these rows",
+        )
