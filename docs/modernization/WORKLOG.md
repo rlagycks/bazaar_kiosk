@@ -3,6 +3,29 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-20 — 9 API 입력 계약과 경계 추출
+
+- 브랜치 `phase-9-api-boundaries`, 기준 `develop` 2475b54. 사용자 지시: "10D 시작하자 pr 올리고 리뷰 돌린 뒤 머지".
+  10D는 선행 카드 넷(9·10A·10B·10C)이 모두 미구현이라 시작할 수 없음을 보고했고, 지금 가능한 9와 10A 중
+  사용자가 **9**(임계 경로)를 골랐다. D-019는 여전히 pending이며 10B 시작 시 확정해야 한다.
+- BK-R015: 쓰기 엔드포인트 셋이 본문을 파싱한 결과를 매핑처럼 다뤄, `[]`·`"text"`·`5`·`null` 같은 유효한 JSON이
+  `AttributeError`로 500을 냈다. 필드 단위로도 같았다(숫자 `floor`가 `.upper()`에서 끝남). 구현 전 적대적 입력
+  조합에서 **500 36건**을 측정했고 구현 후 **0건**이다. `orders/views/validators.py`가 본문과 필드 타입을 경계에서
+  거르고 위반을 문장과 400으로 답한다. `idempotency.fingerprint`도 items가 목록이 아닐 때 순회하지 않도록 고쳤다.
+- BK-R024: `orders/views/api.py`(573줄, 그중 `orders_collection` 하나가 228줄)에서 직렬화를 `serializers.py`로,
+  조회를 `selectors.py`로 동작 변경 없이 꺼냈다. 515줄로 줄었다. 큰 감소가 아니며 이 단계는 성능 개선이 아니다.
+- 동작 보존: URL·역할·응답 그대로. `floor`·`order_type`은 기존대로 공백을 다듬지 **않고**, `is_takeout`은 기존대로
+  `bool()` 강제를 유지했다. 받는 범위를 넓히거나 좁히는 것 둘 다 동작 변경이기 때문이다.
+- 인계: 쿼리 기준선(주방 보드 6쿼리 이하, 주문 2건과 20건이 동일 — N+1 없음. 주문 상세 8쿼리 이하)과
+  writer 책임표 8개를 `API_CONTRACTS.md`에 적었다. 10B가 revision을 어디에 붙일지 판단할 입력이다.
+- 변경 파일: `orders/views/validators.py`·`serializers.py`·`selectors.py`(신규), `orders/views/api.py`,
+  `orders/services/idempotency.py`, `orders/tests/test_api_contracts.py`(신규), 문서 4개(`API_CONTRACTS.md` 신규,
+  BLUEPRINT 9, RISK BK-R015·BK-R024, README).
+- 검증: `.venv/bin/python scripts/test_postgres.py` -> 마이그레이션 24건, 애플리케이션 401건 통과.
+  `manage.py check` 이상 없음, `makemigrations --check` 변경 없음. **스키마 변경과 마이그레이션 없음.**
+- 남은 것: `orders_collection`은 아직 GET과 POST를 한 함수에 담고 있고, 쪼개면 URL 계약을 건드린다. 명령 추출은
+  10B가 revision을 붙일 때 함께 보는 편이 낫다. API 버전 표기는 없다(D-008).
+
 ## 2026-09-20 — 4B2 브라우저의 외부 Realtime 제거, 폴링도 함께 제거 (D-056)
 
 - 브랜치 `phase-4b2-remove-external-realtime`, 기준 `develop` c76bccb. 사용자 지시: "4B2 시작하자 pr 올리고 리뷰 돌린 뒤 머지".

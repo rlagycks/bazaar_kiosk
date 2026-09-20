@@ -58,7 +58,10 @@ def fingerprint(payload: dict) -> str:
             str(item.get("qty")),
             str(item.get("mode") or item.get("service_mode") or "").upper(),
         )
-        for item in (payload.get("items") or [])
+        # 9 (BK-R015): a caller can send anything here, and iterating a
+        # number ended the request in a 500 before the view's own shape
+        # check was reached.
+        for item in (payload.get("items") if isinstance(payload.get("items"), list) else [])
         if isinstance(item, dict)
     )
     subject = {
