@@ -39,12 +39,22 @@ closing.
 hub health plus a complete snapshot, never on "a frame arrived". So the two
 are separate facts and `health()` is what the stream puts in every beat.
 
-**Connections.** Every database call here is `thread_sensitive`, so the whole
-hub runs on one asgiref thread and holds exactly one connection for the life
-of the worker. That is deliberate and it is the opposite of 10A's advice for
-streams: a stream releases its connection because there is one per screen,
-while the hub keeps one because there is one per worker. `CONN_MAX_AGE` only
-acts at request boundaries and a hub tick is not a request.
+**Connections, and a claim this file used to get wrong.** An earlier version
+said the hub holds exactly one connection for the life of the worker because
+every call is `thread_sensitive`. That is false. Django wraps every request in
+`ThreadSensitiveContext`, which gives `thread_sensitive=True` a *per-request*
+single-worker executor, and this task inherits the context of whichever
+request started it -- so the hub runs on that stream's thread, shares its
+connection, and silently migrates to a fresh thread and connection when that
+request ends. Under `AsyncClient` there is no such context at all, so the
+tests never see the production shape.
+
+What is true is the direction: detection is one poller per worker rather than
+one per screen, so the *number* of connections does not follow the number of
+open screens. That is the property 10C handed over, and it holds either way.
+The rule for streams is still the opposite of the hub's -- a stream releases
+its connection because there is one per screen -- and `CONN_MAX_AGE` only acts
+at request boundaries, which a hub tick is not.
 """
 
 from __future__ import annotations
@@ -53,6 +63,7 @@ import asyncio
 import hashlib
 import json
 import time
+import weakref
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -89,6 +100,17 @@ def heartbeat_seconds() -> float:
     return float(getattr(settings, "HUB_HEARTBEAT_SECONDS", 15.0))
 
 
+def revalidate_seconds() -> float:
+    """How often everyone is re-checked even when nothing is cooking.
+
+    Its own setting rather than the heartbeat's. The heartbeat is a display
+    knob -- it is what `ready` advertises to the screen -- and tuning it for
+    the browser would otherwise move revocation latency and this worker's
+    database load with it.
+    """
+    return float(getattr(settings, "HUB_REVALIDATE_SECONDS", 15.0))
+
+
 @dataclass
 class Health:
     ok: bool
@@ -100,7 +122,7 @@ class Health:
                 "failures": self.failures}
 
 
-@dataclass
+@dataclass(eq=False)
 class Subscription:
     """One screen's claim on the hub.
 
@@ -119,8 +141,34 @@ class Subscription:
     overflowed: bool = False
     closed_reason: str | None = None
 
-    def scope_key(self) -> tuple:
+    def identity_key(self) -> tuple:
+        """Everything the account holds. Changes when the role changes."""
         return tuple(sorted(str(code) for code in self.permissions))
+
+    def scope_key(self) -> tuple:
+        """What actually narrows the read -- three outcomes, not a power set.
+
+        `scope.visible()` collapses every permission set to all / dine-in /
+        takeout and ignores the rest, so `{HALL_MONITOR}` and
+        `{HALL_MONITOR, SERVING}` see byte-identical boards. Grouping by the
+        raw set made them two groups and paid for a full snapshot twice; with
+        four codes a mixed roster could reach a dozen groups, and the cost
+        argument for this whole design assumes three.
+
+        This is *not* the comparison that detects a role change -- that one
+        stays on `identity_key`, or gaining an unrelated permission would go
+        unnoticed.
+        """
+        from orders.roles import HALL_MONITOR, STATS, TAKEOUT_MONITOR
+
+        held = frozenset(str(code) for code in self.permissions)
+        if STATS in held or {HALL_MONITOR, TAKEOUT_MONITOR} <= held:
+            return ("ALL",)
+        if HALL_MONITOR in held:
+            return ("HALL",)
+        if TAKEOUT_MONITOR in held:
+            return ("TAKEOUT",)
+        return ()
 
     def offer(self, event: dict) -> None:
         if len(self._queue) >= MAX_QUEUED_EVENTS:
@@ -202,9 +250,23 @@ def _scope_view(permissions):
     from orders.views import serializers
 
     taken = snapshots.waiting(permissions)
-    body = json.dumps([serializers.order(o) for o in taken.orders],
-                      separators=(",", ":"), sort_keys=True, default=str)
-    return hashlib.blake2s(body.encode("utf-8"), digest_size=16).hexdigest(), taken.version
+    # `total` and `complete` are in the digest because `MAX_QUEUE` can cut the
+    # list: above that bound a change confined to the tail would leave the
+    # visible rows identical and the board would stop updating, silently. 10C's
+    # per-screen polling had no such hole -- the global version always moved --
+    # so leaving them out would make the hub a regression at exactly the
+    # boundary the queue bound was written for.
+    body = json.dumps(
+        {"orders": [serializers.order(o) for o in taken.orders],
+         "total": taken.total, "complete": taken.complete},
+        separators=(",", ":"), sort_keys=True,
+    )
+    digest = hashlib.blake2s(body.encode("utf-8"), digest_size=16).hexdigest()
+    if not taken.complete:
+        # A cut list cannot promise that equal digests mean an unchanged
+        # board, so it does not get to be compared at all.
+        digest = f"{digest}:incomplete:{time.monotonic_ns()}"
+    return digest, taken.version
 
 
 # ---------- the hub itself ----------
@@ -223,10 +285,19 @@ class _Hub:
         stale = None if self.last_ok is None else int(
             (time.monotonic() - self.last_ok) * 1000
         )
-        return Health(
-            ok=self.failures < MAX_CONSECUTIVE_FAILURES and self.last_ok is not None,
-            stale_ms=stale, failures=self.failures,
-        )
+        # The staleness term is what makes this honest. `failures` only moves
+        # when a read *fails*; if the poller stops running at all -- cancelled,
+        # an exception escaping the loop, a hub that never started -- then
+        # `failures` stays 0 and `last_ok` stays set, and without this the
+        # frame would say `hub_ok: true` forever while nothing polled. 10D2
+        # stops polling on that word, so the result would be a frozen board
+        # with no error anywhere: the failure this module exists to prevent.
+        ok = (self.last_ok is not None
+              and self.failures < MAX_CONSECUTIVE_FAILURES
+              # Three ticks, with a floor so a very short poll interval
+              # cannot make this flap between beats.
+              and stale <= int(max(3 * poll_seconds(), 0.5) * 1000))
+        return Health(ok=ok, stale_ms=stale, failures=self.failures)
 
     def add(self, subscription: Subscription) -> None:
         self.subscriptions.append(subscription)
@@ -278,7 +349,7 @@ class _Hub:
     def _revalidation_is_due(self) -> bool:
         if not self.subscriptions:
             return False
-        due = heartbeat_seconds()
+        due = revalidate_seconds()
         return (self.last_checked is None
                 or time.monotonic() - self.last_checked >= due)
 
@@ -300,7 +371,7 @@ class _Hub:
             if held is None:
                 subscription.close(CLOSED_REVOKED)
                 self.remove(subscription)
-            elif held != subscription.scope_key():
+            elif held != subscription.identity_key():
                 subscription.close(CLOSED_REAUTH)
                 self.remove(subscription)
 
@@ -345,7 +416,7 @@ class _Hub:
             if held is None:
                 subscription.close(CLOSED_REVOKED)
                 self.remove(subscription)
-            elif held != subscription.scope_key():
+            elif held != subscription.identity_key():
                 subscription.close(CLOSED_REAUTH)
                 self.remove(subscription)
             else:
@@ -354,9 +425,15 @@ class _Hub:
         for key, permissions in {s.scope_key(): s.permissions
                                  for s in survivors}.items():
             try:
-                digest, version = await sync_to_async(
+                digest, _version = await sync_to_async(
                     _scope_view, thread_sensitive=True)(permissions)
             except Exception:
+                # `self.state` has already moved past this change, so without
+                # forgetting the digest the next comparison would match and
+                # this change would be lost for good -- no event, no
+                # `hub_ok: false`, nothing logged. Forgetting makes the next
+                # comparison differ, so the next change delivers both.
+                self.views.pop(key, None)
                 self.failures += 1
                 continue
             if self.views.get(key) == digest:
@@ -367,7 +444,16 @@ class _Hub:
             self.views[key] = digest
             for subscription in survivors:
                 if subscription.scope_key() == key:
-                    subscription.offer({"version": version})
+                    # Deliberately empty. An earlier version sent the snapshot
+                    # version, which handed back the very thing the scope
+                    # comparison had just withheld: the counter is global, so a
+                    # takeout screen correctly not woken by twenty hall changes
+                    # would see its next version jump by twenty and could read
+                    # the gap as the count of what it was not told about. The
+                    # screen has no decision to make with a version here --
+                    # under D-058 it refetches the snapshot, which carries its
+                    # own -- so sending one was decoration that leaked.
+                    subscription.offer({})
 
 
 async def _prime_for_measurement(subscriptions) -> None:
@@ -392,14 +478,22 @@ async def _dispatch_for_measurement(subscriptions) -> None:
 
 _measured: list = [None]
 
-_hubs: dict[int, _Hub] = {}
+# Keyed on the loop *object*, weakly. `id(loop)` is an address, and once a
+# loop is collected a new one can be allocated there -- the new loop would then
+# find the dead loop's hub, whose task is neither None nor done, so no poller
+# would start and every screen on it would get heartbeats and never a change.
+# One long-lived loop per worker makes that unlikely in a deployment and
+# routine in a test suite, where every async case gets a fresh loop.
+_hubs: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, _Hub]" = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _for_this_loop() -> _Hub:
-    key = id(asyncio.get_running_loop())
-    hub = _hubs.get(key)
+    loop = asyncio.get_running_loop()
+    hub = _hubs.get(loop)
     if hub is None:
-        hub = _hubs[key] = _Hub()
+        hub = _hubs[loop] = _Hub()
     return hub
 
 
@@ -417,7 +511,7 @@ def unsubscribe(subscription: Subscription) -> None:
     # the subscription is found wherever it is.
     hub = None
     try:
-        hub = _hubs.get(id(asyncio.get_running_loop()))
+        hub = _hubs.get(asyncio.get_running_loop())
     except RuntimeError:
         pass
     if hub is None:
@@ -438,5 +532,5 @@ def unsubscribe(subscription: Subscription) -> None:
 
 
 def health() -> Health:
-    hub = _hubs.get(id(asyncio.get_running_loop()))
+    hub = _hubs.get(asyncio.get_running_loop())
     return hub.health() if hub else Health(ok=False, stale_ms=None, failures=0)

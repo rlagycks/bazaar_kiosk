@@ -131,10 +131,7 @@ async def _events(subscription, opening_version, give_back):
                 return
             if subscription.overflowed:
                 subscription.overflowed = False
-                yield _frame("change", {
-                    "version": (event or {}).get("version"),
-                    "reset": True,
-                })
+                yield _frame("change", {"reset": True})
                 continue
             if event is None:
                 # A heartbeat is not evidence the hub is working -- D-019 is
@@ -143,6 +140,9 @@ async def _events(subscription, opening_version, give_back):
                 # decide.
                 yield _frame("heartbeat", hub.health().as_frame())
                 continue
+            # Empty on purpose: the screen refetches 10C's snapshot, which
+            # carries its own version. Putting one here would have handed back
+            # the count the scope filter had just withheld -- see `hub.py`.
             yield _frame("change", event)
     finally:
         give_back()

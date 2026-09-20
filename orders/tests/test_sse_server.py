@@ -52,8 +52,10 @@ from orders.tests.auth_support import AUTH_SETTINGS, login_client
 # Fast enough that a test does not wait on a kitchen's schedule, and with the
 # heartbeat well clear of the change so that "two events" means "ready and the
 # change" rather than "ready and a beat that happened to be first".
-FAST_HUB = {"HUB_POLL_SECONDS": 0.02, "HUB_HEARTBEAT_SECONDS": 0.6}
-BEATING_HUB = {"HUB_POLL_SECONDS": 0.02, "HUB_HEARTBEAT_SECONDS": 0.05}
+FAST_HUB = {"HUB_POLL_SECONDS": 0.02, "HUB_HEARTBEAT_SECONDS": 0.6,
+            "HUB_REVALIDATE_SECONDS": 0.2}
+BEATING_HUB = {"HUB_POLL_SECONDS": 0.02, "HUB_HEARTBEAT_SECONDS": 0.05,
+               "HUB_REVALIDATE_SECONDS": 30}
 
 
 class StreamFixture:
@@ -181,10 +183,10 @@ class AChangeFromAnotherConnectionReachesTheStreamTests(
         await task
         changes = self.named(events, "change")
         self.assertTrue(changes, f"no change event arrived: {events}")
-        self.assertIn("version", changes[0])
-        self.assertNotIn(
-            "orders", changes[0],
-            "the marker carries no payload (D-058): the screen refetches",
+        self.assertEqual(
+            changes[0], {},
+            "the frame carries no payload (D-058): the screen refetches, and "
+            "anything put here would be data the hub decided not to filter",
         )
 
 
@@ -385,6 +387,81 @@ class AScreenIsNotToldAboutWhatItCannotSeeTests(
             self.named(events, "change"),
             f"a takeout screen was not told about its own order: {events}",
         )
+
+
+@override_settings(**AUTH_SETTINGS, **FAST_HUB)
+class WhatTheChangeFrameIsAllowedToCarryTests(StreamFixture, TransactionTestCase):
+    """The scope filter's saving must not be handed back in the payload.
+
+    The counter is global. An earlier version put the snapshot version in the
+    frame, so a takeout screen correctly not woken by twenty hall changes saw
+    its next version jump by twenty -- and the gap is the count of what it was
+    not told about. The card's "발생 빈도 정보 노출 거부" was claimed while that
+    was true.
+    """
+
+    async def test_a_change_frame_carries_nothing_that_counts_other_scopes(self):
+        client = await sync_to_async(self.watcher)("TAKEOUT_MONITOR")
+
+        async def hall_churn_then_a_takeout_order():
+            await asyncio.sleep(0.15)
+            for _ in range(3):
+                await sync_to_async(self.make_order, thread_sensitive=True)(
+                    mode=OrderType.DINE_IN
+                )
+            await sync_to_async(self.make_order, thread_sensitive=True)(
+                mode=OrderType.TAKEOUT
+            )
+
+        task = asyncio.ensure_future(hall_churn_then_a_takeout_order())
+        events = await self.listen(client, want=2, timeout=3.0)
+        await task
+        changes = self.named(events, "change")
+        self.assertTrue(changes, f"the takeout order never arrived: {events}")
+        self.assertNotIn(
+            "version", changes[0],
+            "the frame carries a global counter the screen was not meant to see",
+        )
+
+
+@override_settings(**AUTH_SETTINGS, **BEATING_HUB)
+class AStoppedHubDoesNotReportItselfHealthyTests(
+    StreamFixture, TransactionTestCase
+):
+    """`failures` only moves when a read *fails*.
+
+    Every other way the poller can stop -- cancelled, an exception escaping
+    the loop, a hub that never started -- leaves `failures` at 0 and
+    `last_ok` set. Without a staleness term the frame would say `hub_ok: true`
+    forever while nothing polled, and 10D2 stops polling on that word.
+    """
+
+    async def test_health_goes_stale_when_the_poller_stops(self):
+        """Subscribed directly: a stream would take its hub with it on close."""
+        await sync_to_async(self.make_order, thread_sensitive=True)()
+        subscription = hub.subscribe("watching", (STATS,))
+        try:
+            await asyncio.sleep(0.2)
+            running = hub._hubs.get(asyncio.get_running_loop())
+            self.assertIsNotNone(running, "no hub was ever started")
+            self.assertTrue(running.health().ok, "it was healthy a moment ago")
+            self.assertTrue(hub.health().ok)
+
+            self.assertIsNotNone(running.task)
+            running.task.cancel()
+            await asyncio.sleep(0.9)  # past three ticks and the floor
+            self.assertEqual(
+                running.failures, 0,
+                "nothing failed -- which is exactly why `failures` cannot be "
+                "the only term in `ok`",
+            )
+            self.assertFalse(
+                running.health().ok,
+                "the poller was cancelled and the hub still called itself "
+                "healthy; every screen would stop polling and go dark",
+            )
+        finally:
+            hub.unsubscribe(subscription)
 
 
 @override_settings(**AUTH_SETTINGS, **BEATING_HUB)
