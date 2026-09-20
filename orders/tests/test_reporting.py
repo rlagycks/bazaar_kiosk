@@ -58,7 +58,8 @@ class DashboardArithmeticTests(TestCase):
         self.order([(self.soup, 3, 2000)], method="TICKET", ticket=6000, change=0)
         data = self.dashboard()
         self.assertEqual(data["summary"], {"orders": 2, "items": 6, "revenue": 18000,
-                                           "cancelled_orders": 0, "legacy_unsplit_orders": 0})
+                                           "cancelled_orders": 0, "legacy_unsplit_orders": 0,
+                                           "unattributed_orders": 0, "unattributed_amount": 0})
         self.assertEqual(data["payment"], {
             "cash": 15000, "ticket": 6000, "change": 3000, "net_cash": 12000,
             "cash_ratio": 15000 / 21000, "ticket_ratio": 6000 / 21000,
@@ -69,7 +70,8 @@ class DashboardArithmeticTests(TestCase):
         self.order([(self.meal, 4, 5000)], status="CANCELLED")
         data = self.dashboard()
         self.assertEqual(data["summary"], {"orders": 1, "items": 1, "revenue": 5000,
-                                           "cancelled_orders": 1, "legacy_unsplit_orders": 0})
+                                           "cancelled_orders": 1, "legacy_unsplit_orders": 0,
+                                           "unattributed_orders": 0, "unattributed_amount": 0})
         self.assertEqual(data["payment"]["cash"], 5000)
         self.assertEqual(data["menu"], [{"menu_item_id": self.meal.id, "name": "Meal", "qty": 1, "amount": 5000}])
         self.assertEqual(data["hourly"], [{"hour": "12:00", "orders": 1, "revenue": 5000}])
@@ -106,10 +108,40 @@ class DashboardArithmeticTests(TestCase):
             "cash_ratio": 13000 / 15000, "ticket_ratio": 2000 / 15000,
         })
 
+    def test_an_old_mixed_payment_without_the_split_is_reported_not_hidden(self):
+        """Its single figure cannot be divided into cash and ticket, so it adds
+        to neither. Saying so beats letting payment disagree with revenue
+        without explanation (PR #71 database review)."""
+        self.order([(self.meal, 1, 5000)], method="CASH_TICKET",
+                   cash=None, ticket=None, received=5000, change=None)
+        self.order([(self.soup, 1, 2000)], cash=2000, ticket=0, change=0)
+        data = self.dashboard()
+        self.assertEqual(data["summary"]["revenue"], 7000)
+        self.assertEqual((data["summary"]["unattributed_orders"], data["summary"]["unattributed_amount"]),
+                         (1, 5000))
+        self.assertEqual((data["payment"]["cash"], data["payment"]["ticket"]), (2000, 0))
+
+    def test_lines_sold_without_a_recorded_price_count_in_quantity_only(self):
+        order = self.order([(self.meal, 3, 5000)])
+        order.items.update(unit_price=None)
+        data = self.dashboard()
+        self.assertEqual(data["summary"]["items"], 3)
+        self.assertEqual(data["menu"], [{"menu_item_id": self.meal.id, "name": "Meal", "qty": 3, "amount": 0}])
+
+    def test_the_report_is_a_fixed_number_of_queries(self):
+        """Adding a day's worth of orders must not add queries (PR #71)."""
+        from orders.services import reporting
+        for _ in range(3):
+            self.order([(self.meal, 1, 5000), (self.soup, 2, 2000)])
+        period = reporting.Period(DAY, DAY, "explicit")
+        with self.assertNumQueries(3):
+            reporting.dashboard(period)
+
     def test_an_empty_period_is_all_zeros(self):
         data = self.dashboard()
         self.assertEqual(data["summary"], {"orders": 0, "items": 0, "revenue": 0,
-                                           "cancelled_orders": 0, "legacy_unsplit_orders": 0})
+                                           "cancelled_orders": 0, "legacy_unsplit_orders": 0,
+                                           "unattributed_orders": 0, "unattributed_amount": 0})
         self.assertEqual(data["payment"], {"cash": 0, "ticket": 0, "change": 0, "net_cash": 0,
                                            "cash_ratio": 0.0, "ticket_ratio": 0.0})
         self.assertEqual((data["menu"], data["hourly"]), ([], []))

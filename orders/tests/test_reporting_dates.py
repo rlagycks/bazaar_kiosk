@@ -157,4 +157,5 @@ class DashboardPeriodHttpTests(TestCase):
         self.order_on(today)
         data = self.dashboard()
         self.assertEqual(data["summary"], {"orders": 1, "items": 1, "revenue": 1000,
-                                           "cancelled_orders": 0, "legacy_unsplit_orders": 0})
+                                           "cancelled_orders": 0, "legacy_unsplit_orders": 0,
+                                           "unattributed_orders": 0, "unattributed_amount": 0})

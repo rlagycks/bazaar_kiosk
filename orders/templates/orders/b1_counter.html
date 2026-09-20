@@ -137,6 +137,11 @@
       const aside = [];
       if(summary.cancelled_orders) aside.push('취소 ' + summary.cancelled_orders + '건 제외');
       if(summary.legacy_unsplit_orders) aside.push('구형 수납 기록 ' + summary.legacy_unsplit_orders + '건 해석');
+      // A mixed payment with no split cannot be attributed; show the money so
+      // the operator can see why cash + ticket is short of revenue.
+      if(summary.unattributed_orders){
+        aside.push('현금·식권 구분 불가 ' + summary.unattributed_orders + '건 ₩' + KRW(summary.unattributed_amount||0));
+      }
       document.getElementById('summaryAside').textContent = aside.join(' · ');
     }
 

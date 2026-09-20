@@ -27,13 +27,17 @@
   `net_cash = cash − change`가 금고에 남는 현금이다.
 - 분할 필드가 없는 옛 행은 주문 상세와 **같은 방식**으로 읽는다(현금 결제면 현금, 식권 결제면 식권). 고쳐 쓰지 않고
   `summary.legacy_unsplit_orders`로 몇 건을 해석했는지 알린다.
+- 그중 **혼합 결제**는 한 값을 현금과 식권으로 나눌 수 없어 어느 쪽에도 더하지 않는다. 대신 `unattributed_orders`와
+  `unattributed_amount`로 건수와 금액을 드러내 `cash + ticket`이 매출보다 적은 이유를 말한다(PR #71 DB 리뷰).
+- 단가가 없는 옛 품목 줄은 수량에만 들어가고 금액에는 0으로 들어간다.
 - 메뉴 줄은 `menu_item_id`로 묶고 판매 시점 단가로 금액을 낸다. 응답에 `menu_item_id`를 포함한다.
 
 ## 응답 (`GET /orders/api/stats/dashboard/`)
 
 ```
 period  : start_date, end_date, floor, basis("event_day"|"today"|"explicit"), label(행사일 메모)
-summary : orders, items, revenue, cancelled_orders, legacy_unsplit_orders
+summary : orders, items, revenue, cancelled_orders, legacy_unsplit_orders,
+          unattributed_orders, unattributed_amount
 payment : cash, ticket, change, net_cash, cash_ratio, ticket_ratio
 menu    : [{menu_item_id, name, qty, amount}]
 hourly  : [{hour("HH:MM", 서울), orders, revenue}]
@@ -49,6 +53,19 @@ hourly  : [{hour("HH:MM", 서울), orders, revenue}]
   잘못된 형식·역전 범위 400, 서울 기준 오늘, 자정 전후 주문일 귀속과 시간 표시, 연습 주문 제외.
 - `orders/tests/test_reporting.py`: 합계 산술, 취소 제외와 별도 집계, 메뉴 ID 그룹(동명이 메뉴 2줄), 이름 변경 후
   표시, 옛 수납 기록 해석과 건수, 빈 기간 0, floor 검증, 통계 권한 외 403.
+
+## PR #71 리뷰 결과 (2026-09-20)
+
+코드·DB 리뷰 에이전트 2개. CRITICAL/HIGH 없음.
+
+- 코드 MEDIUM 1건: 고정 날짜 시절의 죽은 헬퍼(`_parse_date`·`_date_limits`)가 제거된 import를 참조 → 삭제.
+  LOW 3건(기간 파서 흐름, `today` 인자 가림, 중복 시간대 변환) 반영.
+- DB MEDIUM 4건: 취소 집계와 매출 집계를 한 번의 스캔으로, 품목 수는 메뉴 집계에서 계산해 **쿼리 5개 → 3개**.
+  옛 혼합 결제의 구분 불가 금액을 드러내고, NULL 단가를 명시적으로 0으로 처리.
+- DB 측정(20만~30만 행 합성): 기간 필터는 기존 `order_date` 인덱스를 탄다. `(number_series, order_date, status)`
+  복합 인덱스를 만들어 비교했으나 플래너가 선택하지 않아 **추가하지 않았다**. 시간별 집계는
+  `DATE_TRUNC(... AT TIME ZONE ...)`이라 `created_at` 인덱스를 못 쓰지만 기간으로 이미 좁혀져 수십 ms다.
+  `order_date`가 NULL인 행이 매출에서 빠지는 것은 `orders_number_needs_date` 제약이 보장하는 안전한 동작이다.
 
 ## 남은 것
 
