@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from functools import wraps
 
+from asgiref.sync import iscoroutinefunction, sync_to_async
 from django.conf import settings
 from django.http import JsonResponse
 from django.utils.cache import patch_cache_control
@@ -77,6 +78,38 @@ def _attach(request, identity):
     request.auth_account = identity.account
     request.auth_permissions = identity.permissions
     request.auth_session_id = identity.session_id
+
+
+def _authorize(request, required_default, per_method):
+    """Identify an API caller and decide whether this call is allowed.
+
+    Returns the refusal to send, or `None` when the call may proceed. Split out
+    of the wrapper in 10A so the synchronous and asynchronous wrappers reach
+    the decision through the same code rather than through two copies of it:
+    an authorization rule that exists twice is one edit away from existing in
+    one and a half places.
+    """
+    try:
+        authorization = request.headers.get("Authorization", "")
+        scheme, token = authorization.split(" ", 1)
+        if scheme.lower() != "bearer" or not token or " " in token:
+            raise AuthError()
+        identity = validate_access(token)
+    except (AuthError, ValueError):
+        response = JsonResponse({"detail": "로그인이 필요합니다."}, status=401)
+        response["WWW-Authenticate"] = "Bearer"
+        patch_cache_control(response, private=True, no_store=True)
+        return response
+    # The view needs to know who is acting: 6A stores it with the order
+    # attempt, D-051 records it on every change. The HTML guard attaches the
+    # same three attributes.
+    _attach(request, identity)
+    required = per_method.get(request.method.upper(), required_default)
+    if required and not (required & identity.permissions):
+        # Name neither the caller's permissions nor the allowed set: a
+        # rejected client has no use for it and it maps the model.
+        return JsonResponse({"detail": "권한이 없습니다."}, status=403)
+    return None
 
 
 def _permitted(held, *, any_of, all_of) -> bool:
@@ -188,29 +221,36 @@ def require_api_permissions(*allowed: str, by_method: dict[str, tuple[str, ...]]
         @wraps(viewfunc)
         @sensitive_variables()
         def _wrapped(request, *args, **kwargs):
-            try:
-                authorization = request.headers.get("Authorization", "")
-                scheme, token = authorization.split(" ", 1)
-                if scheme.lower() != "bearer" or not token or " " in token:
-                    raise AuthError()
-                identity = validate_access(token)
-            except (AuthError, ValueError):
-                response = JsonResponse({"detail": "로그인이 필요합니다."}, status=401)
-                response["WWW-Authenticate"] = "Bearer"
-                patch_cache_control(response, private=True, no_store=True)
-                return response
-            # The view needs to know who is acting: 6A stores it with the
-            # order attempt, D-051 records it on every change. The HTML guard
-            # attaches the same three attributes.
-            _attach(request, identity)
-            required = per_method.get(request.method.upper(), required_default)
-            if required and not (required & identity.permissions):
-                # Name neither the caller's permissions nor the allowed set: a
-                # rejected client has no use for it and it maps the model.
-                return JsonResponse({"detail": "권한이 없습니다."}, status=403)
+            refusal = _authorize(request, required_default, per_method)
+            if refusal is not None:
+                return refusal
             response = viewfunc(request, *args, **kwargs)
             patch_cache_control(response, private=True, no_store=True)
             return response
+
+        @wraps(viewfunc)
+        @sensitive_variables()
+        async def _awrapped(request, *args, **kwargs):
+            # 10A: the same decision, reached the same way. Identifying a
+            # caller reads the database, which is synchronous, so it is handed
+            # to the request's own thread -- `thread_sensitive` is what keeps
+            # every sync step of one request on one thread and one connection,
+            # instead of scattering them across a pool where each would open
+            # its own.
+            refusal = await sync_to_async(_authorize, thread_sensitive=True)(
+                request, required_default, per_method
+            )
+            if refusal is not None:
+                return refusal
+            response = await viewfunc(request, *args, **kwargs)
+            patch_cache_control(response, private=True, no_store=True)
+            return response
+
+        if iscoroutinefunction(viewfunc):
+            # `_awrapped` is a real coroutine function, so Django's handler
+            # sees an async view and calls it in the running loop rather than
+            # adapting it -- which is the whole point of having two wrappers.
+            _wrapped = _awrapped
 
         # Marks this view as one that answers in JSON, so csrf_failure refuses
         # it in JSON too. See _targets_the_api.

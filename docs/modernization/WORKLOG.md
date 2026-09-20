@@ -3,6 +3,44 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-20 — 10A ASGI·미들웨어·프록시 최소 실행 증명 (D-057)
+
+- 브랜치 `phase-10a-asgi-runtime`, 기준 `develop` df9c35a. 사용자 지시: "기다렸다가 리뷰 반영하고 머지한 뒤
+  10A 진행해". 범위를 물었고 **"운영 실행까지 ASGI로 전환"**을 골랐다. 워커는 **uvicorn 단독 --workers 3**,
+  정적 파일은 **nginx 직접 제공**을 선택했다(D-057).
+- **운영이 WSGI로 돌고 있었다.** `compose.prod.yaml`이 `gunicorn ...wsgi:application`을 실행했고, WSGI 워커는
+  스트리밍 응답을 모아서 한 번에 보낸다. `asgi.py`는 있었지만 아무도 실행하지 않았다. 이 구성에서 SSE는 느린
+  것이 아니라 불가능했다(BK-R035).
+- **동기 미들웨어 하나가 ASGI를 무효로 만들고 있었다.** 미들웨어 8개 중 `WhiteNoiseMiddleware`만
+  `async_capable=False`였고, Django는 동기 전용 미들웨어 **안쪽 전체**를 `async_to_sync`로 감싼다. 체인 생성을
+  계측해 `BRIDGE async_to_sync around middleware whitenoise...`를 확인했다. WhiteNoise는 최신 6.12에도 async
+  경로가 없어 정적 파일을 프록시로 옮겼다(저장 백엔드는 유지). 되돌아오는 것은 시스템 검사 `orders.E001`이 막는다.
+- **`--no-proxy-headers`가 보안 경계다.** uvicorn의 프록시 헤더 처리는 기본 켜짐이고 gunicorn과 달리
+  `REMOTE_ADDR`을 덮어쓴다. 켜 둔 채 전환했다면 이슈 #61의 판단이 `TRUSTED_PROXY_IPS`에서 명령줄로 조용히
+  옮겨 갔을 것이다. 프록시 경유 실패 11회 `200×9, 429, 429`, 스푸핑한 `X-Forwarded-For`로도 429로 재확인했다.
+- **측정이 제가 넣을 뻔한 결함을 잡았다.** 스트리밍 location에 `proxy_set_header Connection "";`을 넣자 400이
+  났다. nginx는 자기 레벨에 `proxy_set_header`가 하나라도 있으면 **상위의 것을 전부 상속하지 않는다**. 헤더 하나를
+  더한 것이 `Host`·`X-Forwarded-For`·`X-Forwarded-Proto`를 통째로 떨어뜨렸다. 공통 헤더를
+  `scripts/nginx_proxy_headers.conf`로 빼고 프록시하는 모든 location이 include하도록 했고, 회귀 테스트로 묶었다.
+- V-STREAM(실제 `compose.prod.yaml` 스택, uvicorn 워커 3개, nginx, `curl -N`): 프레임 간격
+  `[506, 502, 501, 502, 502] ms`(요청 500ms), 첫 프레임 t+32ms, 응답 종료 t+2545ms. 열린 스트림 0/6/24/48에서
+  `GET /orders/menus/` 중앙값 28/19/19/20ms, **DB 연결은 항상 1**, 워커 스레드 9/15/33/57.
+  클라이언트를 죽이면 스레드 57→9, FD 70→64로 기준선 복귀. 스트림을 연 채 `stop -t 30 app`이 10.5초에 종료
+  (`--timeout-graceful-shutdown 10`). 정적 파일은 프록시가 내고 **앱이 본 `/static/` 요청 0건**.
+- **인계(10D·D-007):** 스트림 1개가 워커 스레드 1개를 차지한다. CPU는 쓰지 않고 RSS는 스트림당 약 90kB지만
+  화면 수만큼 스레드가 생긴다. 동시 화면 상한과 목표는 D-007에 남는다.
+- 변경 파일: `bazaar_kiosk/settings.py`(미들웨어·정적·`CONN_MAX_AGE`·probe 스위치), `orders/checks.py`(신규),
+  `orders/apps.py`, `orders/views/stream.py`(신규), `orders/views/guards.py`(async 경로), `orders/urls.py`,
+  `requirements*.txt`(gunicorn→uvicorn), `Dockerfile`(app/proxy 두 타깃), `compose.prod.yaml`,
+  `scripts/nginx_prod.conf`, `scripts/nginx_proxy_headers.conf`(신규), `.env.example`,
+  테스트 `test_asgi_stream.py`(신규)·`test_runtime_config.py`, 문서 6개(`ASGI_RUNTIME.md` 신규,
+  DECISIONS D-057·D-006, BLUEPRINT 10A, RISK BK-R035·BK-R039, README, DEPLOYMENT_CANDIDATE).
+- 검증: `.venv/bin/python scripts/test_postgres.py` -> 마이그레이션 24건, 애플리케이션 428건 통과.
+  `manage.py check` 이상 없음, `check --deploy` 경고는 이전과 동일, `makemigrations --check` 변경 없음.
+  **스키마 변경과 마이그레이션 없음.** 측정 후 컨테이너·볼륨·합성 비밀 파일 제거.
+- 남은 것: 브라우저·HTTP/2·여러 탭·BFCache는 BK-R039로 12A1. 실제 SSE는 10B/10C/10D. D-019는 여전히 pending이며
+  10B 시작 전에 확정해야 한다.
+
 ## 2026-09-20 — 9 API 입력 계약과 경계 추출
 
 - 브랜치 `phase-9-api-boundaries`, 기준 `develop` 2475b54. 사용자 지시: "10D 시작하자 pr 올리고 리뷰 돌린 뒤 머지".

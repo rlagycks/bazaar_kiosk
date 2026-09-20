@@ -1,9 +1,15 @@
-# Deployment candidate image (4A3). Not a released image: 12A1 accepts the real
-# host, TLS and observability. Build context is the repository root.
-FROM python:3.12-slim AS base
+# Deployment candidate image (4A3, 10A). Not a released image: 12A1 accepts the
+# real host, TLS and observability. Build context is the repository root.
+#
+# Two targets. `app` is the application; `proxy` is nginx carrying the static
+# files this build produced. They are one file because the assets and the
+# templates that name them have to come from the same build -- a shared
+# volume would be populated once and then quietly serve last week's bundle
+# against this week's manifest (10A).
+FROM python:3.12-slim AS app
 
 # Bytecode written at import time in a read-only-ish container buys nothing, and
-# unbuffered output is what makes gunicorn's logs appear in `docker logs`.
+# unbuffered output is what makes the server's logs appear in `docker logs`.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
@@ -35,3 +41,20 @@ RUN useradd --system --create-home --uid 10001 bazaar \
 USER bazaar
 
 EXPOSE 8000
+
+
+# 10A: the proxy serves /static/ off disk. WhiteNoise's middleware is
+# synchronous and has no async version upstream, and Django adapts a
+# sync-only middleware by wrapping the whole chain inside it in
+# async_to_sync -- which would put every request, streaming or not, on a
+# borrowed thread in a second event loop. Moving the files out of the
+# application is what keeps the request path async.
+FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 AS proxy
+
+# Built by `collectstatic` above: hashed names, a manifest, and .gz siblings
+# that gzip_static serves without compressing anything at request time.
+COPY --from=app /app/staticfiles /usr/share/nginx/html/static
+COPY scripts/nginx_prod.conf /etc/nginx/conf.d/default.conf
+# Included by every proxied location; kept out of conf.d so nginx does not
+# also load it into the http context on its own.
+COPY scripts/nginx_proxy_headers.conf /etc/nginx/bk_proxy_headers.conf

@@ -3,5 +3,11 @@ Django>=5.0,<5.3
 psycopg[binary]>=3.1
 tzdata>=2024.1
 whitenoise==6.10.0
-gunicorn>=22.0
+# 10A: the deployment runs ASGI. `uvicorn.workers` is deprecated upstream
+# and its replacement package is alpha and a year without a release, so
+# uvicorn's own process manager runs the workers and gunicorn is gone.
+# The base install, not [standard]: h11 and asyncio are enough for one
+# bazaar, and uvloop/httptools/watchfiles/websockets are four more C or
+# network dependencies in an image built without a compiler.
+uvicorn>=0.36,<0.54
 PyJWT==2.14.0

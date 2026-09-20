@@ -2,7 +2,7 @@
 from __future__ import annotations
 from django.urls import path
 from django.views.generic import RedirectView
-from orders.views import pages, api, auth 
+from orders.views import pages, api, auth, stream
 
 app_name = "orders"
 
@@ -30,4 +30,9 @@ urlpatterns = [
     path("api/orders/items/<int:item_id>/progress", api.order_item_progress, name="order-item-progress"),
     path("api/stats/menu-counts",   api.stats_menu_counts,    name="stats-menu-counts"),
     path("api/stats/dashboard",     api.stats_dashboard,      name="stats-dashboard"),
+
+    # 10A: the synthetic stream that measures the ASGI runtime. Routed always
+    # and answering 404 unless STREAM_PROBE_ENABLED is on, so that turning it
+    # on for a measurement run is a setting and not a code change.
+    path("api/stream/probe",        stream.stream_probe,      name="stream-probe"),
 ]
