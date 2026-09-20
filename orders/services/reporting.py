@@ -76,18 +76,20 @@ def _parse_day(raw, field: str) -> date | None:
     text = raw.strip()
     if text == "":
         raise PeriodError(f"{field} 값이 비어 있습니다.")
+    # `fromisoformat` also accepts times and week dates; a report period is a
+    # plain day, so the shape is pinned before parsing.
+    if len(text) != 10:
+        raise PeriodError(f"{field}은(는) YYYY-MM-DD 형식이어야 합니다.")
     try:
-        return date.fromisoformat(text) if len(text) == 10 else _refuse(field)
+        return date.fromisoformat(text)
     except ValueError:
-        return _refuse(field)
+        raise PeriodError(f"{field}은(는) YYYY-MM-DD 형식이어야 합니다.") from None
 
 
-def _refuse(field: str):
-    raise PeriodError(f"{field}은(는) YYYY-MM-DD 형식이어야 합니다.")
+def resolve_period(params, *, as_of: date | None = None) -> Period:
+    """The days the report covers, from the request's parameters.
 
-
-def resolve_period(params, *, today: date | None = None) -> Period:
-    """The days the report covers, from the request's parameters."""
+    `as_of` stands in for today, so a test can say which day it is."""
     start = _parse_day(params.get("start_date"), "start_date")
     end = _parse_day(params.get("end_date"), "end_date")
     if start or end:
@@ -96,7 +98,7 @@ def resolve_period(params, *, today: date | None = None) -> Period:
         if start > end:
             raise PeriodError("start_date가 end_date보다 늦습니다.")
         return Period(start, end, "explicit")
-    day = today or globals()["today"]()
+    day = as_of or today()
     event = EventDay.objects.filter(date__lte=day).order_by("-date").first()
     if event is not None:
         return Period(event.date, event.date, "event_day", event.label)
@@ -159,9 +161,10 @@ def dashboard(period: Period, floor: str = "") -> dict:
         .order_by("-qty_sum", "menu_item__name", "menu_item_id")
     ]
 
+    # TruncHour with a tzinfo returns the hour already in that zone.
     seoul = timezone.get_current_timezone()
     hourly = [
-        {"hour": timezone.localtime(row["hour"], seoul).strftime("%H:%M") if row["hour"] else "",
+        {"hour": row["hour"].strftime("%H:%M") if row["hour"] else "",
          "orders": row["orders"] or 0, "revenue": row["revenue"] or 0}
         for row in orders.annotate(hour=TruncHour("created_at", tzinfo=seoul))
         .values("hour").annotate(orders=Count("id"), revenue=Sum("total_price")).order_by("hour")

@@ -25,7 +25,7 @@ class PeriodResolutionTests(TestCase):
     today = date(2026, 9, 20)
 
     def resolve(self, **params):
-        return reporting.resolve_period(params, today=self.today)
+        return reporting.resolve_period(params, as_of=self.today)
 
     def test_no_period_means_the_latest_event_day_not_in_the_future(self):
         EventDay.objects.create(date=date(2025, 10, 18))
@@ -55,14 +55,16 @@ class PeriodResolutionTests(TestCase):
         for params in (
             {"start_date": "2026-13-01"}, {"start_date": "yesterday"}, {"end_date": "2026-09-31"},
             {"start_date": "2026-09-03", "end_date": "2026-09-01"}, {"start_date": "20260901"},
-            {"start_date": "2026-09-01T00:00"}, {"start_date": ""},
+            {"start_date": "2026-09-01T00:00"}, {"start_date": ""}, {"start_date": "2026-9-1"},
+            {"start_date": "0000-01-01"}, {"start_date": "2026-02-30"}, {"start_date": 20260901},
+            {"start_date": "9" * 40}, {"start_date": "２０２６-０９-０１"},
         ):
             with self.subTest(params=params):
                 with self.assertRaises(reporting.PeriodError):
                     self.resolve(**params)
 
     def test_a_blank_parameter_is_the_same_as_none(self):
-        self.assertEqual(reporting.resolve_period({"start_date": None, "end_date": None}, today=self.today).basis, "today")
+        self.assertEqual(reporting.resolve_period({"start_date": None, "end_date": None}, as_of=self.today).basis, "today")
 
 
 class SeoulDayTests(SimpleTestCase):

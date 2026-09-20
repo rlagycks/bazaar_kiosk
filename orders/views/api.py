@@ -85,23 +85,6 @@ def _order_base_queryset():
     )
 
 
-def _parse_date(date_str: str | None) -> datetime | None:
-    if not date_str:
-        return None
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError:
-        return None
-
-
-def _date_limits(request: HttpRequest):
-    start = _parse_date(request.GET.get("start_date"))
-    end = _parse_date(request.GET.get("end_date"))
-    start_date = start.date() if start else None
-    end_date = end.date() if end else None
-    return start_date, end_date
-
-
 @lru_cache(maxsize=128)
 def _get_table_by_number(number: int) -> Table:
     return Table.objects.get(number=number, is_active=True)
