@@ -164,6 +164,33 @@ class LegacySurveyTests(LegacyFixture, TestCase):
         self.assertEqual(survey["mismatched"], {"count": 1, "difference": 4000})
         self.assertEqual(survey["unsplit"]["count"], 0)
 
+    def test_one_side_null_is_counted_even_when_the_total_agrees(self):
+        """The shape `api.py` wrote until this phase: a single-method order
+        with the unused side NULL instead of zero. It reads correctly, so it
+        is in no other bucket, and without a counter of its own a database
+        full of pre-7C orders would report itself clean (PR #72 DB review)."""
+        self.legacy_order(method="CASH", received=5000, cash=5000, ticket=None)
+        self.legacy_order(method="TICKET", received=3000, cash=None, ticket=3000)
+        self.legacy_order(method="CASH_TICKET", received=4000, cash=4000, ticket=None)
+        survey = legacy_audit.survey()
+        self.assertEqual(survey["half_split"], {"count": 3, "amount": 12000})
+        self.assertEqual((survey["unsplit"]["count"], survey["mismatched"]["count"]), (0, 0))
+        self.assertEqual(survey["missing_total"], 0)
+        self.assertTrue(survey["needs_attention"])
+
+    def test_a_fully_written_order_is_not_half_split(self):
+        self.legacy_order(method="CASH", received=5000, cash=5000, ticket=0, change=0)
+        self.assertEqual(legacy_audit.survey()["half_split"]["count"], 0)
+
+    def test_amounts_near_the_column_ceiling_do_not_break_the_survey(self):
+        """Two legal `PositiveIntegerField` values sum past int4. The audit
+        has to survive one anomalous row rather than failing for every row;
+        the 7A ceiling did not exist when these were written."""
+        self.legacy_order(method="CASH_TICKET", received=5000,
+                          cash=2_000_000_000, ticket=2_000_000_000, total=5000)
+        survey = legacy_audit.survey()
+        self.assertEqual(survey["mismatched"], {"count": 1, "difference": 3_999_995_000})
+
     def test_the_command_prints_the_survey_and_changes_nothing(self):
         from io import StringIO
         self.legacy_order(method="CASH", received=5000)

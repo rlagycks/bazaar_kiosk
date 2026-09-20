@@ -1,10 +1,11 @@
 """What a database holds in the old money shapes (7C, D-054).
 
 The split payment fields have been nullable since 0017, so a row can carry
-one `received_amount` and nothing else. The report reads those rows the way
-the order detail does, but nobody could say how many there were, how much
-money they involved, or whether any of them disagreed with themselves
-(BK-R007, BK-R031).
+one `received_amount` and nothing else, or one side of the split and a NULL
+where a zero belonged. The report reads those rows the way the order detail
+does, but nobody could say how many there were, how much money they
+involved, or whether any of them disagreed with themselves (BK-R007,
+BK-R031).
 
 This answers that, and only that. **Nothing here writes.** The user's
 decision (D-054) is that original values stay as they are: an estimate
@@ -18,8 +19,8 @@ number in every money field, including zero.
 
 from __future__ import annotations
 
-from django.db.models import Case, Count, F, IntegerField, Q, Sum, Value, When
-from django.db.models.functions import Abs, Coalesce
+from django.db.models import BigIntegerField, Case, Count, F, Q, Sum, Value, When
+from django.db.models.functions import Abs, Cast, Coalesce
 
 from orders.models import Order, PaymentMethod
 
@@ -30,13 +31,38 @@ UNSPLIT = Q(received_cash_amount__isnull=True) & Q(received_ticket_amount__isnul
 INTERPRETABLE = UNSPLIT & Q(payment_method__in=(PaymentMethod.CASH, PaymentMethod.TICKET))
 UNATTRIBUTED = UNSPLIT & Q(payment_method=PaymentMethod.CASH_TICKET)
 
-_SPLIT_SUM = Coalesce(F("received_cash_amount"), Value(0)) + Coalesce(F("received_ticket_amount"), Value(0))
+# Exactly one side filled. Until this phase `api.py` wrote `value or None`,
+# so every single-method order ever taken has the other side NULL rather than
+# zero. Arithmetically such a row is determined -- the missing side is the
+# remainder, and every reader coalesces it to zero -- so it needs no
+# interpreting, but it is still the shape this phase stops producing, and an
+# operator asking "does this database predate 7C?" has to be told yes
+# (PR #72 DB review).
+HALF_SPLIT = (
+    Q(received_cash_amount__isnull=True, received_ticket_amount__isnull=False)
+    | Q(received_cash_amount__isnull=False, received_ticket_amount__isnull=True)
+)
+
+_BIG = BigIntegerField()
+
+
+def _big(field: str):
+    """The column in bigint space.
+
+    These are `PositiveIntegerField`s, and the schema bounds them only at
+    zero from below. Two legal rows near 2^31 sum past int4 and PostgreSQL
+    raises `integer out of range`, which would fail the whole audit over one
+    anomalous row. The 7A ceiling (`payments.MAX_AMOUNT`) did not exist when
+    these rows were written, so the tool cannot assume it (PR #72 DB review).
+    """
+    return Coalesce(Cast(F(field), _BIG), Value(0, output_field=_BIG))
+
+
+_SPLIT_SUM = _big("received_cash_amount") + _big("received_ticket_amount")
 # A row that carries a total and at least one split figure, where the two do
-# not agree. A NULL on one side counts as zero, which is right because the
-# only writer sets the pair together (api.py): one side NULL means that
-# method took nothing, not that the figure is missing. A future writer that
-# filled one side alone would land here too, and should be read as a conflict
-# rather than passed over (PR #72 code review).
+# not agree. A NULL on one side counts as zero: one side NULL means that
+# method took nothing, so a total that does not match the other side is a
+# conflict, not an absence.
 _HAS_SPLIT = Q(received_amount__isnull=False) & ~UNSPLIT
 _MISMATCH = _HAS_SPLIT & ~Q(received_amount=_SPLIT_SUM)
 
@@ -51,21 +77,28 @@ def survey() -> dict:
         interpretable_amount=Coalesce(Sum("received_amount", filter=INTERPRETABLE), Value(0)),
         unattributed=Count("id", filter=UNATTRIBUTED),
         unattributed_amount=Coalesce(Sum("received_amount", filter=UNATTRIBUTED), Value(0)),
+        half_split=Count("id", filter=HALF_SPLIT),
+        half_split_amount=Coalesce(Sum("received_amount", filter=HALF_SPLIT), Value(0)),
         # A split with no total: the other direction of the same gap.
         missing_total=Count("id", filter=Q(received_amount__isnull=True) & ~UNSPLIT),
         mismatched=Count("id", filter=_MISMATCH),
         difference=Coalesce(
             Sum(
-                Case(When(_MISMATCH, then=Abs(F("received_amount") - _SPLIT_SUM)), default=Value(0)),
-                output_field=IntegerField(),
+                Case(
+                    When(_MISMATCH, then=Abs(_big("received_amount") - _SPLIT_SUM)),
+                    default=Value(0, output_field=_BIG),
+                    output_field=_BIG,
+                ),
+                output_field=_BIG,
             ),
-            Value(0),
+            Value(0, output_field=_BIG),
         ),
         # Written before 7A stored the change; the report derives theirs.
         no_change=Count("id", filter=Q(change_amount__isnull=True)),
     )
     needs_attention = any(
-        figures[key] for key in ("unsplit", "missing_total", "mismatched", "no_change")
+        figures[key]
+        for key in ("unsplit", "half_split", "missing_total", "mismatched", "no_change")
     )
     return {
         "orders": figures["orders"],
@@ -75,6 +108,7 @@ def survey() -> dict:
             "interpretable": {"count": figures["interpretable"], "amount": figures["interpretable_amount"]},
             "unattributed": {"count": figures["unattributed"], "amount": figures["unattributed_amount"]},
         },
+        "half_split": {"count": figures["half_split"], "amount": figures["half_split_amount"]},
         "missing_total": figures["missing_total"],
         "mismatched": {"count": figures["mismatched"], "difference": figures["difference"]},
         "no_change": figures["no_change"],
@@ -93,6 +127,8 @@ def render(figures: dict) -> str:
         f"({unsplit['interpretable']['amount']:,}원)",
         f"  - 혼합 결제라 현금·식권으로 나눌 수 없음: {unsplit['unattributed']['count']:,}건 "
         f"({unsplit['unattributed']['amount']:,}원)",
+        f"한쪽 수단만 기록된 주문: {figures['half_split']['count']:,}건 "
+        f"(합계 {figures['half_split']['amount']:,}원, 나머지 한쪽은 0으로 읽습니다)",
         f"받은 금액 합계가 비어 있는 주문: {figures['missing_total']:,}건",
         f"합계와 분할이 어긋나는 주문: {figures['mismatched']['count']:,}건 "
         f"(차이 합계 {figures['mismatched']['difference']:,}원)",

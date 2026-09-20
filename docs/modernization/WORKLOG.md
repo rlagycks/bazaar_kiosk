@@ -60,8 +60,11 @@
 - 마이그레이션 없음. 백필 없음.
 - 검증: 전용 PG `check`·`makemigrations --check` 무결, **마이그레이션 24 + 앱 326 통과, skip 0**.
 - 문서: [LEGACY_AMOUNTS.md](LEGACY_AMOUNTS.md) 신설, DECISIONS D-054·D-012, BLUEPRINT 7C, RISK BK-R007/031, README.
-- **PR #72 리뷰:** 코드 에이전트 CRITICAL/HIGH 없음. MEDIUM 1건(쿼리 수 회귀 부재)과 LOW 1건(한쪽만 채워진
-  분할의 비교 동작이 주석과 다름)을 반영했다.
+- **PR #72 리뷰:** 코드 에이전트 CRITICAL/HIGH 없음(MEDIUM 1, LOW 1 반영). DB 에이전트가 실측으로 HIGH 2건을
+  찾아 둘 다 고쳤다. (1) 한쪽 수단만 기록된 행이 어느 집계에도 잡히지 않아, 7C 이전 주문만 있는 DB가 "문제 없음"으로
+  보고됐다 -> `half_split` 집계 추가. (2) 분할 합산이 `int4`라 큰 금액 두 칸이 만나면 감사 전체가
+  `integer out of range`로 실패했다 -> `bigint` 캐스팅. 인덱스 제안은 실측 결과 실행 계획이 바뀌지 않아 도입하지
+  않았다. 자세한 내용은 LEGACY_AMOUNTS.md.
 - 남은 것: 운영 DB에 데이터가 발견되면 D-037 무효(이 명령이 근거), 삭제된 필드 복구는 백업뿐, 메뉴 이름 스냅샷(D-008).
 
 ## 2026-09-20 — 8C 통계 정확성: 기간·정산·과거 표시 (D-053)
