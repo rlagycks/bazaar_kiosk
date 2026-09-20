@@ -26,8 +26,6 @@ from orders.views import api
 @override_settings(**AUTH_SETTINGS)
 class AdminOrderEditTests(TestCase):
     def setUp(self):
-        api._get_table_by_number.cache_clear()
-        self.addCleanup(api._get_table_by_number.cache_clear)
         Table.objects.create(number=7)
         self.meal = MenuItem.objects.create(name="Meal", price=5000)
         self.soup = MenuItem.objects.create(name="Soup", price=2000)

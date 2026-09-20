@@ -12,8 +12,6 @@ from orders.views import api
 @override_settings(**AUTH_SETTINGS)
 class AuditTrailTests(TestCase):
     def setUp(self):
-        api._get_table_by_number.cache_clear()
-        self.addCleanup(api._get_table_by_number.cache_clear)
         Table.objects.create(number=7)
         self.menu = MenuItem.objects.create(name="Meal", price=1000)
         self.server = Client()

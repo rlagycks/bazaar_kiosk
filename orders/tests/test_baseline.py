@@ -29,9 +29,7 @@ class BaselineMixin:
     def setUp(self):
         super().setUp()
         cache.clear()
-        api._get_table_by_number.cache_clear()
         self.addCleanup(cache.clear)
-        self.addCleanup(api._get_table_by_number.cache_clear)
 
     def login_role(self, role="ORDER"):
         response = login_client(self.client, role)

@@ -105,7 +105,10 @@
     };
     const BOARD = document.getElementById('board');
     const STATUS = document.getElementById('status');
-    const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT&limit=80";
+    // 8B: no limit. Waiting orders are a queue, so the server returns all of
+    // them, oldest first, and says if its own safety bound ever bit.
+    const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT";
+    let LAST_PAGE = {total: null, has_more: false};
     const ORDER_DETAIL_URL = "{% url 'orders:order-detail' 0 %}";
     const ITEM_URL = "{% url 'orders:order-item-progress' 0 %}";
     const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
@@ -300,8 +303,13 @@
         .sort((a,b)=> new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       renderOrders(ordered);
       const stamp = new Date();
-      STATUS.textContent = '갱신: ' + stamp.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+      let line = '갱신: ' + stamp.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
         + ' · 대기 주문 ' + ordered.length + '건';
+      if (LAST_PAGE.has_more){
+        // Say it rather than let the board go quiet about the rest.
+        line += ' · 서버에 ' + LAST_PAGE.total + '건 대기, 화면은 오래된 순으로 일부만 표시';
+      }
+      STATUS.textContent = line;
     }
 
     function replaceOrders(list){
@@ -316,6 +324,7 @@
       try{
         const data = await fetchJSON(ORDERS_URL);
         const results = data.results || [];
+        LAST_PAGE = {total: data.total, has_more: !!data.has_more};
         replaceOrders(results);
       }catch(e){
         console.error('주문 불러오기 실패', e);

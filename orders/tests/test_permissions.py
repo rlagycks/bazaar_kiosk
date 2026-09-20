@@ -51,9 +51,7 @@ REFUSED = "REFUSED"
 class AuthorizationMatrixTests(TestCase):
     def setUp(self):
         cache.clear()
-        api._get_table_by_number.cache_clear()
         self.addCleanup(cache.clear)
-        self.addCleanup(api._get_table_by_number.cache_clear)
         self.table = Table.objects.create(number=7)
         self.menu = MenuItem.objects.create(name="Meal", price=1000)
         self.order = self.make_order()

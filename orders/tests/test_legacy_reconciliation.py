@@ -49,8 +49,6 @@ class NewOrdersAreNeverAmbiguousTests(TestCase):
     """The forward half: stop making rows that need interpreting."""
 
     def setUp(self):
-        api._get_table_by_number.cache_clear()
-        self.addCleanup(api._get_table_by_number.cache_clear)
         Table.objects.create(number=7)
         self.menu = MenuItem.objects.create(name="Meal", price=5000)
         self.free = MenuItem.objects.create(name="Water", price=0)

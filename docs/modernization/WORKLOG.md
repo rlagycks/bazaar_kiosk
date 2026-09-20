@@ -3,6 +3,27 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-20 — 8B 주방 대기 목록 완전성과 캐시 정확성 (D-055)
+
+- 브랜치 `phase-8b-kitchen-queries`, 기준 `develop` ecb9844. 사용자 지시: "8B 시작하자 pr 올리고 리뷰 돌린 뒤 머지".
+  8C는 이미 머지돼 있어(PR #71) 다음 미구현 카드가 8B임을 확인한 뒤 사용자가 8B를 골랐다.
+- 결정 관문: 대기 목록 계약을 물었고 사용자가 **"오래된 순서로 전부"**(권장)를 골랐다 -> D-055.
+- BK-R009: 화면이 `limit=80`을 보내고 서버가 최신순으로 잘라서, 대기 81건부터 가장 오래 기다린 주문이
+  표시 없이 빠졌다. 전날 넘어온 주문이 항상 먼저 사라지는 쪽이었다. `orders/services/queues.py`를 추가해
+  대기 큐(오래된 순 전부, 상한 500)와 조회 페이지(최신 순, `limit` 유지)를 나눴다. 응답은 항상 `total`과
+  `has_more`를 싣고, 대기 목록에서는 호출자의 `limit`을 무시한다. 역할 필터는 잘라내기 전에 적용된다.
+- BK-R010: `_get_table_by_number`의 프로세스 `lru_cache`를 제거했다. 이 조회가 주문 생성의 유일한 테이블
+  사용 가능 검증이라서, 캐시가 있으면 같은 POST가 어느 워커에 걸리느냐에 따라 성공·실패가 갈렸다.
+  메뉴·테이블 목록의 `cache_page(60)`도 제거했다. 기본 백엔드가 프로세스 메모리라 워커마다 창이 따로 돌았다.
+  테스트 10곳의 `cache_clear()` 호출도 함께 없앴다.
+- 변경 파일: `orders/services/queues.py`(신규), `orders/services/__init__.py`, `orders/views/api.py`,
+  `orders/templates/orders/kitchen_supervisor.html`, `orders/tests/test_kitchen_queries.py`(신규),
+  `orders/tests/test_cache_behavior.py`(신규), `cache_clear` 호출이 있던 테스트 8개, 문서 5개.
+- 검증: `.venv/bin/python scripts/test_postgres.py` -> 마이그레이션 24건, 애플리케이션 363건 통과.
+  `manage.py check` 이상 없음, `makemigrations --check` 변경 없음. **스키마 변경과 마이그레이션 없음.**
+- 남은 것: 폴링 주기·재접속 계약은 4B2·10D, revision 일관성은 10C. 500건 상한에 실제로 걸리는 운영은
+  관측된 적이 없고, 걸린다면 목록 문제가 아니라 조리 능력 문제다.
+
 ## 2026-09-20 — 메뉴 10개·내 메뉴 후속 Figma 비교안
 
 - 사용자 요청: 메뉴 수 증가와 로그아웃/업무 이동 메뉴에 대한 검토를 별도 비교본으로 만든다.

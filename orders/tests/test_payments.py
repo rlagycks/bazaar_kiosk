@@ -164,8 +164,6 @@ class OrderCreationMoneyTests(TestCase):
     """The rules above, as the order screen meets them."""
 
     def setUp(self):
-        api._get_table_by_number.cache_clear()
-        self.addCleanup(api._get_table_by_number.cache_clear)
         Table.objects.create(number=7)
         self.menu = MenuItem.objects.create(name="Meal", price=5000)
         login_client(self.client, "ORDER")

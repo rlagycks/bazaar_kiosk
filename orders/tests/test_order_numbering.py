@@ -223,8 +223,6 @@ class OrderApiNumberingTests(TestCase):
     def setUp(self):
         # The view caches table lookups by number across tests; a stale id would
         # point at a table this case never created.
-        api._get_table_by_number.cache_clear()
-        self.addCleanup(api._get_table_by_number.cache_clear)
         self.table = Table.objects.create(number=4)
         self.menu = MenuItem.objects.create(name="Bowl", price=8000)
         login_client(self.client, "ORDER")

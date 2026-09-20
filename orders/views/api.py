@@ -4,11 +4,9 @@ from typing import Any, Dict, List
 
 from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest, Http404
 from django.views.decorators.http import require_http_methods
-from django.views.decorators.cache import cache_page
 from django.db import IntegrityError, transaction
 from django.db.models import Sum, F, IntegerField
 from django.utils import timezone
-from functools import lru_cache
 
 from orders.models import (
     FloorChoices, PaymentMethod, OrderType, OrderStatus, OrderSource, NumberSeries,
@@ -17,7 +15,7 @@ from orders.models import (
 from orders.services import allocate_floor_order_no, series_for, idempotency
 from orders.services import status as status_service
 from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, SERVING_PERMISSIONS, STATS_PERMISSIONS
-from orders.services import audit, payments, reporting, scope
+from orders.services import audit, payments, queues, reporting, scope
 from orders.views.guards import require_api_permissions
 
 
@@ -85,14 +83,23 @@ def _order_base_queryset():
     )
 
 
-@lru_cache(maxsize=128)
 def _get_table_by_number(number: int) -> Table:
+    """The table as it stands right now (8B, BK-R010).
+
+    This lookup is order creation's only check that the table is still in
+    service, so it cannot be memoised. A process-level cache made the answer
+    depend on which worker took the POST and on whether that worker had seen
+    the table before it was switched off. It is one indexed row.
+    """
     return Table.objects.get(number=number, is_active=True)
 
 
 # ---------- 메뉴/테이블 ----------
+# 8B: no response cache here. Django's default backend is per-process
+# memory, so `cache_page` gave each worker its own stale window and two
+# screens could show different rows at the same moment. This is a handful of
+# indexed rows on page load (BK-R010).
 @require_api_permissions()
-@cache_page(60)
 @require_http_methods(["GET"])
 def tables_list(request: HttpRequest):
     qs = Table.objects.filter(is_active=True).order_by("sort_index", "number")
@@ -101,7 +108,6 @@ def tables_list(request: HttpRequest):
 
 
 @require_api_permissions()
-@cache_page(60)
 @require_http_methods(["GET"])
 def menus_list(request: HttpRequest):
     scope = (request.GET.get("scope") or "").upper()
@@ -135,14 +141,11 @@ def orders_collection(request: HttpRequest):
         status = (request.GET.get("status") or "").upper()
         types_raw = request.GET.get("types") or ""
         types = [t.strip().upper() for t in types_raw.split(",") if t.strip()]
-        try:
-            limit = int(request.GET.get("limit") or 50)
-        except ValueError:
-            limit = 50
-        limit = max(1, min(limit, 200))
 
         # D-051: a monitor sees only the orders of its own classification.
-        qs = scope.visible(_order_base_queryset(), request.auth_permissions).order_by("-created_at", "-id")
+        # This narrowing happens before any cut, so a long queue in one
+        # classification can never displace another monitor's orders.
+        qs = scope.visible(_order_base_queryset(), request.auth_permissions)
         if floor and floor != FloorChoices.B1:
             return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
         if floor == FloorChoices.B1:
@@ -152,8 +155,18 @@ def orders_collection(request: HttpRequest):
         if types:
             qs = qs.filter(order_type__in=types)
 
-        data = [_serialize_order(o) for o in qs[:limit]]
-        return JsonResponse({"results": data, "count": len(data)})
+        # 8B (D-055): work still to do is a queue, everything else is a page.
+        if status == OrderStatus.PREPARING:
+            page = queues.waiting(qs)
+        else:
+            page = queues.looking_back(qs, request.GET.get("limit"))
+        data = [_serialize_order(o) for o in page.orders]
+        return JsonResponse({
+            "results": data,
+            "count": len(data),
+            "total": page.total,
+            "has_more": page.has_more,
+        })
 
     # POST
     try:
