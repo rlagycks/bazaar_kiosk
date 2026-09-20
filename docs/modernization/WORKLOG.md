@@ -3,6 +3,62 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-20 — 10C 버전과 일치하는 권한 snapshot (D-059)
+
+- 브랜치 `phase-10c-snapshot`, 기준 `develop` 7230cce. 10C의 결정 관문 세 개를 먼저 물었고,
+  사용자가 **"REPEATABLE READ 트랜잭션"**, **"generation을 지금 넣기"**,
+  **"측정하고 전역 1행 유지"**를 골랐다(D-059).
+- **문제는 읽기가 두 문장이라는 것.** autocommit에서 표시를 읽는 SELECT와 주문을 읽는 SELECT는
+  서로 다른 PostgreSQL 스냅샷이고, 사이에 커밋이 끼면 **한 번도 함께 참인 적 없는 짝**이 나간다.
+  주문을 먼저 읽으면 화면이 자기가 보여 주는 것보다 앞선 버전을 저장하고, 다른 변경이 올
+  때까지 틀린 것을 계속 보여 준다 — 10B가 쓰기 쪽에서 막은 영구 누락이 읽기 쪽으로 돌아오는
+  경로다. 그래서 snapshot은 짧은 REPEATABLE READ 트랜잭션 하나다.
+- **버전은 비교하는 것이지 크기를 재는 것이 아니다.** `generation:value:scope`. `generation`은
+  복원이 숫자를 되돌리는 경우를 잡고(`>`면 영원히 안 받고, `!=`여도 이미 본 번호를 새 것으로
+  받는다), `scope`는 요청마다 DB에서 읽히는 권한이 바뀐 경우를 잡는다. 둘 중 하나라도 다르면
+  가운데 숫자는 의미가 없으므로 커서를 거부하고 전체를 준다 — 400이 아니라 200 + 전체 목록이다.
+  화면이 두 경우에 할 일이 같은데 왕복만 늘기 때문이다.
+- **잘린 목록에는 `complete=false`를 붙인다.** `MAX_QUEUE`가 자를 수 있고, 잘린 목록에 붙은
+  버전은 "전부 가졌다"는 약속이 아니다. 10B 아키텍처 리뷰가 지목한 항목이다.
+- **테스트가 제 버그를 잡았다.** `_isolate()`가 `connection.in_atomic_block`으로 "내 트랜잭션인가"를
+  판단했는데 **방금 연 블록 안이라 항상 참**이었고, `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`가
+  한 번도 실행되지 않았다. 읽는 도중 커밋을 barrier로 끼워 넣는 테스트가 `2 != 1`로 실패해
+  드러났다 — 격리가 없으면 스냅샷이 새 주문을 담은 채 옛 버전 라벨을 달고 나온다. 트랜잭션을
+  열기 **전에** 계산한 플래그를 넘기도록 고쳤고, 그 테스트가 곧 이 단계의 변이 검사다.
+- **엄격함을 하나 되돌렸다.** 중첩 호출에서 격리를 못 걸 때 초안은 예외를 던졌다. 그 결과
+  저장소의 모든 `TestCase`에서 엔드포인트가 도달 불가가 됐고(권한 매트릭스 4 ERROR), 게다가
+  바깥 트랜잭션 안에서는 이 격리 수준이 막으려는 커밋이 어차피 안 보여 **잃는 보장이 없었다.**
+  던지지 않고 `Snapshot.isolated`로 보고하고, 운영이 조용히 그리로 가지 않음은
+  `ATOMIC_REQUESTS`가 꺼져 있다는 테스트로 고정했다.
+- **읽기 증폭 측정(독립 2회, `scripts/snapshot_amplification.py`).** 10B가 판단 근거 없이 남기고
+  10C 승인 기준에 넘긴 항목이다. 대기 홀 40 + 포장 40, 홀 변경 20회, 화면 1·3·6·12:
+
+  | 화면 | 재조회 | 헛수고 | 헛수고% | 쿼리/폴 | 중앙값 ms | p90 ms |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 1 | 20 | 0 | 0% | 7.0 | 4.78 / 3.44 | 5.88 / 4.00 |
+  | 3 | 60 | 20 | 33% | 7.0 | 4.56 / 4.04 | 7.06 / 6.73 |
+  | 6 | 120 | 40 | 33% | 7.0 | 5.28 / 4.05 | 6.30 / 4.93 |
+  | 12 | 240 | 80 | 33% | 7.0 | 4.95 / 5.14 | 9.23 / 7.13 |
+
+  두 숫자가 예상보다 셌다. (i) **재조회 횟수 = 폴 횟수** — 변경이 계속 있으면 전역 표시 때문에
+  모든 화면이 모든 변경마다 다시 받고, `unchanged`로 싸게 끝나는 폴은 조용할 때만 나온다.
+  (ii) 그 재조회의 **3분의 1이 헛수고**다(다른 scope의 변경에 깨어나 이미 가진 것을 그대로 받음).
+  그래도 유지한다 — 폴 하나가 쿼리 7개·수 ms이고, 쪼개면 scope 간 잠금 획득 순서라는 새 교착
+  위험을 산다. 단서: 단일 프로세스·순차 폴링이라 **동시 폴링의 연결 경합은 재지 않았다**(10D1).
+- 변경 파일: `orders/services/snapshots.py`(신규), `orders/models/revisions.py`(`generation`)·
+  `orders/migrations/0029_revision_generation.py`(신규), `orders/services/revisions.py`(`state()`)·
+  `orders/services/__init__.py`, `orders/views/api.py`(`snapshot_waiting`)·`orders/urls.py`,
+  `scripts/snapshot_amplification.py`(신규), 테스트 `test_snapshot_consistency.py`(신규)·
+  `test_migration_paths.py`·`test_permissions.py`, 문서 `SNAPSHOT.md`(신규)·`DECISIONS.md`(D-059,
+  D-019 갱신)·`BLUEPRINT.md`·`RISK_REGISTER.md`(BK-R037)·`README.md`.
+- 검증: 격리 PostgreSQL 전체 — 마이그레이션 26건 + 애플리케이션 490건 통과(신규 23건),
+  `manage.py check` 이상 없음, `makemigrations --check` 변경 없음. 0029 정·역방향을 주문과 표시가
+  이미 있는 DB에서 확인했다.
+- **화면은 아직 이 엔드포인트를 부르지 않는다**(10D2). SSE·heartbeat·재접속·세션 회수는 D-019에
+  그대로 남아 10D1 시작 전에 확정해야 한다. 요청 제한은 10B와 같이 12A1 인계다.
+- 이 저장소에서 다른 세션이 `UI_UX_REDESIGN.md`·`UI_REFERENCES.md`와 이 파일 하단을 동시에
+  편집 중이라, 커밋에는 제 hunk만 선별해 올렸다.
+
 ## 2026-09-20 — 10B 모든 writer의 영속 변경 감지 (D-058)
 
 - 브랜치 `phase-10b-change-detection`, 기준 `develop` d01d812. 10B의 결정 관문 D-019가 열려 있어

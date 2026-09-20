@@ -27,6 +27,8 @@ split (PR #77 architecture review).
 
 from __future__ import annotations
 
+import uuid
+
 from django.db import models
 
 # The only scope today. A constant rather than a default, so a second one
@@ -40,6 +42,20 @@ class ChangeRevision(models.Model):
     # one change a second it outlives the universe; at the rate a bazaar
     # produces them the question does not arise.
     value = models.BigIntegerField(default=0)
+
+    # Which lineage of this counter the value belongs to (10C).
+    #
+    # The value is the one thing in this system that can go *backwards*: a
+    # database restored from last night's backup hands out numbers screens
+    # have already seen. A screen comparing with `>` would then never refetch
+    # again, and a screen comparing with `!=` would be told 301, 302 for
+    # changes it already has. Neither is recoverable from inside the screen.
+    #
+    # Rotating this on restore makes every version a screen is holding differ
+    # from every version it will be handed, whatever the numbers did. The
+    # procedure that rotates it belongs to 12A3; what belongs here is that the
+    # version carries it, so the procedure has something to act on.
+    generation = models.UUIDField(default=uuid.uuid4)
 
     class Meta:
         verbose_name = "변경 표시"
@@ -59,4 +75,4 @@ class ChangeRevision(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.scope}={self.value}"
+        return f"{self.scope}={self.value}@{self.generation}"

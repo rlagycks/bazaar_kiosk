@@ -69,6 +69,27 @@ def current() -> int:
     return int(value or 0)
 
 
+def state() -> tuple[str, int]:
+    """The generation and the value, from one read of one row (10C).
+
+    One statement on purpose. Two reads could straddle a restore and pair a
+    new generation with an old value -- a version that has never been true,
+    handed to a screen as the thing it holds.
+    """
+    row = (
+        ChangeRevision.objects.filter(scope=BOARD)
+        .values_list("generation", "value")
+        .first()
+    )
+    if row is None:
+        # Same reading as `current()` returning 0: older than anything, so a
+        # screen fetches once rather than believing it is up to date. The
+        # empty generation cannot collide with a real one.
+        return "", 0
+    generation, value = row
+    return generation.hex, int(value)
+
+
 def _counter() -> ChangeRevision:
     """The counter row, locked for the rest of this transaction.
 
