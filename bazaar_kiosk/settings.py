@@ -255,10 +255,6 @@ def _parse_database_url(db_url: str):
 # Missing or invalid configuration must never select a local file database.
 DATABASES = {"default": _parse_database_url(_secret("DATABASE_URL"))}
 
-# --- Supabase realtime ---
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
-
 # --- 정적 파일(WhiteNoise) ---
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

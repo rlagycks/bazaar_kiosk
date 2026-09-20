@@ -85,8 +85,6 @@ CACHES = {
     }
 }
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
-SUPABASE_URL = ""
-SUPABASE_ANON_KEY = ""
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 
 # D-051: the synthetic event password every test account logs in with.

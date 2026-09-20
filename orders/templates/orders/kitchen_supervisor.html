@@ -93,32 +93,30 @@
     </section>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="{% static 'orders/ui/auth.js' %}" data-auth-account="{{ request.auth_account.id }}" data-auth-session="{{ request.auth_session_id }}"></script>
   <script>
-    const SUPABASE_URL = "{{ supabase_url|default:'' }}";
-    const SUPABASE_ANON_KEY = "{{ supabase_anon_key|default:'' }}";
     const MODE_SCOPE = "{{ mode_scope|default:'ALL' }}";
     const getCookie = (name)=>{
       const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
       return m?decodeURIComponent(m.pop()):'';
     };
     const BOARD = document.getElementById('board');
+    const RELOAD_BUTTON = document.getElementById('btnReload');
     const STATUS = document.getElementById('status');
     // 8B: no limit. Waiting orders are a queue, so the server returns all of
     // them, oldest first, and says if its own safety bound ever bit.
     const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT";
     let LAST_PAGE = {total: null, has_more: false};
+    // When the LIST was last read. Not when the board was last drawn: a
+    // single-card refresh redraws without reading the list, and stamping that
+    // moment made the one notice this phase relies on tell a lie
+    // (PR #74 architecture review).
+    let LAST_LIST_READ_AT = null;
     const ORDER_DETAIL_URL = "{% url 'orders:order-detail' 0 %}";
     const ITEM_URL = "{% url 'orders:order-item-progress' 0 %}";
     const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
-    const AUTO_MS = 5000;
     const ORDER_STORE = new Map();
     const ORDER_REFRESH_QUEUE = new Set();
-    let supabaseClient = null;
-    let realtimeChannel = null;
-    let realtimeEnabled = false;
-    let pollTimer = null;
     let isLoading = false;
 
     const escapeHtml = (value)=>{
@@ -302,9 +300,11 @@
         .filter(includeOrder)
         .sort((a,b)=> new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       renderOrders(ordered);
-      const stamp = new Date();
-      let line = '갱신: ' + stamp.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
-        + ' · 대기 주문 ' + ordered.length + '건';
+      const read = LAST_LIST_READ_AT
+        ? LAST_LIST_READ_AT.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+        : '아직 없음';
+      let line = '목록 읽은 시각 ' + read
+        + ' · 대기 주문 ' + ordered.length + '건 · 자동 갱신 안 함, 새로고침을 눌러 주세요';
       if (LAST_PAGE.has_more){
         // Say it rather than let the board go quiet about the rest.
         line += ' · 서버에 ' + LAST_PAGE.total + '건 대기, 화면은 오래된 순으로 일부만 표시';
@@ -321,17 +321,30 @@
     async function loadOrders(){
       if (isLoading) return;
       isLoading = true;
+      RELOAD_BUTTON.disabled = true;
+      // Nothing retries for us any more, so the one button has to show that
+      // it heard the press (PR #74 architecture review).
+      RELOAD_BUTTON.textContent = '읽는 중…';
       try{
         const data = await fetchJSON(ORDERS_URL);
         const results = data.results || [];
         LAST_PAGE = {total: data.total, has_more: !!data.has_more};
+        LAST_LIST_READ_AT = new Date();
         replaceOrders(results);
       }catch(e){
         console.error('주문 불러오기 실패', e);
-        BOARD.innerHTML = '<div class="empty">주문을 불러오지 못했습니다.</div>';
-        STATUS.textContent = '주문 로드 실패';
+        // Keep what is on the board. A dropped connection used to cost five
+        // seconds; with nothing retrying, wiping the cards would leave the
+        // kitchen with an empty screen until someone noticed the button.
+        LAST_PAGE = {total: null, has_more: false};
+        STATUS.textContent = LAST_LIST_READ_AT
+          ? '읽기 실패 · 화면은 ' + LAST_LIST_READ_AT.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+            + ' 목록입니다 · 새로고침을 다시 눌러 주세요'
+          : '주문을 불러오지 못했습니다 · 새로고침을 다시 눌러 주세요';
       }finally{
         isLoading = false;
+        RELOAD_BUTTON.disabled = false;
+        RELOAD_BUTTON.textContent = '새로고침';
       }
     }
 
@@ -355,6 +368,10 @@
       }
     }
 
+    // Kept after 4B2 removed the subscription that first justified it. A
+    // volunteer tapping several items of one order in quick succession still
+    // produces a burst, and this collapses it into one fetch per order
+    // (PR #74 code review).
     function queueOrderRefresh(orderId){
       if (!orderId) return;
       if (ORDER_REFRESH_QUEUE.has(orderId)) return;
@@ -408,24 +425,7 @@
       }
     }
 
-    function handleOrderEvent(payload){
-      const targetId = (payload.new && payload.new.id) || (payload.old && payload.old.id);
-      if (payload.eventType === 'DELETE'){
-        if (targetId){
-          ORDER_STORE.delete(targetId);
-          renderFromStore();
-        }
-        return;
-      }
-      queueOrderRefresh(targetId);
-    }
-
-    function handleOrderItemEvent(payload){
-      const orderId = (payload.new && payload.new.order_id) || (payload.old && payload.old.order_id);
-      queueOrderRefresh(orderId);
-    }
-
-    document.getElementById('btnReload').addEventListener('click', ()=>{
+    RELOAD_BUTTON.addEventListener('click', ()=>{
       loadOrders();
     });
 
@@ -458,64 +458,20 @@
       }
     });
 
-    function startPolling(){
-      if (realtimeEnabled) return;
-      if (pollTimer) clearInterval(pollTimer);
-      pollTimer = setInterval(loadOrders, AUTO_MS);
-    }
-
-    function stopPolling(){
-      if (pollTimer){
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-    }
-
-    function initRealtime(){
-      if (!SUPABASE_URL || !SUPABASE_ANON_KEY || typeof window.supabase === "undefined"){
-        startPolling();
-        return;
-      }
-      try{
-        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        realtimeChannel = supabaseClient.channel('kitchen-orders')
-          .on('postgres_changes',{event:'*',schema:'public',table:'orders_order'}, handleOrderEvent)
-          .on('postgres_changes',{event:'*',schema:'public',table:'orders_orderitem'}, handleOrderItemEvent);
-        realtimeChannel.subscribe((status)=>{
-          if(status === 'SUBSCRIBED'){
-            realtimeEnabled = true;
-            stopPolling();
-          }
-        });
-        setTimeout(()=>{
-          if (!realtimeEnabled){
-            startPolling();
-          }
-        }, 2000);
-      }catch(e){
-        console.error('Supabase realtime init 실패', e);
-        startPolling();
-      }
-    }
-
+    // 4B2: no timer. The external subscription is gone and D-018's own SSE
+    // is the replacement (10D). Until then this board does not update by
+    // itself, which the status line says out loud -- a frozen board that
+    // looks live is the failure 8B just removed.
     document.addEventListener('visibilitychange', ()=>{
-      if (document.hidden){
-        stopPolling();
-      }else if (!realtimeEnabled){
-        startPolling();
-      }
+      // Coming back to the tab reads once. This is a single fetch, not a
+      // schedule: leaving the tab open does not poll.
+      if (!document.hidden) loadOrders();
     });
 
     document.addEventListener('DOMContentLoaded', ()=>{
       loadOrders();
-      initRealtime();
     });
 
-    window.addEventListener('beforeunload', ()=>{
-      if (supabaseClient && realtimeChannel){
-        supabaseClient.removeChannel(realtimeChannel);
-      }
-    });
   </script>
 </body>
 </html>

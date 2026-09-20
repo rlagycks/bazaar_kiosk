@@ -3,6 +3,34 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-20 — 4B2 브라우저의 외부 Realtime 제거, 폴링도 함께 제거 (D-056)
+
+- 브랜치 `phase-4b2-remove-external-realtime`, 기준 `develop` c76bccb. 사용자 지시: "4B2 시작하자 pr 올리고 리뷰 돌린 뒤 머지".
+- 결정 관문: 폴링 주기를 물었더니 사용자가 **"어차피 SSE로 갈 거고 지금 서비스 중 아니라서 폴링도 같이 없애 버릴 생각"**이라고
+  답했다. 제시한 세 선택지(5초·2초·가변) 어느 것도 아닌 네 번째 답이라 D-056으로 기록했다.
+- 제거: CDN의 외부 Realtime SDK `<script>`, HTML에 주입하던 프로젝트 URL·익명 키, `orders_order`·`orders_orderitem` 직접 구독,
+  5초 폴링 타이머, `_supabase_context`, `SUPABASE_URL`·`SUPABASE_ANON_KEY` 설정(운영·테스트 프로필·`.env.example` 모두).
+- 남긴 갱신 경로: 새로고침 버튼, 카드 조작, 탭 복귀 시 **단발** 읽기(타이머 아님). 상태 줄이 자동 갱신 없음과 목록 읽은 시각을 말한다.
+- 변경 파일: `orders/templates/orders/kitchen_supervisor.html`, `orders/views/pages.py`, `bazaar_kiosk/settings.py`,
+  `settings_test_pg.py`, `.env.example`, `orders/tests/test_external_realtime.py`(신규), `test_settings_isolation.py`, 문서 8개
+  (`EXTERNAL_REALTIME_REMOVAL.md` 신규, D-056, BLUEPRINT 4B2와 10B·10C·10D1·10D2 롤백 주석, RISK 4건, README,
+  CONTENT_SECURITY, SESSION_SETUP).
+- 검증: `.venv/bin/python scripts/test_postgres.py` -> 마이그레이션 24건, 애플리케이션 389건 통과. `manage.py check` 이상 없음,
+  `makemigrations --check` 변경 없음. **스키마 변경과 마이그레이션 없음.**
+  격리 PostgreSQL(포트 55471, 전용 compose 프로젝트)에 개발 서버(8010)를 띄워 실제 HTTP로 확인했다. 세 페이지 모두 외부 origin 0,
+  외부 토큰 0, `setInterval` 0. 주문 생성 201 -> 보드 `mode=queue count=1 total=1`. 계정 비활성화 후 같은 토큰 401,
+  페이지 302, refresh 401. 검사 후 서버 종료와 `down -v`로 제거했고 무관한 컨테이너는 건드리지 않았다.
+- **V-BROWSER 미실행.** Chrome 확장과 Playwright 브리지가 모두 연결되지 않아 실제 브라우저 네트워크 기록을 남기지 못했다.
+  카드 인수 기준 미충족 상태이며 배포 전에 확인해야 한다.
+- 리뷰(PR #74): 코드 APPROVE, 보안 HIGH 2, 아키텍처 조건부 승인 HIGH 3. 코드 결함은 하나였다. 상태 줄의 "읽은 시각"이 실제로는
+  렌더 시각이라 단건 갱신이 그 시각을 밀어 올렸고, 이 단계가 유일한 완화책으로 내세운 고지가 스스로 거짓이 됐다. 목록 읽은
+  시각으로 고정했다. 읽기 실패 시 카드를 지우지 않도록 바꾸고, 새로고침 버튼에 진행 표시를 넣었다. 타이머 회귀 울타리를
+  재귀 `setTimeout`과 공유 JS까지 넓혔고, 외부 origin 검사를 벤더 이름 대신 절대 URL·스트림 API 자체로 바꿨다.
+- 받아들인 잔여 위험: 탭을 바꾸지 않는 배치는 갱신 0, 앞에 떠 있는 화면은 권한 회수를 감지하지 못함, `prepared_qty`의 stale
+  절대값 쓰기 창이 5초에서 무한. 셋 다 10D가 닫는다. **실제 행사 운영 전 10D 선행 필수.**
+- 남은 것: 외부 publication·RLS·키 회수·배포 env 정리는 승인이 필요한 인계 목록이며 BK-R018은 열려 있다. BK-R029는 CSP가
+  남아 부분 해결이다(12A1).
+
 ## 2026-09-20 — 8B 주방 대기 목록 완전성과 캐시 정확성 (D-055)
 
 - 브랜치 `phase-8b-kitchen-queries`, 기준 `develop` ecb9844. 사용자 지시: "8B 시작하자 pr 올리고 리뷰 돌린 뒤 머지".
@@ -343,7 +371,7 @@
   이벤트 이름 6개만 보고 있어 `\son[a-z]+\s*=`로 넓혔다. Node 회귀 2개와 Django 회귀 1개를 추가했고
   재검증에서 전체 **164개(마이그레이션16+앱148), skip0 통과**. 소스 검사의 우회 가능성과
   표 이름·요청사항의 왕복 미검증은 한계로 문서에 적었다.
-- 남은 것: 주방 화면 문자열 조립 제거(9·11), `serve.html` 삭제(11), CSP(4B2/12A1).
+- 남은 것: 주방 화면 문자열 조립 제거(9·11), `serve.html` 삭제(11), CSP(12A1. 4B2는 외부 스크립트 제거만 했다).
   BK-R011은 Repo-fixed(주문·카운터)이며 해결 상태는 운영 인수 전까지 Open이다.
 - 다음: 남은 단계는 대부분 D-004(주문번호)·D-005(결제 규칙) 등 사용자 결정이 선행이다.
 
