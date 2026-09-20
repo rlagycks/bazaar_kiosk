@@ -191,9 +191,14 @@ INSTALLED_APPS = [
 ]
 
 # --- 미들웨어 ---
+# 10A: every entry has to be async-capable. Django adapts a sync-only
+# middleware by wrapping everything inside it in `async_to_sync`, so one such
+# entry puts *every* request through two thread hops -- measured at 32-way
+# concurrency as a p90 of 44-50ms against 36-39ms. A system check
+# (orders/checks.py) refuses a list that breaks this, because nothing else
+# would: no test goes red and no request fails.
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -249,13 +254,36 @@ def _parse_database_url(db_url: str):
         "HOST": u.hostname,
         "PORT": str(port or ""),
         "OPTIONS": {"sslmode": parse_qs(u.query).get("sslmode", ["require"])[0]},
+        # 10A: stated rather than left to the default, because under ASGI the
+        # default is the only safe value and a future edit should have to
+        # argue with this comment. Django keeps connections in context-local
+        # storage; with a lifetime above zero, every thread the async handler
+        # borrows -- and every long-lived stream -- can hold one open, so the
+        # connection count follows open screens instead of active work. Zero
+        # means the connection is closed when the request finishes, which is
+        # what lets a stream run for minutes without occupying the database.
+        "CONN_MAX_AGE": 0,
     }
 
 
 # Missing or invalid configuration must never select a local file database.
 DATABASES = {"default": _parse_database_url(_secret("DATABASE_URL"))}
 
-# --- 정적 파일(WhiteNoise) ---
+# --- 정적 파일 ---
+# 10A: WhiteNoise stays as the *storage* backend and stops being middleware.
+# `collectstatic` still writes hashed names, a manifest and .gz/.br siblings;
+# the proxy serves those files off disk.
+#
+# Two reasons, in order of weight. The middleware is the only sync-only entry
+# in the chain and has no async version upstream (none in 6.12, the current
+# release; this repository pins 6.10 for the storage backend), so it is what
+# stands between this deployment and an async request path. And an
+# application server carrying assets is what hid that for this long: the
+# proxy is already there and already better at it.
+#
+# The consequence to know: with DEBUG off and no proxy in front, /static/ is
+# not served at all. That is deliberate. An application server quietly serving
+# assets is what hid this problem until now.
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 _static_dir = BASE_DIR / "static"
@@ -265,6 +293,12 @@ if _static_dir.is_dir():
 STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"}
 }
+
+# 10A: the synthetic stream that measures the ASGI runtime. It is an
+# instrument, not a feature, so it is absent unless someone turns it on for a
+# measurement run. Off, the route answers 404 to everyone -- before reading
+# credentials, so it does not advertise itself as merely switched off.
+STREAM_PROBE_ENABLED = os.environ.get("BK_STREAM_PROBE") == "1"
 
 # --- 운영 보안 설정 ---
 if not DEBUG:

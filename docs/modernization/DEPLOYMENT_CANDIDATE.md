@@ -8,10 +8,11 @@ D-046이 정한 형태(Compose 한 스택, 파일 비밀값, 내부 네트워크
 
 | 파일 | 역할 |
 | --- | --- |
-| `Dockerfile` | 앱 이미지. 빌드 시 `collectstatic`, 비루트 사용자(uid 10001), 컴파일러 미포함 |
+| `Dockerfile` | 두 타깃. `app`은 앱 이미지(빌드 시 `collectstatic`, 비루트 uid 10001, 컴파일러 미포함), `proxy`는 그 빌드의 정적 파일을 담은 nginx(10A) |
 | `compose.prod.yaml` | 배포 후보 스택. 프록시만 포트를 발행한다 |
 | `scripts/pg_prod_init.sql` | 앱 DB 역할 생성과 권한 축소. 빈 데이터 디렉터리에서 1회 실행 |
-| `scripts/nginx_prod.conf` | 프록시. 클라이언트 주소 헤더를 실제 peer로 덮어쓴다 |
+| `scripts/nginx_prod.conf` | 프록시. 정적 파일, 스트리밍 location, 프록시 대상 |
+| `scripts/nginx_proxy_headers.conf` | 프록시하는 모든 location이 include하는 공통 헤더(10A). 클라이언트 주소를 실제 peer로 덮어쓴다 |
 
 ## 노출 경계
 
@@ -40,12 +41,28 @@ D-046이 정한 형태(Compose 한 스택, 파일 비밀값, 내부 네트워크
 `secrets/` 디렉터리는 `.gitignore` 대상이다. 생성 절차는 `compose.prod.yaml` 상단 주석과
 [JWT_AUTHENTICATION](JWT_AUTHENTICATION.md)의 해시 생성 절차를 따른다.
 
+## 실행 형태 (10A, D-057)
+
+**2026-09-20 갱신:** 앱은 이제 ASGI로 실행한다.
+`python -m uvicorn bazaar_kiosk.asgi:application --workers 3 --no-proxy-headers
+--timeout-graceful-shutdown 10`. 이전의 `gunicorn ...wsgi:application`에서는 스트리밍 응답이
+모여서 한 번에 나갔으므로 SSE가 아예 동작하지 않았다. 정적 파일은 `WhiteNoiseMiddleware`
+대신 프록시가 디스크에서 낸다. 측정과 이유는 [ASGI 실행과 프록시](ASGI_RUNTIME.md).
+
+`--no-proxy-headers`는 아래 경계와 직접 연결된다. uvicorn의 프록시 헤더 처리는 기본이 켜짐이고
+gunicorn과 달리 `REMOTE_ADDR` 자체를 `X-Forwarded-For`로 덮어쓴다. 끄지 않으면 아래 경계를
+앱이 아니라 명령줄이 집행하게 된다.
+
 ## 프록시 뒤 클라이언트 주소 ([이슈 #61](https://github.com/rlagycks/bazaar_kiosk/issues/61))
 
 **정정:** 이전 기록은 gunicorn `--forwarded-allow-ips`가 클라이언트 주소를 복원한다고
 읽힐 수 있었다. 실제로 gunicorn은 `REMOTE_ADDR`을 **소켓 peer로만** 채운다. 그 옵션은
 `X-Forwarded-Proto` 같은 헤더의 신뢰 여부만 정한다. 따라서 프록시를 앞에 두면 앱이 보는
 주소는 항상 프록시가 되고, 계정 ID+IP별 실패 제한이 사실상 계정 단위 전역 잠금이 된다.
+
+**추가 정정(10A):** `DEBUG=0`에서 그 옵션은 Django의 HTTPS 판단에도 관여하지 않았다. Django는
+`SECURE_PROXY_SSL_HEADER`로 `X-Forwarded-Proto`를 직접 읽으며 서버가 채운 스킴을 보지 않는다.
+uvicorn으로 옮기면서 그 옵션은 사라졌고, 경계는 앱의 `TRUSTED_PROXY_IPS` 하나로 남았다.
 
 경계는 앱에 구현했다(`orders/client_ip.py`).
 
@@ -124,3 +141,24 @@ HSTS는 잘못 켜면 되돌리기 어렵다.
 - 부하·SLO 측정(10E)
 
 BK-R043/BK-R044는 저장소 쪽 구성이 갖춰졌을 뿐 **운영 대상 검증 전까지 Open**이다.
+
+## 2026-09-20 재검증 (10A)
+
+같은 방식(전용 프로젝트 `bk10a-stream`, 합성 비밀값, `127.0.0.1:8080`)으로 ASGI 전환 뒤를
+다시 확인했다. 검증 후 컨테이너·볼륨·비밀 파일을 제거했다.
+
+| 확인 | 결과 |
+| --- | --- |
+| 앱·프록시 이미지 빌드와 기동 | 통과(uvicorn 워커 3개, 비루트 uid 10001) |
+| 앱 역할로 `migrate` | `0027`까지 적용 |
+| `docker compose ps` 포트 | `proxy`만 호스트 매핑, `app`·`postgres` 없음 |
+| 프록시 경유 로그인 실패 | 9회 200, 10회째 429 |
+| 스푸핑한 `X-Forwarded-For`로 한 번 더 | 429(새 버킷을 얻지 못함) |
+| 프록시 경유 `/static/` 두 가지 | 200, 해시 이름은 `immutable`, `gzip_static` 동작, 앱이 본 정적 요청 0건 |
+| 정적 응답의 보안 헤더 | `nosniff`·`Referrer-Policy: same-origin`·COOP 모두 존재 |
+| `/static/staticfiles.json` | 404(manifest를 밖으로 내보내지 않는다) |
+| 스트림을 연 채 `stop -t 30 app` | 10.7초에 종료 |
+| 시작 시 `manage.py check` | 컨테이너 로그에서 `System check identified no issues` 확인 |
+
+**주의:** 4A3의 정정은 그대로다. 평문 HTTP에서는 `JWT_COOKIE_SECURE=True` 때문에 브라우저가
+`bk_refresh` 쿠키를 저장하지 않아 로그인이 유지되지 않는다. 위 검증은 curl로 했다.

@@ -41,6 +41,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: app
     environment:
       DEBUG: "0"
       # Hostnames and origins are configuration, not secrets: set them for the
@@ -51,28 +52,55 @@ services:
       JWT_SIGNING_KEY_FILE: /run/secrets/jwt_signing_key
       EVENT_PASSWORD_HASH_FILE: /run/secrets/event_password_hash
       DATABASE_URL_FILE: /run/secrets/database_url
-      # Issue #61: gunicorn fills REMOTE_ADDR from the socket peer, which behind
-      # this proxy is always the proxy. Without naming the proxy here, every
-      # login failure in the world lands in one bucket and ten of them lock out
-      # every device on a shared account. The application reads
+      # Issue #61: the server fills REMOTE_ADDR from the socket peer, which
+      # behind this proxy is always the proxy. Without naming the proxy here,
+      # every login failure in the world lands in one bucket and ten of them
+      # lock out every device on a shared account. The application reads
       # X-Forwarded-For only from this address.
       TRUSTED_PROXY_IPS: ${BK_PROXY_INTERNAL_IP:-10.89.0.10}
+      # 10A: the synthetic stream used to measure this stack. Off unless a
+      # measurement run asks for it, and it stays off in a real deployment --
+      # it is an instrument, and the kitchen's own SSE endpoint is 10D1.
+      BK_STREAM_PROBE: ${BK_STREAM_PROBE:-0}
     secrets:
       - secret_key
       - jwt_signing_key
       - event_password_hash
       - database_url
-    # This governs the forwarded *scheme* (X-Forwarded-Proto), which is how the
-    # application knows the request arrived over HTTPS and may set Secure
-    # cookies. It does NOT rewrite the client address -- gunicorn leaves
-    # REMOTE_ADDR as the socket peer -- so the throttle boundary is
-    # TRUSTED_PROXY_IPS above. "*" would let any peer claim https.
-    command: >
-      gunicorn bazaar_kiosk.wsgi:application
-      --bind 0.0.0.0:8000
-      --workers 3
-      --forwarded-allow-ips=${BK_PROXY_INTERNAL_IP:-10.89.0.10}
-      --access-logfile - --error-logfile -
+    # 10A: ASGI, because a WSGI worker collects a streaming response and sends
+    # it as one body -- SSE cannot exist on this stack otherwise. uvicorn runs
+    # its own workers: `uvicorn.workers` is deprecated upstream and its
+    # replacement package is alpha and a year without a release, so putting
+    # gunicorn in front would mean depending on the least maintained piece.
+    #
+    # --no-proxy-headers is the load-bearing flag. uvicorn's proxy handling is
+    # ON by default and, unlike gunicorn's, it *rewrites the client address*
+    # from X-Forwarded-For. Leaving it on would move the issue #61 boundary
+    # out of TRUSTED_PROXY_IPS and into this command line without anything
+    # saying so. The forwarded scheme is not affected: Django reads
+    # X-Forwarded-Proto itself through SECURE_PROXY_SSL_HEADER.
+    #
+    # --timeout-graceful-shutdown bounds a restart. Without it uvicorn waits
+    # for open connections to close, and a stream is a connection that has no
+    # reason to.
+    #
+    # `manage.py check` runs first because uvicorn does not. The system check
+    # that refuses a synchronous middleware (orders.E001) is the guard this
+    # whole runtime rests on, and without this line it would only ever run in
+    # CI -- a hotfix to MIDDLEWARE that skipped CI would start a worker whose
+    # request path is no longer async, with nothing failing (PR #76 review).
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        python manage.py check
+        exec python -m uvicorn bazaar_kiosk.asgi:application \
+          --host 0.0.0.0 --port 8000 \
+          --workers 3 \
+          --no-proxy-headers \
+          --timeout-graceful-shutdown 10 \
+          --log-level info
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,14 +111,17 @@ services:
       org.bazaar-kiosk.purpose: deployment-candidate
 
   proxy:
-    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+    # 10A: built rather than pulled, because it carries this build's static
+    # files. The nginx image and the configuration are in the Dockerfile.
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: proxy
     ports:
       # TLS termination and the certificate are 12A1. This candidate publishes
       # plain HTTP so the header boundary can be exercised before then; it is
       # not the public listener.
       - "127.0.0.1:8080:80"
-    volumes:
-      - ./scripts/nginx_prod.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - app
     networks:

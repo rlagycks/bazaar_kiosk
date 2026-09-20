@@ -646,6 +646,13 @@ BK-R043/044는 Open을 유지한다.
 - **검증 명령·환경:** V-STREAM: 실제 ASGI+proxy 프로세스와 curl -N/브라우저; test orders.tests.test_asgi_stream. iterator 직접 순회만으로 통과 금지.
 - **마이그레이션·롤백:** 검증 전 새 경로 비활성. auth/CSRF middleware를 제거해 async 통과 위장 금지.
 - **관측·보안·인계:** 워커/스레드·FD·DB 연결·flush 시간 기록, 최소 실행 명령 인계. 현재 선택 워커 버전의 공식 지원은 구현 시 재확인.
+- **2026-09-20 구현 완료(D-057):** [ASGI_RUNTIME.md](ASGI_RUNTIME.md). 실행은 `uvicorn --workers 3 --no-proxy-headers`,
+  정적 파일은 프록시가 제공하고 `WhiteNoiseMiddleware`를 제거했다(체인에서 유일한 동기 전용 항목이라 모든 요청이 스레드를 두 번 건넜다).
+  실제 스택에서 프레임 간격 501~504ms, 스트림 48개를 열어 둔 채 일반 API 중앙값 19~22ms, 이 probe에서는 DB 연결 1 고정,
+  끊으면 스레드 57→9·FD 111→63으로 기준선 복귀, 스트림을 연 채 정지가 10.7초에 종료. 측정은 `scripts/stream_smoke.py`로 재현한다.
+  **스트림 1개 = 요청당 스레드 1개**이고 원인은 `request_started`의 동기 리시버라 구조적으로 제거할 수 없다 — D-007로 넘긴다.
+  probe의 "DB 연결 1"은 이 뷰가 연결을 먼저 놓기 때문이므로 10D1에 그대로 적용되지 않는다.
+  브라우저·HTTP/2·여러 탭은 여전히 BK-R039로 12A1.
 
 <a id="phase-10b"></a>
 ### 10B — 모든 writer의 영속 변경 감지
