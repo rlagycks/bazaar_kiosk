@@ -667,6 +667,14 @@ BK-R043/044는 Open을 유지한다.
 - **검증 명령·환경:** V-PG: test orders.tests.test_change_tracking; test orders.tests.test_writer_coverage; 도메인/revision 잠금 역순 재현.
 - **마이그레이션·롤백:** 새 변경표시를 쓰지 않는 구앱으로 돌아가면 SSE 비활성·보호 폴링 유지. migration 기록 임의 삭제 금지. **2026-09-20(D-056): 보호된 자체 폴링은 4B2에서 실행되지 않았으므로 이 롤백 대상은 아직 없다. 10D2가 신규 작성한다.**
 - **관측·보안·인계:** writer coverage·공통 잠금 순서·실패 계측 인계. trigger/Redis/Channels/NOTIFY 도입을 자동 승인하지 않음.
+- **2026-09-20 구현 완료(D-058):** [CHANGE_DETECTION.md](CHANGE_DETECTION.md). D-019의 핵심 선택은 **최신 상태 수렴**,
+  감지는 **서비스 계층 writer 통합**으로 확정됐다(사용자). `ChangeRevision` 한 행을 모든 화면 가시 writer가
+  트랜잭션 **끝**에 잠그고 올린다 — 시퀀스는 "10/11 커밋 역전"을 막지 못하고, 먼저 잠그면 번호 카운터·주문 행과
+  교착한다. writer 전수 조사가 설계를 두 번 바꿨다: 시그널 리시버 0개, 조리 진행이 뷰 안에 있고 상태가 안 바뀌는
+  경우가 있음, `EventDay`가 주문 행 없이 모든 주문의 배지를 바꿈(→ 주문별 표시 불가, 전역 1행).
+  측정 2회: 직렬 차이 없음, 동시 4~16에서 처리량 −24%~−38%·p90 2~3배(`scripts/marker_contention.py`).
+  행별 revision은 두지 않았다(잠금 순서상 INSERT 시점에 값이 없고 수렴에는 불필요) — 증분이 필요하면 새 결정이다.
+  **화면이 이 숫자를 읽는 것은 10C/10D1이다.**
 
 <a id="phase-10c"></a>
 ### 10C — 버전과 일치하는 권한 snapshot

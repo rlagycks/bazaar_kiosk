@@ -32,6 +32,7 @@ M24 = ("orders", "0024_order_uq_active_takeout_slot")
 M25 = ("orders", "0025_account_permissions_audit")
 M26 = ("orders", "0026_order_change_amount")
 M27 = ("orders", "0027_orderevent_kind_items")
+M28 = ("orders", "0028_change_revision")
 
 
 class MigrationPathTests(TestCase):
@@ -138,9 +139,21 @@ class MigrationPathTests(TestCase):
             self.assertEqual(cursor.fetchone()[0], expected)
 
     def assert_orders_tables_empty(self, apps):
+        """A fresh install holds no data -- with one deliberate exception.
+
+        10B's change marker is a counter, not a record: migration 0028 seeds
+        the single row it counts on, at zero. Asserting its exact contents
+        rather than skipping it keeps this check honest, because "the marker
+        row exists and starts at zero" is itself a property of a fresh install
+        that something could break.
+        """
         for model in apps.get_app_config("orders").get_models():
             with self.subTest(model=model._meta.label):
-                self.assertEqual(model.objects.using(self.connection.alias).count(), 0)
+                rows = model.objects.using(self.connection.alias)
+                if model._meta.label == "orders.ChangeRevision":
+                    self.assertEqual(list(rows.values_list("scope", "value")), [("board", 0)])
+                    continue
+                self.assertEqual(rows.count(), 0)
 
     @contextmanager
     def original_0020_operations(self):
@@ -169,7 +182,7 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = M27
+        leaf = M28
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
@@ -385,6 +398,40 @@ class MigrationPathTests(TestCase):
         self.assertEqual(
             apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk).received_cash_amount, 10000
         )
+
+    def test_0028_adds_the_change_marker_without_touching_existing_orders(self):
+        """10B (D-019): the marker arrives at zero and nothing else moves.
+
+        A database that already holds orders gets one new row in one new table.
+        No order is read, rewritten or re-keyed. Zero is the correct starting
+        value, not a gap: every screen reads it as older than anything it could
+        be holding, so the first connection after the migration fetches once
+        and is current from then on.
+
+        Rolling back drops the table. The older application does not know the
+        marker exists, so it neither reads nor writes it; what it loses is the
+        ability to say that something changed -- the state it was already in
+        before this phase. The orders are still there, unchanged, either way.
+        """
+        apps = self.migrate(M27)
+        alias = self.connection.alias
+        order = self.fixture(apps, order_no=9)
+        before = self.snapshot(apps)
+
+        after = self.migrate(M28)
+        self.assert_head(M28)
+        markers = list(
+            after.get_model("orders", "ChangeRevision").objects.using(alias)
+            .values_list("scope", "value")
+        )
+        self.assertEqual(markers, [("board", 0)])
+        kept = after.get_model("orders", "Order").objects.using(alias).get(pk=order.pk)
+        self.assertEqual(kept.order_no, 9)
+
+        back = self.migrate(M27)
+        self.assert_head(M27)
+        self.assertNotIn("orders_changerevision", self.connection.introspection.table_names())
+        self.assertEqual(self.snapshot(back), before)
 
     def test_original_0020_still_fails_on_an_empty_database(self):
         # Pins why D-P07 changed the SQL: the pre-repair statement is the cause.

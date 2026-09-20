@@ -2,10 +2,42 @@ from __future__ import annotations
 from django import forms
 from django.contrib import admin
 
-from orders.services import audit, order_edits
+from django.db import transaction
+
+from orders.services import audit, order_edits, revisions
 from orders.services import status as status_service
 
 from .models import Account, Table, MenuItem, Order, OrderItem, OrderEvent, EventDay
+
+class MarksTheBoard:
+    """Say that a screen's contents changed, for admins that write directly.
+
+    `TableAdmin`, `MenuItemAdmin` and `EventDayAdmin` have no `save_model` of
+    their own, so Django's generic one writes the row and nothing tells the
+    screens. Each of these is display state: a price, a table's name, whether
+    an item is offered at all. `EventDay` is the sharpest -- registering a day
+    changes the series badge on every order shown, without writing to a single
+    order row, so no marker scoped to orders could ever notice it.
+
+    Django wraps the change form, the editable change list and the single
+    delete in transactions of its own, so the mark joins them. The bulk
+    "delete selected" action is not wrapped, so `delete_queryset` opens one
+    (PR #77 writer audit).
+    """
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        revisions.mark()
+
+    def delete_model(self, request, obj):
+        super().delete_model(request, obj)
+        revisions.mark()
+
+    def delete_queryset(self, request, queryset):
+        with transaction.atomic():
+            super().delete_queryset(request, queryset)
+            revisions.mark()
+
 
 # ---- 공용 유틸: 모델에 실제 존재하는 필드만 골라서 사용 ----
 def _field_names(model):
@@ -18,7 +50,7 @@ def _present(model, *names):
 
 # ---- Table ----
 @admin.register(Table)
-class TableAdmin(admin.ModelAdmin):
+class TableAdmin(MarksTheBoard, admin.ModelAdmin):
     list_display = _present(Table, "number", "name", "is_active", "sort_index")
     list_filter  = _present(Table, "is_active",)
     search_fields = _present(Table, "number", "name")
@@ -26,7 +58,7 @@ class TableAdmin(admin.ModelAdmin):
 
 # ---- MenuItem ----
 @admin.register(MenuItem)
-class MenuItemAdmin(admin.ModelAdmin):
+class MenuItemAdmin(MarksTheBoard, admin.ModelAdmin):
     list_display = _present(
         MenuItem,
         "name", "price", "is_active",
@@ -161,6 +193,11 @@ class OrderAdmin(admin.ModelAdmin):
             audit.record_status(locked, None, previous=previous)
         locked.note = obj.note
         locked.save(update_fields=["note", "updated_at"])
+        # The note is on the screens, and it is written here rather than
+        # through a service. The change form runs in one transaction, so this
+        # joins it; `save_formset` marks again for line edits, which is
+        # harmless -- the marker is compared, not counted.
+        revisions.mark()
         # Hand the locked, current row to the rest of the save.
         obj.status = locked.status
         obj.total_price = locked.total_price
@@ -175,6 +212,8 @@ class OrderAdmin(admin.ModelAdmin):
         for item in formset.deleted_objects:
             item.delete()
         formset.save_m2m()
+        if instances or formset.deleted_objects:
+            revisions.mark()
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
@@ -185,7 +224,7 @@ class OrderAdmin(admin.ModelAdmin):
 
 # ---- EventDay (D-047) ----
 @admin.register(EventDay)
-class EventDayAdmin(admin.ModelAdmin):
+class EventDayAdmin(MarksTheBoard, admin.ModelAdmin):
     """The operator's one control over numbering.
 
     A day registered here gives real order numbers; every other day is a

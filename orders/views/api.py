@@ -14,7 +14,7 @@ from orders.models import (
 from orders.services import allocate_floor_order_no, series_for, idempotency
 from orders.services import status as status_service
 from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, SERVING_PERMISSIONS, STATS_PERMISSIONS
-from orders.services import audit, payments, queues, reporting, scope
+from orders.services import audit, payments, queues, reporting, revisions, scope
 from orders.views import selectors, serializers, validators
 from orders.views.guards import require_api_permissions
 
@@ -287,6 +287,12 @@ def orders_collection(request: HttpRequest):
             idempotency.remember(
                 request_key, role=acting_role, digest=request_digest, order=order
             )
+
+            # 10B: last, so the board's marker is taken after every lock this
+            # transaction needs and released the moment it commits. A screen
+            # comparing markers now learns there is a new order without being
+            # told what it is (D-019).
+            revisions.mark()
     except IntegrityError as exc:
         slot_conflict = _is_takeout_slot_conflict(exc)
         if not slot_conflict and not idempotency.is_key_conflict(exc):
@@ -380,6 +386,9 @@ def order_status(request: HttpRequest, order_id: int):
             previous = order.status
             if status_service.change(order, new_status):
                 audit.record_status(order, request.auth_account, previous=previous)
+                # Asking for the status the order already has wrote nothing,
+                # so nothing on a screen is stale and the marker stays put.
+                revisions.mark()
     except Order.DoesNotExist:
         raise Http404("주문이 존재하지 않습니다.")
     except status_service.TransitionRefused as refused:
@@ -447,7 +456,8 @@ def order_item_progress(request: HttpRequest, item_id: int):
             if prepared_qty < 0 or prepared_qty > item.qty:
                 return HttpResponseBadRequest("prepared_qty 범위 오류")
 
-            if prepared_qty != item.prepared_qty:
+            changed = prepared_qty != item.prepared_qty
+            if changed:
                 item.prepared_qty = prepared_qty
                 item.save(update_fields=["prepared_qty"])
                 audit.record_progress(order, item, request.auth_account)
@@ -457,6 +467,12 @@ def order_item_progress(request: HttpRequest, item_id: int):
             status_service.sync_from_items(order)
             if order.status != previous:
                 audit.record_status(order, request.auth_account, previous=previous)
+            # 10B: the write most easily missed. It is saved here rather than in
+            # a service, and a partly-cooked order keeps its status -- so a
+            # marker wired to the status change alone would sit still while the
+            # board went stale (PR #77 writer audit).
+            if changed:
+                revisions.mark()
             order.refresh_from_db()
     except OrderItem.DoesNotExist:
         raise Http404("주문 품목이 존재하지 않습니다.")
