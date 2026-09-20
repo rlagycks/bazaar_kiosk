@@ -129,13 +129,34 @@ def _decode(raw, token_type):
         raise AuthError() from exc
 
 
-def _check_device(device, claims, now):
+def device_is_current(device, now=None) -> bool:
+    """Whether this device may still act, independent of any one token.
+
+    Everything that revokes a session lives here: the device row itself, the
+    account behind it, and the credential fingerprint -- which is the *only*
+    mechanism by which rotating the shared event password logs every device
+    out (D-045). There is no separate sweep that sets `revoked_at`.
+
+    It is a function rather than a few lines inside `_check_device` because
+    10D1 needs the same question answered for an open stream, in bulk, with
+    no token in hand. The first version of the hub asked it by re-listing the
+    conditions and left the fingerprint out, so a rotated password stopped
+    every request and none of the streams. Asking it in one place is what
+    makes that kind of divergence impossible rather than merely unlikely.
+    """
+    if now is None:
+        now = timezone.now()
     account = device.account
-    if (device.revoked_at is not None or device.expires_at <= now
-            or account is None or not account.is_active
-            or str(device.account_id) != claims["sub"]
-            or not _event_password_hash()
-            or not hmac.compare_digest(device.credential_fingerprint, _fingerprint())):
+    fingerprint = _event_password_hash()
+    return not (device.revoked_at is not None or device.expires_at <= now
+                or account is None or not account.is_active
+                or not fingerprint
+                or not hmac.compare_digest(device.credential_fingerprint,
+                                           _fingerprint()))
+
+
+def _check_device(device, claims, now):
+    if not device_is_current(device, now) or str(device.account_id) != claims["sub"]:
         raise AuthError()
 
 

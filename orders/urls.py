@@ -2,7 +2,7 @@
 from __future__ import annotations
 from django.urls import path
 from django.views.generic import RedirectView
-from orders.views import pages, api, auth, stream_probe
+from orders.views import pages, api, auth, stream, stream_probe
 
 app_name = "orders"
 
@@ -35,5 +35,8 @@ urlpatterns = [
     # 10A: the synthetic stream that measures the ASGI runtime. Routed always
     # and answering 404 unless STREAM_PROBE_ENABLED is on, so that turning it
     # on for a measurement run is a setting and not a code change.
+    # 10D1: the kitchen's event stream. Under the same non-buffering proxy
+    # location as the probe, which a runtime test checks.
+    path("api/stream/kitchen",      stream.kitchen_stream,          name="kitchen-stream"),
     path("api/stream/probe",        stream_probe.stream_probe,      name="stream-probe"),
 ]
