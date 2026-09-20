@@ -115,6 +115,12 @@ class AuthorizationMatrixTests(TestCase):
                 {"data": {"done": True}, "content_type": "application/json"},
                 hall_side,
             ),
+            # 10C: the kitchen board's snapshot exposes the same money the
+            # order list does, so it answers to the same permissions.
+            "snapshot-waiting": (
+                "get", reverse("orders:snapshot-waiting"), {},
+                ("HALL_MONITOR", "TAKEOUT_MONITOR", "STATS", "BOTH_MONITORS"),
+            ),
             "stats-menu-counts": (
                 "get", reverse("orders:stats-menu-counts"), {}, ("STATS",),
             ),
@@ -426,8 +432,8 @@ class AuthorizationMatrixTests(TestCase):
             and pattern.callback.__module__ == api.__name__
         }
         self.assertEqual(declared, routed)
-        self.assertEqual(len(routed), 8)
-        self.assertEqual(len(self.endpoints()), 9)
+        self.assertEqual(len(routed), 9)
+        self.assertEqual(len(self.endpoints()), 10)
         self.assertEqual(len(self.write_specs()), 3)
 
     def test_reading_an_order_is_refused_to_the_serving_account(self):

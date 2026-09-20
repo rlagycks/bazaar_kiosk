@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from typing import List
 
 from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest, Http404
@@ -14,9 +15,16 @@ from orders.models import (
 from orders.services import allocate_floor_order_no, series_for, idempotency
 from orders.services import status as status_service
 from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, SERVING_PERMISSIONS, STATS_PERMISSIONS
-from orders.services import audit, payments, queues, reporting, revisions, scope
+from orders.services import audit, payments, queues, reporting, revisions, scope, snapshots
 from orders.views import selectors, serializers, validators
 from orders.views.guards import require_api_permissions
+
+# The repository's first logger. There is no `LOGGING` configuration yet, so
+# this reaches stderr through the root handler, which under uvicorn is the
+# same stream everything else uses. Wiring logging properly is 12A1's
+# observability item; one warning that nobody has to configure is worth more
+# here than a signal that waits for it.
+logger = logging.getLogger(__name__)
 
 
 
@@ -486,6 +494,55 @@ def order_item_progress(request: HttpRequest, item_id: int):
         raise Http404("주문 품목이 존재하지 않습니다.")
 
     return JsonResponse({"id": order.id}, status=200)
+
+
+# ---------- 10C: the kitchen board's snapshot ----------
+@require_api_permissions(*ORDER_READ_PERMISSIONS)
+@require_http_methods(["GET"])
+def snapshot_waiting(request: HttpRequest):
+    """Everything still to cook, and the version it belongs to.
+
+    The answer to "has anything changed since the version I am showing?".
+    A caller that sends the version it holds and gets `unchanged` back has
+    cost the server one row read -- four round trips with BEGIN, the
+    isolation level and COMMIT around it, plus a connection, since
+    `CONN_MAX_AGE` is 0. A caller whose version has moved on -- or whose
+    permissions have -- gets the whole list and a new version.
+
+    Deliberately not paginated by the caller. The queue is a work list, not a
+    page (8B, D-055): a screen asking for one screenful must not thereby stop
+    being told what is outstanding. When the server's own bound cuts it,
+    `complete` says so, and a version on an incomplete list is not a claim
+    that the screen holds everything.
+    """
+    taken = snapshots.waiting(
+        request.auth_permissions, since=request.GET.get("since") or None
+    )
+    if not taken.isolated:
+        # Unreachable today: no deployment setting wraps a request in a
+        # transaction, and `test_required_settings.py` pins that against the
+        # real settings module. If it ever becomes reachable the answer is
+        # still safe -- the read order means at most one extra refetch -- but
+        # it is no longer the one-instant contract this endpoint documents,
+        # and that should not be something only a code reader can discover.
+        logger.warning(
+            "snapshot served without its own isolation level: the version and "
+            "the orders beside it are not guaranteed to be one instant"
+        )
+    return JsonResponse({
+        "version": taken.version,
+        "unchanged": taken.unchanged,
+        # "absent" | "accepted" | "rejected" -- a screen that sent a version
+        # and sees "rejected" learns its version was minted under a different
+        # database lineage or different permissions, and that the list beside
+        # this is the whole answer rather than a difference.
+        "cursor": taken.cursor,
+        "orders": [serializers.order(o) for o in taken.orders],
+        "count": len(taken.orders),
+        "total": taken.total,
+        "has_more": taken.has_more,
+        "complete": taken.complete,
+    }, status=200)
 
 
 # ---------- 간이 통계(카운터용) ----------

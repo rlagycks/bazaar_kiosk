@@ -33,6 +33,7 @@ M25 = ("orders", "0025_account_permissions_audit")
 M26 = ("orders", "0026_order_change_amount")
 M27 = ("orders", "0027_orderevent_kind_items")
 M28 = ("orders", "0028_change_revision")
+M29 = ("orders", "0029_revision_generation")
 
 
 class MigrationPathTests(TestCase):
@@ -182,7 +183,7 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = M28
+        leaf = M29
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
@@ -432,6 +433,52 @@ class MigrationPathTests(TestCase):
         self.assert_head(M27)
         self.assertNotIn("orders_changerevision", self.connection.introspection.table_names())
         self.assertEqual(self.snapshot(back), before)
+
+    def test_0029_gives_the_marker_a_lineage_without_disturbing_it(self):
+        """10C (D-019): the column that makes a restore visible to a screen.
+
+        Additive. The marker's value is untouched and no order is read, so the
+        only thing that changes is that every version handed out from now on
+        says which lineage it belongs to.
+
+        Rolling back drops the column. Versions from the older application
+        have no generation in them, so a screen holding one cannot match a new
+        one and fetches once -- which is the safe direction. That property is
+        the entire reason for the column, so it is worth stating that it holds
+        in both directions rather than only forwards.
+        """
+        apps = self.migrate(M28)
+        alias = self.connection.alias
+        order = self.fixture(apps, order_no=11)
+        marker = apps.get_model("orders", "ChangeRevision").objects.using(alias)
+        marker.filter(scope="board").update(value=7)
+
+        after = self.migrate(M29)
+        self.assert_head(M29)
+        rows = list(
+            after.get_model("orders", "ChangeRevision").objects.using(alias)
+            .values_list("scope", "value", "generation")
+        )
+        self.assertEqual(len(rows), 1)
+        scope, value, generation = rows[0]
+        self.assertEqual((scope, value), ("board", 7), "the value is not disturbed")
+        self.assertIsNotNone(generation)
+        self.assertEqual(
+            after.get_model("orders", "Order").objects.using(alias).get(pk=order.pk).order_no, 11
+        )
+
+        back = self.migrate(M28)
+        self.assert_head(M28)
+        columns = {
+            column.name for column in
+            self.connection.introspection.get_table_description(
+                self.connection.cursor().cursor, "orders_changerevision")
+        }
+        self.assertNotIn("generation", columns)
+        self.assertEqual(
+            back.get_model("orders", "ChangeRevision").objects.using(alias)
+            .get(scope="board").value, 7
+        )
 
     def test_original_0020_still_fails_on_an_empty_database(self):
         # Pins why D-P07 changed the SQL: the pre-repair statement is the cause.
