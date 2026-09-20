@@ -155,7 +155,10 @@ BK-R043/BK-R044는 저장소 쪽 구성이 갖춰졌을 뿐 **운영 대상 검�
 | 프록시 경유 로그인 실패 | 9회 200, 10회째 429 |
 | 스푸핑한 `X-Forwarded-For`로 한 번 더 | 429(새 버킷을 얻지 못함) |
 | 프록시 경유 `/static/` 두 가지 | 200, 해시 이름은 `immutable`, `gzip_static` 동작, 앱이 본 정적 요청 0건 |
-| 스트림을 연 채 `stop -t 30 app` | 10.5초에 종료 |
+| 정적 응답의 보안 헤더 | `nosniff`·`Referrer-Policy: same-origin`·COOP 모두 존재 |
+| `/static/staticfiles.json` | 404(manifest를 밖으로 내보내지 않는다) |
+| 스트림을 연 채 `stop -t 30 app` | 10.7초에 종료 |
+| 시작 시 `manage.py check` | 컨테이너 로그에서 `System check identified no issues` 확인 |
 
 **주의:** 4A3의 정정은 그대로다. 평문 HTTP에서는 `JWT_COOKIE_SECURE=True` 때문에 브라우저가
 `bk_refresh` 쿠키를 저장하지 않아 로그인이 유지되지 않는다. 위 검증은 curl로 했다.
