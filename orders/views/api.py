@@ -282,9 +282,12 @@ def orders_collection(request: HttpRequest):
                 table=table,
                 is_takeout=is_takeout,
                 payment_method=payment_method,
-                received_amount=settlement.received or None,
-                received_cash_amount=cash_value or None,
-                received_ticket_amount=ticket_value or None,
+                # 7C (D-054): a number in every money field, zero included.
+                # A NULL here used to mean "unknown", which is what made old
+                # rows need interpreting; a new order knows what it took.
+                received_amount=settlement.received,
+                received_cash_amount=cash_value,
+                received_ticket_amount=ticket_value,
                 change_amount=settlement.change,
                 total_price=total_price,
                 note=note[:200],
