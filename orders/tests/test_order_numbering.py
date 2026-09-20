@@ -273,8 +273,8 @@ class OrderApiNumberingTests(TestCase):
 class PracticeOrdersLeaveSalesAloneTests(TestCase):
     """D-047: practice orders are excluded from revenue and menu totals.
 
-    The dashboard period is still the hardcoded 2025-10-18 (D-013 decides the
-    real one), so rows are created on that date directly.
+    8C (D-053) decides the period; these rows are created on one day and the
+    report is asked for that day explicitly.
     """
 
     period = date(2025, 10, 18)
@@ -295,9 +295,15 @@ class PracticeOrdersLeaveSalesAloneTests(TestCase):
         return order
 
     def dashboard(self):
-        response = self.client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
+        response = self.client.get(reverse("orders:stats-dashboard"), {
+            "floor": "B1", "start_date": self.period.isoformat(), "end_date": self.period.isoformat(),
+        })
         self.assertEqual(response.status_code, 200)
-        return response.json()
+        data = response.json()
+        # These tests are about the series, not about 8C's added counts.
+        data["summary"] = {k: v for k, v in data["summary"].items() if k in ("orders", "items", "revenue")}
+        data["menu"] = [{k: v for k, v in row.items() if k != "menu_item_id"} for row in data["menu"]]
+        return data
 
     def test_a_practice_order_adds_nothing_to_the_totals(self):
         self.make_order(NumberSeries.PRACTICE)

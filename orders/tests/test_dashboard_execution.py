@@ -45,15 +45,24 @@ class DashboardExecutionTests(TestCase):
         return order
 
     def dashboard(self):
-        response = self.client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
+        # 8C (D-053): the period is asked for explicitly; the default is the
+        # latest event day and is covered in test_reporting_dates.
+        response = self.client.get(reverse("orders:stats-dashboard"), {
+            "floor": "B1", "start_date": self.period.isoformat(), "end_date": self.period.isoformat(),
+        })
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(set(data), {"period", "summary", "payment", "menu", "hourly"})
-        # Temporary characterization: update with the approved reporting policy
-        # in phase 8C, rather than treating the hardcoded date as a target rule.
         self.assertEqual(data["period"], {
             "start_date": "2025-10-18", "end_date": "2025-10-18", "floor": "B1",
+            "basis": "explicit", "label": "",
         })
+        # These tests predate 8C and check the arithmetic; the counts 8C added
+        # are asserted where they matter (test_reporting).
+        data["summary"] = {k: v for k, v in data["summary"].items() if k in ("orders", "items", "revenue")}
+        data["payment"] = {k: v for k, v in data["payment"].items()
+                           if k in ("cash", "ticket", "cash_ratio", "ticket_ratio")}
+        data["menu"] = [{k: v for k, v in row.items() if k != "menu_item_id"} for row in data["menu"]]
         return data
 
     def test_empty_dashboard_returns_zero_totals_and_empty_groups(self):

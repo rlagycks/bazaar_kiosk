@@ -28,13 +28,25 @@
     .chip{background:#eef2ff;color:#3730a3;border-radius:999px;padding:6px 12px;font-weight:600;}
     .ratio-bar{height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin-top:8px;}
     .ratio-fill{height:100%;background:#2563eb;}
+    .period-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;}
+    .period-form label{font-size:14px;color:#374151;}
+    .period-form input{min-height:36px;padding:4px 8px;border:1px solid #9ca3af;border-radius:6px;}
+    .period-form button{min-height:36px;padding:4px 12px;border:1px solid #2563eb;border-radius:6px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer;}
+    .period-form button[type=button]{background:#fff;color:#2563eb;}
+    .sub-figures{margin-top:6px;font-size:13px;color:#6b7280;}
   </style>
 </head>
 <body>
   <div class="wrap">
     <header class="hdr">
       <h2>판매 통계 대시보드</h2>
-      <div class="muted" id="periodLabel">전체 기간 기준</div>
+      <div class="muted" id="periodLabel">불러오는 중</div>
+      <form class="period-form" id="periodForm">
+        <label>시작 <input type="date" id="periodStart" name="start_date"></label>
+        <label>끝 <input type="date" id="periodEnd" name="end_date"></label>
+        <button type="submit">조회</button>
+        <button type="button" id="periodReset">기본 기간</button>
+      </form>
     </header>
 {% include "orders/_practice_banner.html" %}
 
@@ -50,6 +62,7 @@
       <div class="summary-card">
         <h3>총 매출</h3>
         <div class="summary-value" id="summaryRevenue">₩0</div>
+        <div class="sub-figures" id="summaryAside"></div>
       </div>
       <div class="summary-card">
         <h3>결제 비율 (현금/티켓)</h3>
@@ -57,6 +70,7 @@
         <div class="ratio-bar">
           <div class="ratio-fill" id="paymentRatioFill" style="width:0%;"></div>
         </div>
+        <div class="sub-figures" id="paymentAside"></div>
       </div>
     </section>
 
@@ -118,6 +132,12 @@
       document.getElementById('summaryOrders').textContent = (summary.orders||0) + '건';
       document.getElementById('summaryItems').textContent = (summary.items||0) + '개';
       document.getElementById('summaryRevenue').textContent = '₩' + KRW(summary.revenue||0);
+      // 8C: cancelled orders leave the figures; say how many did. Rows from
+      // before the split payment fields were interpreted, not rewritten.
+      const aside = [];
+      if(summary.cancelled_orders) aside.push('취소 ' + summary.cancelled_orders + '건 제외');
+      if(summary.legacy_unsplit_orders) aside.push('구형 수납 기록 ' + summary.legacy_unsplit_orders + '건 해석');
+      document.getElementById('summaryAside').textContent = aside.join(' · ');
     }
 
     function renderPayment(payment){
@@ -131,6 +151,12 @@
         DOM.el('span', {class:'chip', text:'티켓 ₩' + KRW(payment.ticket||0) + ' (' + ticketPercent + '%)'}),
       ]);
       ratioFill.style.width = cashPercent + '%';
+    }
+
+    function renderPaymentAside(payment){
+      // Cash received minus change given back is what the till actually holds.
+      document.getElementById('paymentAside').textContent =
+        '거스름돈 ₩' + KRW(payment.change||0) + ' · 순현금 ₩' + KRW(payment.net_cash||0);
     }
 
     function renderMenu(menu){
@@ -160,31 +186,47 @@
       ])));
     }
 
-    async function loadDashboard(){
+    const BASIS_LABEL = {event_day: '행사일', today: '오늘', explicit: '선택 기간'};
+
+    function periodLabel(period){
+      const days = period.start_date === period.end_date
+        ? period.start_date : period.start_date + ' ~ ' + period.end_date;
+      const parts = [(BASIS_LABEL[period.basis] || '') + ' ' + days];
+      if(period.label) parts.push(period.label);
+      if(period.floor) parts.push('층: ' + period.floor);
+      return parts.join(' · ') + ' 기준';
+    }
+
+    async function loadDashboard(params){
+      const url = new URL("{% url 'orders:stats-dashboard' %}", window.location.href);
+      Object.entries(params || {}).forEach(([key, value]) => { if(value) url.searchParams.set(key, value); });
       try{
-        const data = await getJSON("{% url 'orders:stats-dashboard' %}");
+        const data = await getJSON(url.toString());
         const period = data.period || {};
-        const labelParts = [];
-        if(period.start_date || period.end_date){
-          labelParts.push([period.start_date, period.end_date].filter(Boolean).join(' ~ '));
-        }else{
-          labelParts.push('전체 기간');
-        }
-        if(period.floor){
-          labelParts.push('층: ' + period.floor);
-        }
-        document.getElementById('periodLabel').textContent = labelParts.join(' · ') + ' 기준';
+        document.getElementById('periodLabel').textContent = periodLabel(period);
+        document.getElementById('periodStart').value = period.start_date || '';
+        document.getElementById('periodEnd').value = period.end_date || '';
         renderSummary(data.summary || {});
         renderPayment(data.payment || {});
+        renderPaymentAside(data.payment || {});
         renderMenu(data.menu || []);
         renderHourly(data.hourly || []);
       }catch(e){
-        console.error('통계 로드 실패', e);
+        // The server's refusal is a plain sentence (bad date, inverted range).
+        document.getElementById('periodLabel').textContent = '통계를 불러오지 못했습니다: ' + (e.message || e);
       }
     }
 
     document.addEventListener('DOMContentLoaded', ()=>{
       loadDashboard();
+      document.getElementById('periodForm').addEventListener('submit', (event)=>{
+        event.preventDefault();
+        loadDashboard({
+          start_date: document.getElementById('periodStart').value,
+          end_date: document.getElementById('periodEnd').value,
+        });
+      });
+      document.getElementById('periodReset').addEventListener('click', ()=> loadDashboard());
     });
   </script>
 </body>

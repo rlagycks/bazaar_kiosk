@@ -3,4 +3,4 @@ from .numbering import allocate_floor_order_no, series_for
 from . import idempotency
 from . import status
 from . import audit, payments, scope  # noqa: E402,F401
-from . import order_edits  # noqa: E402,F401
+from . import order_edits, reporting  # noqa: E402,F401

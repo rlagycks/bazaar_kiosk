@@ -6,11 +6,9 @@ from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest, Http4
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.cache import cache_page
 from django.db import IntegrityError, transaction
-from django.db.models import Sum, F, IntegerField, Count, Max
-from django.db.models.functions import TruncHour
+from django.db.models import Sum, F, IntegerField
 from django.utils import timezone
 from functools import lru_cache
-from datetime import datetime
 
 from orders.models import (
     FloorChoices, PaymentMethod, OrderType, OrderStatus, OrderSource, NumberSeries,
@@ -19,7 +17,7 @@ from orders.models import (
 from orders.services import allocate_floor_order_no, series_for, idempotency
 from orders.services import status as status_service
 from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, SERVING_PERMISSIONS, STATS_PERMISSIONS
-from orders.services import audit, payments, scope
+from orders.services import audit, payments, reporting, scope
 from orders.views.guards import require_api_permissions
 
 
@@ -102,15 +100,6 @@ def _date_limits(request: HttpRequest):
     start_date = start.date() if start else None
     end_date = end.date() if end else None
     return start_date, end_date
-
-
-def _filtered_orders(request: HttpRequest):
-    qs = Order.objects.filter(
-        status__in=[OrderStatus.PREPARING, OrderStatus.READY],
-        number_series=NumberSeries.REAL,
-        order_date=datetime(2025, 10, 18).date(),
-    )
-    return qs, datetime(2025, 10, 18).date(), datetime(2025, 10, 18).date()
 
 
 @lru_cache(maxsize=128)
@@ -572,110 +561,11 @@ def order_detail(request: HttpRequest, order_id: int):
 @require_api_permissions(*STATS_PERMISSIONS)
 @require_http_methods(["GET"])
 def stats_dashboard(request: HttpRequest):
-    orders_qs, start_date, end_date = _filtered_orders(request)
-    floor = (request.GET.get("floor") or "").upper()
-    if floor:
-        if floor not in FloorChoices.values:
-            return HttpResponseBadRequest("유효하지 않은 floor 값입니다.")
-        orders_qs = orders_qs.filter(floor=floor)
-
-    items_filters = {
-        "order__status__in": [OrderStatus.PREPARING, OrderStatus.READY],
-        # D-047/D-048: rehearsals and cancelled orders are not revenue. The
-        # status filter above is the cancellation half.
-        "order__number_series": NumberSeries.REAL,
-    }
-    if start_date:
-        items_filters["order__order_date__gte"] = start_date
-    if end_date:
-        items_filters["order__order_date__lte"] = end_date
-    if floor:
-        items_filters["order__floor"] = floor
-
-    totals = orders_qs.aggregate(
-        total_revenue=Sum("total_price"),
-        cash_total=Sum("received_cash_amount"),
-        ticket_total=Sum("received_ticket_amount"),
-        order_count=Count("id"),
-    )
-    total_orders = totals.get("order_count") or 0
-    total_revenue = totals.get("total_revenue") or 0
-    cash_total = totals.get("cash_total") or 0
-    ticket_total = totals.get("ticket_total") or 0
-
-    items_qs = OrderItem.objects.filter(**items_filters)
-    item_totals = items_qs.aggregate(
-        item_count=Sum("qty"),
-        item_revenue=Sum(F("qty") * F("unit_price"), output_field=IntegerField()),
-    )
-    total_items = item_totals.get("item_count") or 0
-
-    menu_breakdown = list(
-        items_qs.values("menu_item__name")
-        .annotate(
-            qty_sum=Sum("qty"),
-            amount=Sum(F("qty") * F("unit_price"), output_field=IntegerField()),
-        )
-        .order_by("-qty_sum", "menu_item__name")
-    )
-
-    hourly = list(
-        orders_qs.annotate(hour=TruncHour("created_at"))
-        .values("hour")
-        .annotate(
-            orders=Count("id"),
-            revenue=Sum("total_price"),
-        )
-        .order_by("hour")
-    )
-    current_tz = timezone.get_current_timezone()
-    for row in hourly:
-        hour = row["hour"]
-        if hour:
-            if timezone.is_naive(hour):
-                hour = timezone.make_aware(hour, timezone.utc)
-            hour_local = hour.astimezone(current_tz)
-            row["hour_label"] = hour_local.strftime("%H:%M")
-        else:
-            row["hour_label"] = ""
-        row["orders"] = row["orders"] or 0
-        row["revenue"] = row["revenue"] or 0
-
-    total_payment = cash_total + ticket_total
-    payment_breakdown = {
-        "cash": cash_total,
-        "ticket": ticket_total,
-        "cash_ratio": float(cash_total) / total_payment if total_payment else 0.0,
-        "ticket_ratio": float(ticket_total) / total_payment if total_payment else 0.0,
-    }
-
-    response = {
-        "period": {
-            "start_date": start_date.isoformat() if start_date else None,
-            "end_date": end_date.isoformat() if end_date else None,
-            "floor": floor or None,
-        },
-        "summary": {
-            "orders": total_orders,
-            "items": total_items,
-            "revenue": total_revenue,
-        },
-        "payment": payment_breakdown,
-        "menu": [
-            {
-                "name": row["menu_item__name"],
-                "qty": row["qty_sum"],
-                "amount": row["amount"] or 0,
-            }
-            for row in menu_breakdown
-        ],
-        "hourly": [
-            {
-                "hour": row["hour_label"],
-                "orders": row["orders"],
-                "revenue": row["revenue"],
-            }
-            for row in hourly
-        ],
-    }
-    return JsonResponse(response, status=200)
+    """The sales report (8C, D-053). The period contract and every figure's
+    meaning live in services/reporting.py; this only answers HTTP."""
+    try:
+        period = reporting.resolve_period(request.GET)
+        floor = reporting.clean_floor(request.GET.get("floor"))
+    except reporting.PeriodError as exc:
+        return HttpResponseBadRequest(str(exc))
+    return JsonResponse(reporting.dashboard(period, floor), status=200)
