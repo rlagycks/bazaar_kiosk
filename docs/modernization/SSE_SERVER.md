@@ -135,7 +135,7 @@ executor를 쓴다. 허브 태스크는 자신을 시작시킨 요청의 컨텍�
 | 엔드포인트 | `GET /orders/api/stream/kitchen` (`orders/views/stream.py`) |
 | 측정 | `scripts/hub_fanout.py` |
 
-프레임: `ready`(version + 허브 상태 + heartbeat 주기), `change`(version, payload 없음),
+프레임: `ready`(version + 허브 상태 + heartbeat 주기), `change`(payload 없음 — version도 없다, `hub.py`의 주석),
 `heartbeat`(`hub_ok`/`stale_ms`/`failures`), `closed`(`reason`).
 
 `reason`은 `revoked`(기기 회수·계정 비활성), `reauthenticate`(권한 변경),
@@ -187,8 +187,8 @@ executor를 쓴다. 허브 태스크는 자신을 시작시킨 요청의 컨텍�
 
 ## 이 단계가 하지 않은 것
 
-- **화면은 아직 이 스트림에 붙지 않는다.** 단일 `EventSource`/스케줄러·`appliedRevision`·
-  재접속·응답 역전은 10D2다.
+- **화면은 이 단계에서는 아직 이 스트림에 붙지 않았다.** 단일 `EventSource`/스케줄러·재접속·
+  응답 역전은 10D2가 했다(아래).
 - **다중 워커 전달 미측정**(위).
 - **요청 제한 없음.** 12A1. 스트림은 워커당 24개로 묶여 있지만 연결 시도 자체는 무제한이다.
 - **프록시 경유 실측 없음.** 10A가 probe로 했고 같은 위치를 쓰지만, 이 엔드포인트로는 아직
@@ -200,5 +200,7 @@ executor를 쓴다. 허브 태스크는 자신을 시작시킨 요청의 컨텍�
   정하면 안 된다(D-019).
 - `closed`의 `reason`별로 동작이 다르다: `revoked`/`reauthenticate`는 재로그인, `unverified`는
   백오프 후 재시도.
-- `change`에는 payload가 없으므로 10C의 snapshot을 가져오고, 버전은 `!=`로 비교한다.
-- 같은 세대에서 43→42 같은 응답 역전은 10D2가 `appliedRevision`으로 막는다.
+- `change`에는 payload가 없으므로 10C의 snapshot을 `since=` 커서로 가져온다. `!=` 비교는 서버가
+  한다(`snapshots.py`); 화면은 버전을 비교하지 않는다. `change` 도착 자체를 허브 정상의 증거로 쓴다.
+- 같은 세대에서 43→42 같은 응답 역전은 10D2가 `appliedRevision`이 아니라 **읽기 하나 + 일시정지
+  epoch**으로 막았다([KITCHEN_CLIENT.md](KITCHEN_CLIENT.md), PR #80 리뷰 반영).

@@ -6,9 +6,11 @@
  *
  *   poll while NOT (stream open AND hub healthy AND a complete snapshot applied)
  *
- * That is D-019 verbatim. A heartbeat is not evidence -- the hub says in each
- * frame whether it last managed to read the database, and a beat carrying
- * `hub_ok: false` keeps polling exactly as a dead connection does.
+ * That is D-019 verbatim. A heartbeat is not evidence -- `ready` and every
+ * heartbeat say whether the hub last managed to read the database, and a
+ * beat carrying `hub_ok: false` keeps polling exactly as a dead connection
+ * does. A `change` frame carries no such word, but it is one: the hub only
+ * dispatches after a read that succeeded (PR #80 architecture review).
  *
  * Order data reaches the board only through 10C's snapshot (D-058: the stream
  * carries no payload). A write's own response is never applied; the write
@@ -40,9 +42,17 @@
     pollMs: 5000,
     reconnectMinMs: 2000,
     reconnectMaxMs: 30000,
+    // Every tab that lost the same server would otherwise come back at the
+    // same tick. The delay is shortened by up to this fraction; never
+    // lengthened, so the documented cap holds (PR #80 security review).
+    reconnectJitter: 0.2,
     // Missing two heartbeats in a row is a dead connection. A cable pulled
     // without a FIN never fires `error`; this is the only thing that notices.
     silenceBeats: 2,
+    // What to assume when `ready` does not say. The server always sends
+    // `heartbeat_ms` (its default is 15s); without an assumption a frame that
+    // lost the field would disarm silence detection with no sign of it.
+    heartbeatFallbackMs: 15000,
   });
   const CLOSED_FOR_GOOD = ['revoked', 'reauthenticate'];
 
@@ -57,6 +67,7 @@
     const onApply = settings.onApply;
     const onStatus = settings.onStatus;
     const onAuthLost = settings.onAuthLost;
+    const random = typeof settings.random === 'function' ? settings.random : Math.random;
 
     if (new URL(streamUrl, win.location.href).origin !== win.location.origin) {
       throw new TypeError('스트림은 같은 출처에만 연결할 수 있습니다.');
@@ -157,12 +168,18 @@
             applied = {version: applied.version, complete: applied.complete, at: now};
             return;
           }
+          // Draw first, then record. The other order commits a version whose
+          // data never reached the screen: the next `since=` read comes back
+          // `unchanged`, `lastError` clears, polling stops, and the board sits
+          // on a stale render under a status line saying live (PR #80
+          // architecture review). Failing here leaves `applied` where it was,
+          // so the next read asks for the whole list again.
+          if (typeof onApply === 'function') onApply(data);
           applied = {
             version: typeof data.version === 'string' ? data.version : null,
             complete: data.complete === true,
             at: now,
           };
-          if (typeof onApply === 'function') onApply(data);
         })
         .catch(error => {
           if (myEpoch !== epoch) return;
@@ -194,7 +211,7 @@
 
     function armSilence() {
       clearTimer('silence');
-      if (heartbeatMs === null) return;
+      if (heartbeatMs === null) return;   // no stream open
       timers.silence = win.setTimeout(silenceDue, heartbeatMs * settings.silenceBeats + 1);
     }
 
@@ -224,8 +241,9 @@
     function scheduleReconnect() {
       if (timers.reconnect !== null || !running || ended) return;
       if (typeof EventSourceImpl !== 'function') return;
-      const delay = reconnectDelay;
-      reconnectDelay = Math.min(delay * 2, settings.reconnectMaxMs);
+      const base = reconnectDelay;
+      reconnectDelay = Math.min(base * 2, settings.reconnectMaxMs);
+      const delay = base - Math.round(base * settings.reconnectJitter * random());
       timers.reconnect = win.setTimeout(reconnectDue, delay);
     }
 
@@ -244,7 +262,8 @@
         const payload = frame(event);
         stream = 'open';
         hubOk = payload.hub_ok === true;
-        heartbeatMs = Number(payload.heartbeat_ms) > 0 ? Number(payload.heartbeat_ms) : null;
+        heartbeatMs = Number(payload.heartbeat_ms) > 0
+          ? Number(payload.heartbeat_ms) : settings.heartbeatFallbackMs;
         reconnectDelay = settings.reconnectMinMs;
         armSilence();
         // Something may have changed between the page's first read and the
@@ -254,6 +273,12 @@
       });
       es.addEventListener('change', () => {
         if (source !== es) return;
+        // The frame says nothing about the hub, but its arrival does: the hub
+        // dispatches only after a read of the database that succeeded. Without
+        // this a board whose `ready` caught the hub before its first read, on
+        // a kitchen busy enough that no heartbeat gets a word in, would poll
+        // every 5s for as long as the rush lasted.
+        hubOk = true;
         armSilence();
         refetch('change');
       });

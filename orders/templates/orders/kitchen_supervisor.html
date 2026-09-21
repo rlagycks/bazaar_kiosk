@@ -319,19 +319,32 @@
       return every;
     }
 
-    function renderFromStore(){
-      const ordered = Array.from(ORDER_STORE.values())
+    function waitingOrders(){
+      return Array.from(ORDER_STORE.values())
         .filter(includeOrder)
         .sort((a,b)=> new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      renderOrders(ordered);
+    }
+
+    function renderStatusLine(waiting){
       let line = describeFreshness(LIVE_STATE)
         + ' · 목록 읽은 시각 ' + formatClock(LAST_LIST_READ_AT)
-        + ' · 대기 주문 ' + ordered.length + '건';
+        + ' · 대기 주문 ' + waiting + '건';
       if (LAST_PAGE.has_more){
         // Say it rather than let the board go quiet about the rest.
         line += ' · 서버에 ' + LAST_PAGE.total + '건 대기, 화면은 오래된 순으로 일부만 표시';
       }
       STATUS.textContent = line;
+    }
+
+    // The cards are rebuilt only when the list changed. A status report --
+    // every heartbeat, every read starting or ending -- redraws the line and
+    // nothing else: rebuilding the board there threw away every card node
+    // 15s apart on an idle kitchen and, worse, replaced a button disabled
+    // for an in-flight write with a fresh enabled one (PR #80 code review).
+    function renderFromStore(){
+      const ordered = waitingOrders();
+      renderOrders(ordered);
+      renderStatusLine(ordered.length);
     }
 
     function replaceOrders(list){
@@ -363,7 +376,7 @@
         else if (LAST_LOGGED_ERROR) console.info('주문 읽기 복구');
         LAST_LOGGED_ERROR = state.lastError;
       }
-      renderFromStore();
+      renderStatusLine(waitingOrders().length);
     }
 
     const LIVE = window.BazaarLive.create({

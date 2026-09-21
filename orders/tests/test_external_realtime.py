@@ -146,6 +146,11 @@ class TheBoardSaysHowLiveItIsTests(TestCase):
                 source = read_js(name)
                 self.assertNotIn("setInterval", source)
                 if name != THE_SCHEDULER:
+                    # The one exception outside the scheduler: auth.js waits
+                    # a bounded, one-shot backoff between attempts of a
+                    # refresh that lost a race (409). It re-reads nothing and
+                    # never reschedules itself; the pattern below is what
+                    # would catch it if it started to.
                     self.assertNotIn("setTimeout(", source.replace("window.setTimeout(resolve", ""))
                     self.assertIsNone(RESCHEDULING_TIMEOUT.search(source))
 
@@ -155,9 +160,24 @@ class TheBoardSaysHowLiveItIsTests(TestCase):
         drawing (PR #74 architecture review)."""
         source = read("kitchen_supervisor.html")
         self.assertIn("LAST_LIST_READ_AT", source)
-        render = source.split("function renderFromStore", 1)[1].split("function ", 1)[0]
+        render = source.split("function renderStatusLine", 1)[1].split("function ", 1)[0]
         self.assertIn("LAST_LIST_READ_AT", render)
         self.assertNotIn("new Date()", render)
+
+    def test_a_status_report_redraws_the_line_and_not_the_cards(self):
+        """The scheduler reports on every heartbeat and every read starting
+        or ending. Rebuilding the cards there discarded every node on an idle
+        board 15s apart and put a fresh, enabled button where one had been
+        disabled for an in-flight write (PR #80 code review). Only an applied
+        snapshot rebuilds the cards."""
+        source = read("kitchen_supervisor.html")
+        handler = source.split("function onLiveStatus", 1)[1].split("\n    }\n", 1)[0]
+        for rebuild in ("renderFromStore", "renderOrders", "replaceOrders", "BOARD.innerHTML"):
+            with self.subTest(call=rebuild):
+                self.assertNotIn(rebuild, handler)
+        self.assertIn("renderStatusLine", handler)
+        apply = source.split("function applySnapshot", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("replaceOrders", apply)
 
     def test_a_failed_read_keeps_the_cards_and_says_so(self):
         """The scheduler keeps polling after a failed read, but the cards

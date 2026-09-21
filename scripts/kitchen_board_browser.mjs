@@ -63,7 +63,11 @@ elif ACTION == "clear":
     print(n)
 `;
 const findings = [];
-const note = (label, ok, detail) => { findings.push({label, ok, detail}); console.log((ok ? 'PASS ' : 'FAIL ') + label + (detail ? ' -- ' + detail : '')); };
+const note = (label, ok, detail) => { findings.push({label, ok, detail, skipped: false}); console.log((ok ? 'PASS ' : 'FAIL ') + label + (detail ? ' -- ' + detail : '')); };
+// A step that could not run is neither a pass nor a failure, and the summary
+// says so separately: a run with the server command unset must not read as
+// the same evidence as one that restarted the server (PR #80 review).
+const skip = (label, why) => { findings.push({label, ok: true, detail: why, skipped: true}); console.log('SKIP ' + label + ' -- ' + why); };
 
 function shell(command) {
   // Single-quoted for the outer shell so that `$BK_ACTION_CODE` is expanded
@@ -229,7 +233,7 @@ try {
     await evaluate(`document.querySelector('.order-cancel').click(); true`);
     await until(`document.querySelectorAll('.order-card').length === 0 ? 1 : 0`, 8000, 'card gone again');
   } else {
-    note('server restart step', true, 'skipped: BK_BROWSER_SERVER not set');
+    skip('server restart step', 'BK_BROWSER_SERVER not set');
   }
 
   // 8. Revocation mid-stream: the account is deactivated elsewhere; the page
@@ -249,6 +253,9 @@ try {
   try { await send('Target.closeTarget', {targetId}); } catch {}
   ws.close();
   chrome.kill();
-  console.log('\nSUMMARY ' + findings.filter(f => f.ok).length + '/' + findings.length + ' passed');
+  const ran = findings.filter(f => !f.skipped);
+  const skipped = findings.length - ran.length;
+  console.log('\nSUMMARY ' + ran.filter(f => f.ok).length + '/' + ran.length + ' passed'
+    + (skipped ? ', ' + skipped + ' skipped' : ''));
   process.exit(findings.every(f => f.ok) ? 0 : 1);
 }

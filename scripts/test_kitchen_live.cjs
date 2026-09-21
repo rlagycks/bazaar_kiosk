@@ -97,7 +97,13 @@ function harness(options) {
     document,
     window,
     pollMs: POLL_MS,
-    onApply: data => applied.push(data),
+    // Deterministic by default: no jitter, so the backoff tests can name the
+    // exact delays. The jitter test passes its own `random`.
+    random: settings.random || (() => 0),
+    onApply: data => {
+      applied.push(data);
+      if (typeof settings.onApply === 'function') settings.onApply(data);
+    },
     onStatus: state => statuses.push(state),
     onAuthLost: () => { authLost += 1; },
   });
@@ -528,4 +534,103 @@ test('a browser without EventSource polls and never pretends to be live', async 
   assert.equal(live.state().polling, true);
   assert.ok(h.timers.find(t => t.kind === 'poll') || h.pending.length === 1);
   assert.equal(h.timers.filter(t => t.kind === 'reconnect').length, 0, 'nothing to reconnect');
+});
+
+// ---- PR #80 review ----
+
+test('a snapshot the board could not draw is not recorded as applied: the next read asks again', async () => {
+  // The other order -- record, then draw -- commits a version whose data
+  // never reached the screen. The following `since=` read comes back
+  // `unchanged`, `lastError` clears, polling stops, and the kitchen looks at
+  // a stale board under a status line that says live (PR #80 architecture
+  // review).
+  let broken = true;
+  const h = harness({onApply: () => { if (broken) throw new Error('render failed'); }});
+  const source = await opened(h);
+  await h.respond(snapshot('g:1:s', [{id: 1}]));
+  assert.equal(h.state().lastError, 'render failed');
+  assert.equal(h.state().applied.version, null, 'what was not drawn is not held');
+  source.frame('ready', {version: 'g:1:s', heartbeat_ms: 15000, hub_ok: true, stale_ms: 0, failures: 0});
+  await h.flush();
+  assert.equal(h.fetchCalls[h.fetchCalls.length - 1].url, SNAPSHOT, 'no cursor: the whole list again');
+  broken = false;
+  await h.respond(snapshot('g:1:s', [{id: 1}]));
+  assert.equal(h.state().lastError, null);
+  assert.equal(h.state().applied.version, 'g:1:s');
+  assert.equal(h.state().polling, false, 'live only once something was actually drawn');
+});
+
+test('a ready without heartbeat_ms still arms silence detection, from the fallback interval', async () => {
+  const h = harness();
+  const source = await opened(h);
+  await h.respond(snapshot('g:1:s', []));
+  source.frame('ready', {version: 'g:1:s', hub_ok: true, stale_ms: 0, failures: 0});
+  await h.flush();
+  const silence = h.timers.find(t => t.kind === 'silence');
+  assert.ok(silence, 'a stream that never says its interval is not exempt from being dead');
+  assert.equal(silence.ms, 15000 * 2 + 1);
+  assert.equal(h.state().heartbeatMs, 15000);
+});
+
+test('reconnect delays are jittered downwards only: never past the cap, never zero', async () => {
+  const h = harness({random: () => 1});
+  const source = await opened(h);
+  await h.respond(snapshot('g:1:s', []));
+  source.error(2);
+  await h.flush();
+  const delays = [];
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const reconnect = h.timers.find(t => t.kind === 'reconnect');
+    delays.push(reconnect.ms);
+    await h.advance(reconnect.ms);
+    while (h.pending.length) await h.respond(snapshot('g:1:s', [], {unchanged: true, cursor: 'accepted'}));
+    h.source.error(2);
+    await h.flush();
+  }
+  assert.deepEqual(delays, [1600, 3200, 6400, 12800, 24000, 24000], 'each 20% short of its base, still doubling');
+  assert.ok(delays.every(ms => ms > 0 && ms <= 30000));
+});
+
+test('a change frame is evidence the hub read the database: it clears hub_ok:false from ready', async () => {
+  // `change` carries no `hub_ok`, and a heartbeat only comes after a full
+  // idle interval. A board whose `ready` caught the hub before its first
+  // read would otherwise poll for as long as the kitchen stays busy (PR #80
+  // architecture review).
+  const h = harness();
+  const source = await opened(h);
+  await h.respond(snapshot('g:1:s', []));
+  source.frame('ready', {version: 'g:1:s', heartbeat_ms: 15000, hub_ok: false, stale_ms: null, failures: 0});
+  await h.flush();
+  await h.respond(snapshot('g:1:s', [], {unchanged: true, cursor: 'accepted'}));
+  assert.equal(h.state().polling, true);
+  source.frame('change', {});
+  await h.flush();
+  await h.respond(snapshot('g:2:s', [{id: 1}]));
+  assert.equal(h.state().hubOk, true);
+  assert.equal(h.state().polling, false, 'the change proved the hub is reading');
+});
+
+test('a list read before a cancel and answered after it is applied, then corrected by the read the write asked for', async () => {
+  // BK-R033's scenario, with one path: the write draws nothing itself, so
+  // the late list can only put back what the board was already showing, and
+  // the read queued behind it removes the card. The board converges; it does
+  // not reject the late list (KITCHEN_CLIENT.md, "쓰기 응답은 그리지 않는다").
+  const h = harness();
+  const source = await opened(h);
+  await h.respond(snapshot('g:1:s', [{id: 1}]));
+  source.frame('ready', {version: 'g:1:s', heartbeat_ms: 15000, hub_ok: true, stale_ms: 0, failures: 0});
+  await h.flush();
+  const before = h.pending.shift();        // the `ready` read: issued before the cancel, still in flight
+  h.live.refetch('write');                  // the cancel's PATCH finished; the board asks for a read
+  await h.flush();
+  assert.equal(h.pending.length, 0, 'one read at a time: the write waits behind the one in flight');
+  before.resolve({ok: true, status: 200, json: async () => snapshot('g:1:s', [{id: 1}], {unchanged: true, cursor: 'accepted'})});
+  await h.flush();
+  await h.flush();
+  assert.equal(h.state().applied.version, 'g:1:s', 'the pre-cancel answer was applied: it changed nothing');
+  assert.equal(h.pending.length, 1, 'and the read the write asked for went out');
+  assert.ok(h.fetchCalls[h.fetchCalls.length - 1].url.includes('since=g%3A1%3As'));
+  await h.respond(snapshot('g:2:s', []));
+  assert.equal(h.state().applied.version, 'g:2:s');
+  assert.deepEqual(h.applied[h.applied.length - 1].orders, [], 'the card is gone once the post-write read lands');
 });
