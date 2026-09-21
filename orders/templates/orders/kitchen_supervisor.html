@@ -94,6 +94,7 @@
   </div>
 
   <script src="{% static 'orders/ui/auth.js' %}" data-auth-account="{{ request.auth_account.id }}" data-auth-session="{{ request.auth_session_id }}"></script>
+  <script src="{% static 'orders/ui/kitchen_live.js' %}"></script>
   <script>
     const MODE_SCOPE = "{{ mode_scope|default:'ALL' }}";
     const getCookie = (name)=>{
@@ -103,21 +104,23 @@
     const BOARD = document.getElementById('board');
     const RELOAD_BUTTON = document.getElementById('btnReload');
     const STATUS = document.getElementById('status');
-    // 8B: no limit. Waiting orders are a queue, so the server returns all of
-    // them, oldest first, and says if its own safety bound ever bit.
-    const ORDERS_URL = "{% url 'orders:orders-collection' %}" + "?floor=B1&status=PREPARING&types=DINE_IN,TAKEOUT";
-    let LAST_PAGE = {total: null, has_more: false};
-    // When the LIST was last read. Not when the board was last drawn: a
-    // single-card refresh redraws without reading the list, and stamping that
-    // moment made the one notice this phase relies on tell a lie
-    // (PR #74 architecture review).
-    let LAST_LIST_READ_AT = null;
-    const ORDER_DETAIL_URL = "{% url 'orders:order-detail' 0 %}";
+    // 10D2: order data comes from one place, 10C's snapshot, and the one
+    // scheduler below decides when to read it. The stream carries no orders
+    // (D-058); a change means "read again". Nothing else on this page reads.
+    const SNAPSHOT_URL = "{% url 'orders:snapshot-waiting' %}";
+    const STREAM_URL = "{% url 'orders:kitchen-stream' %}";
+    const LOGIN_URL = "{% url 'orders:login' %}";
     const ITEM_URL = "{% url 'orders:order-item-progress' 0 %}";
     const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
+    // How often the board reads for itself while the stream cannot vouch for
+    // it (user decision, D-061). Shown in the status line, so one constant.
+    const POLL_MS = 5000;
     const ORDER_STORE = new Map();
-    const ORDER_REFRESH_QUEUE = new Set();
-    let isLoading = false;
+    let LAST_PAGE = {total: null, has_more: false};
+    // When the snapshot was last applied or confirmed unchanged -- stamped by
+    // the scheduler, never by a redraw (PR #74 architecture review).
+    let LAST_LIST_READ_AT = null;
+    let LIVE_STATE = null;
 
     const escapeHtml = (value)=>{
       if (value == null) return '';
@@ -140,6 +143,10 @@
       if (Number.isNaN(d.getTime())) return '';
       return d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     };
+
+    const formatClock = (date)=> date
+      ? date.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+      : '아직 없음';
 
     function getModeCounts(order){
       const counts = {DINE_IN:0, TAKEOUT:0};
@@ -295,21 +302,49 @@
       ORDER_STORE.set(order.id, order);
     }
 
-    function renderFromStore(){
-      const ordered = Array.from(ORDER_STORE.values())
+    // What the status line says about *how* the board is being kept current.
+    // A board polling because its hub is broken must not read as live, and a
+    // live board must not tell the kitchen to press refresh (D-019, D-061).
+    function describeFreshness(state){
+      if (!state) return '주문을 불러오는 중…';
+      if (state.ended) return '로그인 화면으로 이동합니다';
+      if (!state.running) return '탭이 보이지 않아 갱신을 멈췄습니다';
+      const every = Math.round(POLL_MS / 1000) + '초마다 다시 읽음';
+      if (state.lastError){
+        return '읽기 실패 · 화면은 ' + formatClock(LAST_LIST_READ_AT) + ' 목록입니다 · ' + every;
+      }
+      if (!state.polling) return '실시간 연결';
+      if (state.stream !== 'open') return '연결 중 · ' + every;
+      if (!state.hubOk) return '서버 감지 지연 · ' + every;
+      return every;
+    }
+
+    function waitingOrders(){
+      return Array.from(ORDER_STORE.values())
         .filter(includeOrder)
         .sort((a,b)=> new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      renderOrders(ordered);
-      const read = LAST_LIST_READ_AT
-        ? LAST_LIST_READ_AT.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
-        : '아직 없음';
-      let line = '목록 읽은 시각 ' + read
-        + ' · 대기 주문 ' + ordered.length + '건 · 자동 갱신 안 함, 새로고침을 눌러 주세요';
+    }
+
+    function renderStatusLine(waiting){
+      let line = describeFreshness(LIVE_STATE)
+        + ' · 목록 읽은 시각 ' + formatClock(LAST_LIST_READ_AT)
+        + ' · 대기 주문 ' + waiting + '건';
       if (LAST_PAGE.has_more){
         // Say it rather than let the board go quiet about the rest.
         line += ' · 서버에 ' + LAST_PAGE.total + '건 대기, 화면은 오래된 순으로 일부만 표시';
       }
       STATUS.textContent = line;
+    }
+
+    // The cards are rebuilt only when the list changed. A status report --
+    // every heartbeat, every read starting or ending -- redraws the line and
+    // nothing else: rebuilding the board there threw away every card node
+    // 15s apart on an idle kitchen and, worse, replaced a button disabled
+    // for an in-flight write with a fresh enabled one (PR #80 code review).
+    function renderFromStore(){
+      const ordered = waitingOrders();
+      renderOrders(ordered);
+      renderStatusLine(ordered.length);
     }
 
     function replaceOrders(list){
@@ -318,69 +353,46 @@
       renderFromStore();
     }
 
-    async function loadOrders(){
-      if (isLoading) return;
-      isLoading = true;
-      RELOAD_BUTTON.disabled = true;
-      // Nothing retries for us any more, so the one button has to show that
-      // it heard the press (PR #74 architecture review).
-      RELOAD_BUTTON.textContent = '읽는 중…';
-      try{
-        const data = await fetchJSON(ORDERS_URL);
-        const results = data.results || [];
-        LAST_PAGE = {total: data.total, has_more: !!data.has_more};
-        LAST_LIST_READ_AT = new Date();
-        replaceOrders(results);
-      }catch(e){
-        console.error('주문 불러오기 실패', e);
-        // Keep what is on the board. A dropped connection used to cost five
-        // seconds; with nothing retrying, wiping the cards would leave the
-        // kitchen with an empty screen until someone noticed the button.
-        LAST_PAGE = {total: null, has_more: false};
-        STATUS.textContent = LAST_LIST_READ_AT
-          ? '읽기 실패 · 화면은 ' + LAST_LIST_READ_AT.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
-            + ' 목록입니다 · 새로고침을 다시 눌러 주세요'
-          : '주문을 불러오지 못했습니다 · 새로고침을 다시 눌러 주세요';
-      }finally{
-        isLoading = false;
-        RELOAD_BUTTON.disabled = false;
-        RELOAD_BUTTON.textContent = '새로고침';
-      }
+    function applySnapshot(data){
+      LAST_PAGE = {total: data.total, has_more: !!data.has_more};
+      replaceOrders(data.orders || []);
     }
 
-    async function refreshOrder(orderId){
-      if (!orderId) return;
-      try{
-        const res = await window.BazaarAuth.fetch(ORDER_DETAIL_URL.replace('/0/','/'+orderId+'/'), {credentials:'same-origin'});
-        if (res.status === 404){
-          ORDER_STORE.delete(orderId);
-          renderFromStore();
-          return;
-        }
-        if (!res.ok){
-          throw new Error('HTTP '+res.status);
-        }
-        const order = await res.json();
-        upsertOrder(order);
-        renderFromStore();
-      }catch(e){
-        console.error('단건 주문 갱신 실패', e);
+    let LAST_LOGGED_ERROR = null;
+    function onLiveStatus(state){
+      LIVE_STATE = state;
+      LAST_LIST_READ_AT = state.applied.at;
+      // The one button has to show that it heard the press (PR #74
+      // architecture review); the scheduler says when a read is in flight.
+      RELOAD_BUTTON.disabled = state.inFlight;
+      RELOAD_BUTTON.textContent = state.inFlight ? '읽는 중…' : '새로고침';
+      if (state.lastError !== LAST_LOGGED_ERROR){
+        // Keep what is on the board. Wiping the cards on one failed read
+        // would leave the kitchen with an empty screen for a whole poll.
+        // Logged when the failure changes, not on every status report: a
+        // busy kitchen on a flaky network would otherwise say the same
+        // thing twice per event (10D2 code review).
+        if (state.lastError) console.error('주문 불러오기 실패', state.lastError);
+        else if (LAST_LOGGED_ERROR) console.info('주문 읽기 복구');
+        LAST_LOGGED_ERROR = state.lastError;
       }
+      renderStatusLine(waitingOrders().length);
     }
 
-    // Kept after 4B2 removed the subscription that first justified it. A
-    // volunteer tapping several items of one order in quick succession still
-    // produces a burst, and this collapses it into one fetch per order
-    // (PR #74 code review).
-    function queueOrderRefresh(orderId){
-      if (!orderId) return;
-      if (ORDER_REFRESH_QUEUE.has(orderId)) return;
-      ORDER_REFRESH_QUEUE.add(orderId);
-      setTimeout(()=>{
-        ORDER_REFRESH_QUEUE.delete(orderId);
-        refreshOrder(orderId);
-      }, 120);
-    }
+    const LIVE = window.BazaarLive.create({
+      streamUrl: STREAM_URL,
+      snapshotUrl: SNAPSHOT_URL,
+      fetch: window.BazaarAuth.fetch,
+      EventSource: window.EventSource,
+      document: document,
+      window: window,
+      pollMs: POLL_MS,
+      onApply: applySnapshot,
+      onStatus: onLiveStatus,
+      // `closed: revoked|reauthenticate` from the stream. The authenticated
+      // fetch sends the page to login by itself; this covers the other path.
+      onAuthLost: ()=>{ window.location.assign(LOGIN_URL); }
+    });
 
     async function cancelOrder(orderId, button){
       if (!orderId) return;
@@ -395,11 +407,14 @@
           },
           body: JSON.stringify({status:'CANCELLED'})
         });
-        queueOrderRefresh(orderId);
       }catch(e){
         alert('취소 실패: ' + e.message);
       }finally{
         if (button) button.disabled = false;
+        // The write's own answer is never drawn: a read through the one
+        // scheduler is, so nothing older can land on top of it (BK-R033).
+        // After a refusal too -- someone else may have changed the order.
+        LIVE.refetch('write');
       }
     }
 
@@ -407,7 +422,7 @@
       if (!itemId) return;
       if (button) button.disabled = true;
       try{
-        const result = await fetchJSON(ITEM_URL.replace('/0/','/'+itemId+'/'), {
+        await fetchJSON(ITEM_URL.replace('/0/','/'+itemId+'/'), {
           method:'PATCH',
           headers:{
             'Content-Type':'application/json',
@@ -415,18 +430,16 @@
           },
           body: JSON.stringify({prepared_qty: nextQty})
         });
-        if (result?.id){
-          queueOrderRefresh(result.id);
-        }
       }catch(e){
         alert('수량 업데이트 실패: ' + e.message);
       }finally{
         if (button) button.disabled = false;
+        LIVE.refetch('write');
       }
     }
 
     RELOAD_BUTTON.addEventListener('click', ()=>{
-      loadOrders();
+      LIVE.refetch('manual');
     });
 
     BOARD.addEventListener('click', (ev)=>{
@@ -458,18 +471,8 @@
       }
     });
 
-    // 4B2: no timer. The external subscription is gone and D-018's own SSE
-    // is the replacement (10D). Until then this board does not update by
-    // itself, which the status line says out loud -- a frozen board that
-    // looks live is the failure 8B just removed.
-    document.addEventListener('visibilitychange', ()=>{
-      // Coming back to the tab reads once. This is a single fetch, not a
-      // schedule: leaving the tab open does not poll.
-      if (!document.hidden) loadOrders();
-    });
-
     document.addEventListener('DOMContentLoaded', ()=>{
-      loadOrders();
+      LIVE.start();
     });
 
   </script>

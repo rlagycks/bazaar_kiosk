@@ -733,9 +733,21 @@ BK-R043/044는 Open을 유지한다.
 - **승인 대상 범위·파일:** kitchen 연결/조회 모듈; SSE 브라우저·응답 역전 테스트. 이 범위의 구현은 해당 단계 실행 지시 이후다.
 - **작업:** 단일 EventSource/폴링 scheduler와 appliedRevision·인증세대 검사를 적용한다. PATCH 즉시 재조회도 같은 스케줄러에서 합친다.
 - **인수 기준·기대 결과:** CONNECTING/CLOSED·BFCache·네트워크 단절·HTTP 재조회 실패 후 재접속·같은세대43→42 응답·삭제/취소 뒤 늦은 목록 거부. 인증 상실 시 queue/진행 요청/화면 폐기. 허브 실패 heartbeat만으로 폴링 중단 금지.
-- **검증 명령·환경:** V-PG + V-STREAM + V-BROWSER: test orders.tests.test_sse_auth; test orders.tests.test_realtime; HTTP 실패 후 재접속·진행 PATCH와 늦은 목록 경합.
+- **검증 명령·환경:** V-PG + V-STREAM + V-BROWSER: test orders.tests.test_sse_server; test orders.tests.test_realtime; node --test scripts/test_kitchen_live.cjs; scripts/kitchen_board_browser.mjs(HTTP 실패 후 재접속. 진행 PATCH와 늦은 목록 경합은 실제 브라우저가 응답을 붙들 수 없어 node 테스트가 고정한다, PR #80).
 - **마이그레이션·롤백:** 인증·CSRF·안전한 DOM 유지한 자체 폴링. 외부 SDK 복원 금지; 새 schema/구writer는10B 규칙 준수. **2026-09-20(D-056): 보호된 자체 폴링은 4B2에서 실행되지 않았으므로 이 롤백 대상은 아직 없다. 10D2가 신규 작성한다.**
 - **관측·보안·인계:** BK-R020/033 주 담당. 연결과 적용 버전·fallback/표시 지연 계측, 브라우저 전환 및 복구 증거 인계.
+- **2026-09-21 구현 완료(D-061):** [KITCHEN_CLIENT.md](KITCHEN_CLIENT.md). 사용자가 **5초 후퇴 폴링**과
+  **보이는 탭만 연결**을 골랐다. 스케줄러 하나(`kitchen_live.js`)가 읽는 시점을 전부 정하고, 보드는 10C
+  snapshot만 읽는다 — 목록·단건 fetch가 사라져 BK-R033의 두 경로 경합이 막을 것 없이 없어졌다. 폴링은
+  D-019 그대로 "스트림 open + `hub_ok` + 완전한 snapshot + 마지막 읽기 성공"일 때만 멈춘다. **응답 역전은
+  읽기 하나와 epoch으로 막는다** — 같은 generation 안에서 버전은 순서가 있지만(D-058) 읽기가 한 번에 하나라
+  비교가 필요 없고, 일시정지(숨김·`pagehide`)가 epoch을 올려 그 전 응답을 버린다(PR #80 리뷰가 처음 적은
+  "순서가 없다"를 바로잡았다). `closed: revoked|reauthenticate`는 전부
+  끝내고 로그인으로, `unverified`와 CLOSED는 2→30초 백오프. 검증: 스케줄러 25건(변이 3종 확인, PR #80 리뷰로 5건 추가) +
+  PG 528건 + **실제 headless Chrome 17건** — 다른 연결의 커밋이 0.6~1.7초, 서버 SIGKILL 뒤 복구 3.1초,
+  회수 뒤 로그인 0.5초. 이 카드의 `test_sse_auth`는 존재하지 않는 파일이었다(10D1 인계) —
+  실제 명령은 `test_sse_server`·`test_realtime`·`node --test scripts/test_kitchen_live.cjs`·
+  `scripts/kitchen_board_browser.mjs`다.
 
 <a id="phase-10e"></a>
 ### 10E — 정확성을 보존하는 부하 검증과 최적화

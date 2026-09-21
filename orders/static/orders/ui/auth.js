@@ -19,7 +19,12 @@
     accessToken = null;
     authenticationLost = true;
     window.location.assign('/orders/login/');
-    throw new Error('로그인이 필요합니다.');
+    // Named so a caller that schedules its own reads (the kitchen board,
+    // 10D2) can tell "the page is already leaving" from a failed read it
+    // should retry. The message is unchanged.
+    const error = new Error('로그인이 필요합니다.');
+    error.name = 'AuthenticationLost';
+    throw error;
   }
 
   async function requestRefresh() {

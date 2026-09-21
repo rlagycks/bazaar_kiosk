@@ -3,6 +3,68 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-21 — 10D2 주방 SSE 클라이언트·재접속·응답 순서 (D-061)
+
+- 브랜치 `phase-10d2-kitchen-client`, 기준 `develop` affc842(PR #79 병합 직후). 관문 둘을 물었고
+  사용자가 **"5초 후퇴 폴링"**과 **"보이는 탭만 연결"**을 골랐다(D-061). 이로써 D-019는 전부 확정됐다.
+- **읽는 시점을 정하는 곳을 하나로 줄였다.** `orders/static/orders/ui/kitchen_live.js`가 스트림·폴링·
+  재접속·탭 수명을 전부 맡고, 보드는 10C snapshot만 읽는다. 목록 fetch와 단건 fetch를 없앴다 —
+  BK-R033의 "늦은 목록이 최신 단건을 덮는" 경합은 경로가 둘이라 생겼고, 하나가 되면 막을 것이
+  없다. 쓰기 응답도 그리지 않고 같은 스케줄러에 읽기를 요청한다.
+- **폴링 규칙은 D-019 문장 그대로다:** 스트림 open + `hub_ok` + 완전한 snapshot + 마지막 읽기 성공이
+  아니면 5초마다 `since=` 커서로 읽는다. heartbeat 수신은 조건이 아니다.
+- **응답 역전은 버전이 아니라 epoch으로 막았다.** 카드가 요구한 "같은 세대 43→42 방어"를 버전
+  대소로는 할 수 없다(D-059의 버전은 순서가 없다). 읽기를 한 번에 하나로 두고, 일시정지(숨김·
+  `pagehide`)가 epoch을 올려 그 전 응답을 버린다. 테스트가 "숨긴 채 응답 지연 → 보임 → 새 응답
+  먼저 → 옛 응답 도착"을 그대로 재현하고, epoch 검사를 빼면 실패한다.
+- `closed` 사유별 동작: `revoked`/`reauthenticate`는 모든 것을 끝내고 로그인으로, `unverified`와
+  전송 CLOSED는 2→4→…→30초 백오프, CONNECTING은 브라우저에 맡기고 폴링. heartbeat 두 주기
+  침묵은 죽은 연결로 본다. `EventSource`가 없는 브라우저는 폴링만 하고 실시간이라 말하지 않는다.
+- `auth.js`는 한 줄만 바뀌었다 — 로그인으로 보내며 던지는 오류에 `name = 'AuthenticationLost'`를
+  붙여 스케줄러가 "이미 떠나는 중"과 "다시 시도할 실패"를 구분한다.
+- 4B2가 "10D2에서 만료"라고 적어 둔 타이머 울타리(`test_external_realtime.py`)는 없애지 않고
+  "어디에 살아도 되는지"로 바꿨다: `kitchen_live.js`에만, 단발만, 템플릿에는 `setTimeout`도
+  `visibilitychange`도 없음.
+- 변경 파일: `kitchen_live.js`(신규)·`kitchen_supervisor.html`·`auth.js`, 테스트
+  `scripts/test_kitchen_live.cjs`(신규, CI 추가)·`orders/tests/test_realtime.py`(신규)·
+  `test_external_realtime.py`, `scripts/kitchen_board_browser.mjs`(신규), 문서 `KITCHEN_CLIENT.md`(신규)·
+  `DECISIONS.md`(D-061, D-019 확정)·`BLUEPRINT.md`·`RISK_REGISTER.md`(R020/R033/R037/R038)·`README.md`·
+  `SSE_SERVER.md`. **마이그레이션 없음.**
+- 검증: 스케줄러 Node 테스트 **20건**(변이 3종 — `hub_ok` 무시·epoch만 제거·`revoked` 재접속 — 각각
+  하나를 실패시킴), 격리 PostgreSQL **마이그레이션 26건 + 애플리케이션 528건 통과**(신규 11건),
+  `manage.py check`·`makemigrations --check` 이상 없음.
+- **V-BROWSER 실행함.** Chrome 확장·Playwright 브리지가 둘 다 연결되지 않아(4B2와 같음) 로컬
+  Chrome을 headless로 띄우고 DevTools 프로토콜로 직접 구동했다(`scripts/kitchen_board_browser.mjs`,
+  의존성 없음). 격리 PG의 일회용 DB + uvicorn 1워커. **17건 통과:** 다른 연결의 커밋이 0.6~1.7초 뒤
+  표시, `+1`은 PATCH→snapshot 순서로 152ms, 탭 숨김에 스트림 닫힘·보임에 154ms 뒤 실시간, 서버
+  SIGKILL 뒤 154ms에 "연결 중 · 5초마다 다시 읽음", 복구 3.1초 뒤 새로고침 없이 실시간, 비활성화
+  0.5초 뒤 로그인 이동, 페이지 오류 0.
+- **우연히 본 것:** SIGTERM으로 죽인 uvicorn은 열린 스트림을 기다리는 정상 종료 상태가 돼 스트림은
+  살고 새 요청만 실패했다. 보드는 "읽기 실패 → 폴링"으로 맞게 처리했다. 운영 스택은 10A가
+  `--timeout-graceful-shutdown`으로 이 창을 묶어 둔다.
+- 코드 리뷰: HIGH 1 — **epoch 검사에 자기만의 테스트가 없었다.** 제가 돌린 변이는 seq 검사까지 같이 뺀
+  것이라 잡혔고, epoch만 빼면 18건이 전부 통과했다. "숨긴 채로 옛 응답이 도착"하는 경우(새 읽기가 없어
+  seq가 못 막는 유일한 경우)를 테스트로 추가해 닫았다. MEDIUM(실패 중 `change`마다 오류 로그 2회)·
+  LOW(재개 시 백오프 미초기화)도 반영.
+- 보안 리뷰: CRITICAL/HIGH/MEDIUM 없음. LOW 1(브라우저 스크립트의 대상 DB 확인) 반영 — DB 이름이
+  `bk_dev*`/`bk_test*`가 아니면 모든 쓰기를 거부.
+- **PR #80 리뷰 반영(코드·보안·아키텍처, CRITICAL/HIGH 없음).** 아키텍처 리뷰가 **제가 쓴 근거 하나를
+  반증했다** — "D-059의 버전은 순서가 없다"는 generation을 넘을 때만 참이고, 같은 세대 안에서는 D-058의
+  잠긴 행이 순서를 만든다. 비교가 불가능한 게 아니라 읽기가 하나라 불필요한 것이었다. DECISIONS·
+  BLUEPRINT·KITCHEN_CLIENT·SSE_SERVER·RISK의 문장을 바로잡았다. 코드 세 곳: (MEDIUM) `applied`를 `onApply`
+  전에 기록해 렌더가 던지면 안 그린 버전으로 `unchanged`를 받아 "실시간" 아래 얼어붙던 경로 — 순서를
+  바꾸고 테스트 추가. (MEDIUM) 상태 보고마다 보드 전체를 `innerHTML`로 다시 그려 heartbeat마다 카드
+  노드를 버리고 쓰기 중 비활성화한 버튼을 새 것으로 바꾸던 것 — 상태 줄만 갱신, 울타리 테스트. (MEDIUM)
+  "프레임마다 `hub_ok`"는 거짓(`change`에는 없다) — `change` 도착을 허브 정상의 증거로 삼아 첫 구독자의
+  `ready`가 거짓을 실었을 때 바쁜 주방이 계속 폴링하던 경로를 닫음. (LOW) `heartbeat_ms` 누락 시 침묵
+  감지가 꺼지던 것 — 15초 fallback. (LOW) 재접속 지터(줄이는 방향만). 테스트 공백 둘(취소 뒤 늦은 목록,
+  PATCH와 늦은 목록 경합)은 노드 테스트로 수렴 순서를 고정했고, 실제 브라우저는 응답을 붙들 수 없어
+  재현하지 못한다고 적었다. 브라우저 스크립트는 건너뛴 단계를 통과와 따로 센다. `auth.js` 409 백오프가
+  타이머 울타리의 예외임을 테스트와 문서에 명시. 노드 25건.
+- 남은 것: 렌더링 문자열 조립(11), 실제 프록시 경유·다중 워커(12A), 요청 제한(12A1), 모바일 실기기,
+  실제 `pagehide`/`pageshow`, 첫 구독자 `ready`의 `hub_ok` 경합 테스트, `expires_at`·`id:` 테스트(10D1 인계).
+  검사 후 개발 서버·일회용 DB·compose 프로젝트는 제거했다.
+
 ## 2026-09-21 — 10D1 인증된 SSE 서버·허브와 세션 회수 (D-060)
 
 - 브랜치 `phase-10d1-sse-hub`, 기준 `develop` 4010690. 관문 둘을 먼저 물었고 사용자가
