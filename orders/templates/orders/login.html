@@ -5,31 +5,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>바자회 로그인</title>
-  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
-  <style>
-    .account-page { max-width: 440px; margin: 8vh auto; padding: 20px; }
-    .account-panel { padding: 24px; border: 1px solid #e5e7eb; border-radius: 16px; background: #fff; }
-    .account-panel h1 { margin: 0 0 8px; font-size: 1.5rem; }
-    .account-panel p { color: #4b5563; line-height: 1.5; }
-    .account-panel label { display: block; margin: 20px 0 8px; font-weight: 600; }
-    .account-panel input { box-sizing: border-box; width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid #9ca3af; border-radius: 8px; font-size: 16px; }
-    .account-panel button { width: 100%; min-height: 48px; margin-top: 24px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; }
-    .account-panel .login-error { color: #b91c1c; }
-  </style>
+  <link rel="stylesheet" href="{% static 'orders/ui/ui05.css' %}">
+  <link rel="stylesheet" href="{% static 'orders/ui/account.css' %}">
 </head>
-<body>
-  <main class="account-page">
-    <form class="account-panel" method="post" action="{% url 'orders:login' %}">
+<body class="ui05 login-page">
+  <main class="login-main">
+    <p class="login-brand">BAZAAR</p>
+    <h1 class="login-title">바자회 로그인</h1>
+    <p class="login-intro">등록된 이름과 행사 비밀번호로 맡은 업무를 시작하세요</p>
+    <form class="login-form" method="post" action="{% url 'orders:login' %}">
       {% csrf_token %}
-      <h1>바자회 로그인</h1>
-      <p>이름과 행사 비밀번호로 로그인하면 맡은 업무 화면으로 이동합니다.</p>
-      {% if error %}<p class="login-error" role="alert">{{ error }}</p>{% endif %}
+      {% if error %}<p id="login-error" class="login-error" role="alert">{{ error }}</p>{% endif %}
       <label for="accountName">이름</label>
-      <input id="accountName" name="name" type="text" maxlength="50" autocomplete="username" spellcheck="false" required autofocus>
+      <input id="accountName" name="name" type="text" maxlength="50" autocomplete="username" spellcheck="false" required autofocus{% if error %} aria-describedby="login-error"{% endif %}>
       <label for="accountPassword">행사 비밀번호</label>
-      <input id="accountPassword" name="password" type="password" maxlength="1024" autocomplete="current-password" required>
-      <button type="submit">로그인</button>
+      <input id="accountPassword" name="password" type="password" maxlength="1024" autocomplete="current-password" required{% if error %} aria-describedby="login-error"{% endif %}>
+      <button class="login-submit" type="submit">로그인</button>
     </form>
+    <p class="login-help">이름 등록과 권한 변경은 관리자에게 문의하세요</p>
   </main>
 </body>
 </html>

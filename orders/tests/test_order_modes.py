@@ -180,10 +180,13 @@ class ConcurrentSlotTests(TakeoutFixture, TransactionTestCase):
 class RefusalReachesTheScreenTests(TestCase):
     """A refusal the volunteer cannot read is a refusal they cannot act on."""
 
-    def test_the_order_screen_shows_the_message_not_the_json(self):
+    def test_the_order_screen_loads_the_controller_and_live_error_region(self):
+        # JSON/plain-text refusal behavior is tested against the real extracted
+        # controller in scripts/test_order_controller.cjs.
         login_client(self.client, "ORDER")
         page = self.client.get(reverse("orders:order")).content.decode()
-        self.assertIn("parsed.detail", page)
+        self.assertIn("ui/order.js", page)
+        self.assertIn('id="save-error" class="ui-error" role="alert"', page)
 
     def test_the_kitchen_board_shows_the_message_too(self):
         """The board is where these refusals actually land: cancelling an order

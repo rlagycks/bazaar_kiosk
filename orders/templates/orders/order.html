@@ -2,592 +2,77 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>주문(서빙)</title>
-  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
-  <style>
-    .page-wrap{max-width:960px;margin:0 auto;padding:12px;}
-    .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
-    .header h2{margin:0;font-size:20px;}
-    .grid{display:grid;grid-template-columns:1fr;gap:12px}
-    .panel{background:#fff;border:1px solid var(--color-border, #e5e7eb);border-radius:8px;padding:12px;}
-    .panel h4{margin:0 0 8px 0;font-size:16px}
-    .menu-tabs{display:flex;gap:8px;margin-bottom:10px;}
-    .menu-tab{flex:1;display:flex;align-items:center;justify-content:center;height:36px;border-radius:8px;border:1px solid #d1d5db;background:#f3f4f6;font-weight:600;cursor:pointer;transition:all .12s ease;}
-    .menu-tab.active{background:#2563eb;color:#fff;border-color:#2563eb;box-shadow:0 4px 10px rgba(37,99,235,0.25);}
-    .menu-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:36vh;overflow:auto;margin-bottom:8px;}
-    .menu-tile{border:1px solid var(--color-border,#e5e7eb);border-radius:8px;padding:10px;background:#ffffff}
-    .menu-tile .name{font-weight:600}
-    .menu-tile .price{font-size:12px;color:#6b7280}
-    .menu-tile .actions{margin-top:8px;display:flex;gap:6px}
-    .btn{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 12px;border-radius:8px;border:1px solid #d1d5db;background:#fff;cursor:pointer}
-    .btn:active{transform:translateY(1px)}
-    .btn-primary{background:#2563eb;color:#fff;border-color:#2563eb}
-    .btn-danger{background:#ef4444;color:#fff;border-color:#ef4444}
-    .form-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    .form-control{width:100%;height:40px;border:1px solid #d1d5db;border-radius:8px;padding:0 10px}
-    .order-items{display:flex;flex-direction:column;gap:6px}
-    .order-item{display:flex;align-items:center;justify-content:space-between;border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#fff}
-    .order-item .left{display:flex;flex-direction:column}
-    .badge-mode{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;margin-bottom:4px;}
-    .badge-mode.dine{background:#e0f2fe;color:#0369a1;}
-    .badge-mode.takeout{background:#fef3c7;color:#b45309;}
-    .order-item .qty-ctrl{display:flex;gap:6px;align-items:center}
-    .muted{color:#6b7280;font-size:12px}
-    .order-totals{margin-top:8px;font-size:14px}
-    .order-totals .breakdown{margin-top:2px;font-size:12px;color:#6b7280;}
-    .footer-actions{margin-top:10px;display:flex;gap:8px}
-    @media (min-width:860px){ .grid{grid-template-columns:1fr 1fr} }
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>주문·서빙 | 바자회</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/ui05.css' %}">
+  <link rel="stylesheet" href="{% static 'orders/ui/account.css' %}">
+  <link rel="stylesheet" href="{% static 'orders/ui/order.css' %}">
 </head>
-<body>
-  <div class="page-wrap">
-    <div class="header">
-      <h2>주문(서빙)</h2>
+<body class="ui05">
+  <main class="serving-page" id="order-page" data-menu-url="{% url 'orders:menus' %}" data-order-url="{% url 'orders:orders-collection' %}">
+    <header class="serving-header">
+      <h1>서빙 · {{ account_name }}</h1>
+      <button type="button" class="ui-button" data-account-menu-open aria-haspopup="dialog" aria-controls="account-menu">내 메뉴</button>
+    </header>
+    {% include 'orders/_practice_banner.html' %}
+    <nav class="menu-tabs" id="menu-tabs" aria-label="담을 메뉴의 홀·포장 구분">
+      <button type="button" class="ui-button menu-tab" data-mode="DINE_IN" aria-pressed="true">홀 0개</button>
+      <button type="button" class="ui-button menu-tab" data-mode="TAKEOUT" aria-pressed="false">포장 0개</button>
+    </nav>
+    <p id="mode-hint">홀 · 수량을 선택한 뒤 담아 주세요</p>
+    <p id="order-notice" role="status" aria-live="polite"></p>
+    <section id="menu-grid" class="menu-grid" aria-label="메뉴 목록" aria-busy="true"><p class="ui-muted">메뉴를 불러오는 중입니다.</p></section>
+    <noscript><p class="ui-error">주문하려면 브라우저에서 JavaScript를 허용해 주세요.</p></noscript>
+  </main>
+  <footer class="serving-footer">
+    <p id="order-summary" class="ui-muted" aria-live="polite">홀 0개 · 포장 0개 / 총 0원</p>
+    <button id="btn-checkout" type="button" class="ui-button ui-button-primary" aria-haspopup="dialog" aria-controls="checkout" disabled>결제하기</button>
+  </footer>
+  <dialog id="checkout" class="checkout" aria-labelledby="checkout-title">
+    <header class="checkout-header">
+      <h2 id="checkout-title">주문 확인 · 결제</h2>
+      <button type="button" id="btn-back" class="ui-button">돌아가기</button>
+    </header>
+    <div class="checkout-body">
+      <label class="field" for="table-number">테이블 번호
+        <input id="table-number" inputmode="numeric" maxlength="6" placeholder="예) 12" aria-describedby="table-help" autocomplete="off">
+      </label>
+      <h2 class="cart-title" id="cart-title">담은 메뉴 · 0개</h2>
+      <div id="cart-items" class="order-items"></div>
+      <p id="table-help" class="ui-muted">포장만 주문할 때는 101–120번</p>
+      <fieldset class="payment-methods">
+        <legend class="sr-only">결제 수단</legend>
+        <label><input type="radio" name="pay" value="CASH" checked><span class="ui-button">현금</span></label>
+        <label><input type="radio" name="pay" value="TICKET"><span class="ui-button">식권</span></label>
+        <label><input type="radio" name="pay" value="CASH_TICKET"><span class="ui-button">혼합</span></label>
+      </fieldset>
+      <label id="single-amount-row" class="field" for="cash-in"><span id="single-amount-label">받은 현금</span>
+        <input id="cash-in" inputmode="numeric" maxlength="24" placeholder="예) 15000" autocomplete="off">
+      </label>
+      <div id="mixed-amount-row" hidden>
+        <label class="field" for="cash-mixed">받은 현금<input id="cash-mixed" inputmode="numeric" maxlength="24" placeholder="예) 10000" autocomplete="off"></label>
+        <label class="field" for="ticket-mixed">받은 식권 금액<input id="ticket-mixed" inputmode="numeric" maxlength="24" placeholder="예) 5000" autocomplete="off"></label>
+      </div>
+      <div class="settlement" aria-live="polite">
+        <strong>거스름돈 <span id="change-amount">0원</span></strong>
+        <p class="ui-muted">주문 금액 <span id="total-amount">0원</span></p>
+        <p id="payment-error" class="ui-error"></p>
+      </div>
+      <button type="button" id="btn-reset" class="ui-button reset-order">주문 비우기</button>
     </div>
-{% include "orders/_practice_banner.html" %}
-
-    <div class="grid">
-      <!-- 좌: 메뉴 선택 -->
-      <section class="panel">
-        <h4>메뉴(식사류)</h4>
-        <div class="menu-tabs" id="menu-tabs">
-          <button type="button" class="menu-tab active" data-mode="DINE_IN">홀</button>
-          <button type="button" class="menu-tab" data-mode="TAKEOUT">포장</button>
-        </div>
-        <div id="menu-grid" class="menu-grid"></div>
-      </section>
-
-      <!-- 우: 주문서 -->
-      <aside class="panel">
-        <h4>주문서</h4>
-
-        <!-- 항상 표시: 포장과 테이블 동시 입력 허용 -->
-        <div class="form-row" id="table-row" style="margin-top:6px;">
-          <label style="min-width:80px;">테이블 번호</label>
-          <input id="table-number" class="form-control" placeholder="예) 5" inputmode="numeric" style="max-width:180px;">
-        </div>
-        <div id="table-help" class="muted" style="font-size:12px;margin-top:4px;">홀 주문은 기본 테이블 번호를 입력하세요. 포장 주문은 101~120을 입력합니다.</div>
-
-        <h4 style="margin-top:10px;">장바구니</h4>
-        <div id="cart-items" class="order-items"></div>
-        <div class="order-totals">
-          <strong>총액: <span id="total-amount">0원</span></strong>
-          <div id="total-breakdown" class="breakdown"></div>
-        </div>
-
-        <div class="form-row" style="margin-top:8px;">
-          <label style="min-width:80px;">결제 방식</label>
-          <label style="display:flex;gap:6px;align-items:center;">
-            <input type="radio" name="pay" value="CASH" checked> 현금
-          </label>
-          <label style="display:flex;gap:6px;align-items:center;">
-            <input type="radio" name="pay" value="TICKET"> 티켓
-          </label>
-          <label style="display:flex;gap:6px;align-items:center;">
-            <input type="radio" name="pay" value="CASH_TICKET"> 현금+티켓
-          </label>
-        </div>
-
-        <!-- 항상 표시: 티켓도 받은 금액 입력 -->
-        <div class="form-row" id="single-amount-row" style="margin-top:6px;">
-          <label style="min-width:80px;" for="cash-in">받은 금액</label>
-          <input id="cash-in" class="form-control" placeholder="예) 20000" inputmode="numeric" style="max-width:220px;">
-        </div>
-        <div class="form-row" id="mixed-amount-row" style="margin-top:6px;display:none;gap:12px;">
-          <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
-            <label for="cash-mixed">현금</label>
-            <input id="cash-mixed" class="form-control" placeholder="예) 10000" inputmode="numeric">
-          </div>
-          <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
-            <label for="ticket-mixed">티켓</label>
-            <input id="ticket-mixed" class="form-control" placeholder="예) 5000" inputmode="numeric">
-          </div>
-        </div>
-        <div class="order-total"><strong>거스름돈: <span id="change-amount">0원</span></strong></div>
-
-        <div class="footer-actions">
-          <button id="btn-reset" class="btn">초기화</button>
-          <button id="btn-submit" class="btn btn-primary" style="flex:1;">주문 저장</button>
-        </div>
-      </aside>
-    </div>
-  </div>
-
+    <footer class="checkout-footer">
+      <p id="save-error" class="ui-error" role="alert" tabindex="-1"></p>
+      <button type="button" id="btn-submit" class="ui-button ui-button-primary" disabled>주문 저장</button>
+      <p class="ui-muted">결제 내용을 확인한 뒤 저장해 주세요.</p>
+    </footer>
+  </dialog>
+  {% include 'orders/_account_menu.html' %}
   <script src="{% static 'orders/ui/auth.js' %}" data-auth-account="{{ request.auth_account.id }}" data-auth-session="{{ request.auth_session_id }}"></script>
   <script src="{% static 'orders/ui/dom.js' %}"></script>
   <script src="{% static 'orders/ui/request_id.js' %}"></script>
-  <script>
-    // ---------- 유틸 ----------
-    const KRW = (n)=> (Number(n)||0).toLocaleString('ko-KR');
-    function getCookie(name){
-      const m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
-      return m ? m.pop() : '';
-    }
-    async function getJSON(url){
-      const r = await window.BazaarAuth.fetch(url,{credentials:'same-origin'});
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      return r.json();
-    }
-    async function postJSON(url, data){
-      const r = await window.BazaarAuth.fetch(url,{
-        method:'POST',credentials:'same-origin',
-        headers:{
-          'Content-Type':'application/json',
-          'X-CSRFToken': getCookie('csrftoken') || ''
-        },
-        body: JSON.stringify(data||{})
-      });
-      if(!r.ok){
-        const t = await r.text().catch(()=> '');
-        // Refusals that are about state (409) answer in JSON; showing the raw
-        // body would put braces and escapes in front of the volunteer.
-        let message = t;
-        try{
-          const parsed = JSON.parse(t);
-          if(parsed && parsed.detail) message = parsed.detail;
-        }catch(e){ /* plain-text refusal, already readable */ }
-        throw new Error(message || ('HTTP '+r.status));
-      }
-      return r.json();
-    }
-
-    // ---------- 상태 ----------
-  // 6A: the id of the attempt currently being saved. It survives a failed
-  // save so that pressing 저장 again is a retry, not a second order, and is
-  // dropped once the order is saved or the order itself changes.
-  let pendingRequestId = null;
-  function attemptId(){
-    if(!pendingRequestId){ pendingRequestId = window.BazaarRequestId.create(); }
-    return pendingRequestId;
-  }
-  function startNewAttempt(){ pendingRequestId = null; }
-
-  const MODE_LABEL = {DINE_IN: '홀', TAKEOUT: '포장'};
-  const TAKEOUT_TABLE_MIN = 101;
-  const TAKEOUT_TABLE_MAX = 120;
-  const ORDER_MODES = ['DINE_IN', 'TAKEOUT'];
-  const DOM = window.BazaarDom;
-  // Menu rows the tiles refer to by id, so a click never has to carry the name
-  // through markup. The tile only carries the id it was built from.
-  const MENU_BY_ID = new Map();
-  let currentMode = 'DINE_IN';
-
-  function getPayMethod(){
-    return document.querySelector('input[name="pay"]:checked')?.value || 'CASH';
-  }
-
-  const CART = new Map(); // key(mode:id) -> {mode,id,name,price,qty}
-  function readAmount(value){
-    if(value === null || value === undefined) return 0;
-    if(typeof value === 'number'){
-      return Number.isFinite(value) ? value : NaN;
-    }
-    const raw = String(value).trim();
-    if(!raw) return 0;
-    if(/[^\d,\s]/.test(raw)){
-      return NaN;
-    }
-    const normalized = raw.replace(/[\s,]/g, '');
-    if(!normalized) return 0;
-    return Number(normalized);
-  }
-
-  function parseMixedAmount(value){
-    if(value === null || value === undefined) return null;
-    const text = String(value).trim();
-    if(!text || text.indexOf('+') === -1){
-      return null;
-    }
-    const parts = text.split('+').map(part => part.trim()).filter(Boolean);
-    if(parts.length !== 2){
-      return null;
-    }
-    const cash = readAmount(parts[0]);
-    const ticket = readAmount(parts[1]);
-    if(Number.isNaN(cash) || Number.isNaN(ticket)){
-      return null;
-    }
-    return {cash, ticket};
-  }
-    const els = {
-      menu: document.getElementById('menu-grid'),
-      menuTabs: document.getElementById('menu-tabs'),
-      cart: document.getElementById('cart-items'),
-      total: document.getElementById('total-amount'),
-      totalBreakdown: document.getElementById('total-breakdown'),
-      change: document.getElementById('change-amount'),
-      cash: document.getElementById('cash-in'),
-      cashMixed: document.getElementById('cash-mixed'),
-      ticketMixed: document.getElementById('ticket-mixed'),
-      singleRow: document.getElementById('single-amount-row'),
-      mixedRow: document.getElementById('mixed-amount-row'),
-      paymentRadios: Array.from(document.querySelectorAll('input[name="pay"]')),
-      tableNo: document.getElementById('table-number'),
-      tableHelp: document.getElementById('table-help'),
-      btnSubmit: document.getElementById('btn-submit'),
-      btnReset: document.getElementById('btn-reset'),
-    };
-
-    function setPaymentMethod(method){
-      let changed = false;
-      els.paymentRadios.forEach(r=>{
-        const shouldCheck = r.value === method;
-        if(r.checked !== shouldCheck){
-          r.checked = shouldCheck;
-          changed = true;
-        }
-      });
-      if(changed){
-        updatePaymentUI();
-      }
-      return changed;
-    }
-
-    const modeClass = (mode)=> mode === 'DINE_IN' ? 'dine' : 'takeout';
-
-  function cartKey(mode, id){ return `${mode}:${id}`; }
-
-  function getReceivedAmounts(){
-    const method = getPayMethod();
-    if(method === 'CASH_TICKET'){
-      return {
-        cash: readAmount(els.cashMixed.value),
-        ticket: readAmount(els.ticketMixed.value),
-      };
-    }
-    const amount = readAmount(els.cash.value);
-    if(method === 'TICKET'){
-      return {cash: 0, ticket: amount};
-    }
-    return {cash: amount, ticket: 0};
-  }
-
-  function updatePaymentUI(){
-    const method = getPayMethod();
-    if(method === 'CASH_TICKET'){
-      els.singleRow.style.display = 'none';
-      els.mixedRow.style.display = 'flex';
-    }else{
-      els.singleRow.style.display = 'flex';
-      els.mixedRow.style.display = 'none';
-    }
-    recalcChange();
-  }
-
-    // ---------- 메뉴 ----------
-    async function loadMenus(){
-      try{
-        const d = await getJSON("{% url 'orders:menus' %}?scope=KITCHEN");
-        const items = d.items||[];
-        MENU_BY_ID.clear();
-        items.forEach(m => MENU_BY_ID.set(String(m.id), {id: m.id, name: m.name, price: m.price}));
-        if(!items.length){
-          DOM.render(els.menu, DOM.el('div', {class:'muted', text:'메뉴가 없습니다'}));
-          return;
-        }
-        DOM.render(els.menu, items.map(m => DOM.el('div', {
-          class: 'menu-tile',
-          data: {id: m.id, name: m.name, price: m.price},
-        }, [
-          DOM.el('div', {class:'name', text: m.name}),
-          DOM.el('div', {class:'price', text: '₩' + KRW(m.price)}),
-          DOM.el('div', {class:'actions'}, [
-            DOM.el('button', {class:'btn', text:'+1', data:{action:'add', id:m.id}}),
-            DOM.el('button', {class:'btn', text:'수량', data:{action:'qty', id:m.id}}),
-          ]),
-        ])));
-      }catch(e){
-        DOM.render(els.menu, DOM.el('div', {class:'muted', text:'메뉴 로드 실패'}));
-      }
-    }
-
-    // ---------- 장바구니 ----------
-    function ensureMode(mode){
-      return ORDER_MODES.includes(mode) ? mode : 'DINE_IN';
-    }
-
-    function addItem(mode, id, name, price, delta=1){
-      mode = ensureMode(mode);
-      const key = cartKey(mode, id);
-      const row = CART.get(key) || {mode, id, name, price, qty:0};
-      row.qty = Math.max(0, (row.qty||0) + delta);
-      if(row.qty===0) CART.delete(key); else CART.set(key, row);
-      renderCart();
-    }
-    function setItemQty(mode, id, qty){
-      mode = ensureMode(mode);
-      qty = Math.max(0, Number(qty)||0);
-      const key = cartKey(mode, id);
-      const row = CART.get(key);
-      if(!row) return;
-      row.qty = qty;
-      if(qty===0) CART.delete(key);
-      renderCart();
-    }
-    function promptQty(mode, id, name, price){
-      mode = ensureMode(mode);
-      const key = cartKey(mode, id);
-      const cur = CART.get(key)?.qty || 1;
-      const v = prompt(`${name} 수량`, cur);
-      if(v==null) return;
-      setItemQty(mode, id, Number(v)||0);
-    }
-    function calcTotals(){
-      let total = 0;
-      const perMode = {DINE_IN: 0, TAKEOUT: 0};
-      CART.forEach(r=>{
-        const line = r.qty * r.price;
-        perMode[r.mode] = (perMode[r.mode] || 0) + line;
-        total += line;
-      });
-      return {total, perMode};
-    }
-    function renderCart(){
-      const arr = Array.from(CART.values());
-      DOM.render(els.cart, arr.length ? arr.map(r => DOM.el('div', {class:'order-item'}, [
-        DOM.el('div', {class:'left'}, [
-          DOM.el('span', {class:'badge-mode ' + modeClass(r.mode), text: MODE_LABEL[r.mode]||r.mode}),
-          DOM.el('div', {}, DOM.el('strong', {text: r.name})),
-          DOM.el('div', {class:'muted', text: '₩' + KRW(r.price) + ' × ' + r.qty + ' = ₩' + KRW(r.price*r.qty)}),
-        ]),
-        DOM.el('div', {class:'qty-ctrl'}, [
-          DOM.el('button', {class:'btn', text:'－', data:{action:'dec', mode:r.mode, id:r.id}}),
-          DOM.el('div', {attrs:{style:'min-width:2em;text-align:center'}, text: r.qty}),
-          DOM.el('button', {class:'btn', text:'＋', data:{action:'inc', mode:r.mode, id:r.id}}),
-          DOM.el('button', {class:'btn btn-danger', text:'삭제', data:{action:'remove', mode:r.mode, id:r.id}}),
-        ]),
-      ])) : DOM.el('div', {class:'muted', text:'장바구니 비어 있음'}));
-
-      const {total, perMode} = calcTotals();
-      els.total.textContent = KRW(total) + '원';
-      const parts = [];
-      ORDER_MODES.forEach(mode=>{
-        if(perMode[mode]){
-          parts.push(`${MODE_LABEL[mode]}: ₩${KRW(perMode[mode])}`);
-        }
-      });
-      els.totalBreakdown.textContent = parts.join(' · ');
-      recalcChange();
-    }
-
-    // ---------- 결제/거스름돈 ----------
-    function onSingleAmountInput(){
-      const mixed = parseMixedAmount(els.cash.value);
-      if(mixed){
-        els.cash.value = '';
-        els.cashMixed.value = mixed.cash ? String(mixed.cash) : '';
-        els.ticketMixed.value = mixed.ticket ? String(mixed.ticket) : '';
-        const changed = setPaymentMethod('CASH_TICKET');
-        if(!changed){
-          recalcChange();
-        }
-        if(els.ticketMixed){
-          const focusTicket = ()=>{
-            els.ticketMixed.focus();
-            if(typeof els.ticketMixed.setSelectionRange === 'function'){
-              const len = els.ticketMixed.value.length;
-              els.ticketMixed.setSelectionRange(len, len);
-            }
-          };
-          if(typeof requestAnimationFrame === 'function'){
-            requestAnimationFrame(focusTicket);
-          }else{
-            setTimeout(focusTicket, 0);
-          }
-        }
-        return;
-      }
-      recalcChange();
-    }
-
-    function recalcChange(){
-      const {total} = calcTotals();
-      let {cash: cashAmt, ticket: ticketAmt} = getReceivedAmounts();
-      if(Number.isNaN(cashAmt)) cashAmt = 0;
-      if(Number.isNaN(ticketAmt)) ticketAmt = 0;
-      // Same rule as the server (7A, services/payments.py): tickets pay first,
-      // cash covers the rest, and only cash beyond that rest comes back.
-      // A ticket worth more than the order is used up, not refunded.
-      const dueAfterTicket = Math.max(0, total - (ticketAmt || 0));
-      const change = Math.max(0, (cashAmt || 0) - dueAfterTicket);
-      els.change.textContent = KRW(change)+'원';
-    }
-
-    // ---------- 저장 ----------
-    async function onSubmit(){
-      const grouped = {DINE_IN: [], TAKEOUT: []};
-      CART.forEach(r=>{
-        grouped[r.mode].push({menu_item_id: r.id, qty: r.qty});
-      });
-      if(grouped.DINE_IN.length===0 && grouped.TAKEOUT.length===0){
-        alert('메뉴를 선택해 주세요.');
-        return;
-      }
-
-      const hasDine = grouped.DINE_IN.length > 0;
-      const hasTake = grouped.TAKEOUT.length > 0;
-      const tableNo = (els.tableNo.value||'').trim();
-      if(hasDine && !tableNo){
-        alert('홀 주문은 테이블 번호가 필요합니다.');
-        return;
-      }
-      if(!hasDine && hasTake){
-        if(!tableNo){
-          alert(`포장 주문은 ${TAKEOUT_TABLE_MIN}~${TAKEOUT_TABLE_MAX} 번을 입력하세요.`);
-          return;
-        }
-        const takeNum = Number(tableNo);
-        if(!Number.isInteger(takeNum) || takeNum < TAKEOUT_TABLE_MIN || takeNum > TAKEOUT_TABLE_MAX){
-          alert(`포장 주문 테이블 번호는 ${TAKEOUT_TABLE_MIN}~${TAKEOUT_TABLE_MAX} 범위여야 합니다.`);
-          return;
-        }
-      }
-
-      const {total, perMode} = calcTotals();
-      const paymentMethod = getPayMethod();
-      let {cash: receivedCash, ticket: receivedTicket} = getReceivedAmounts();
-      if(Number.isNaN(receivedCash) || Number.isNaN(receivedTicket)){
-        alert('금액은 숫자로 입력하세요.');
-        return;
-      }
-      if(receivedCash < 0 || receivedTicket < 0){
-        alert('금액은 0 이상이어야 합니다.');
-        return;
-      }
-      if(paymentMethod === 'CASH' && receivedCash === 0 && total > 0){
-        alert('받은 금액을 입력해 주세요.');
-        return;
-      }
-      if(paymentMethod === 'TICKET' && receivedTicket === 0 && total > 0){
-        alert('받은 티켓 금액을 입력해 주세요.');
-        return;
-      }
-      if(paymentMethod === 'CASH_TICKET' && (receivedCash === 0 || receivedTicket === 0)){
-        alert('현금과 티켓 금액을 모두 입력해 주세요.');
-        return;
-      }
-
-      const items = [];
-      CART.forEach(r=>{
-        items.push({
-          menu_item_id: r.id,
-          qty: r.qty,
-          mode: r.mode,
-        });
-      });
-      const sanitizedTableNo = tableNo || null;
-      const orderType = hasDine ? 'DINE_IN' : 'TAKEOUT';
-      const isTakeout = !hasDine && hasTake;
-      const receivedTotal = receivedCash + receivedTicket;
-
-      els.btnSubmit.disabled = true;
-      try{
-        await postJSON("{% url 'orders:orders-collection' %}", {
-          request_id: attemptId(),
-          floor: 'B1',
-          order_type: orderType,
-          is_takeout: isTakeout,
-          payment_method: paymentMethod,
-          received_amount: receivedTotal,
-          received_cash_amount: receivedCash,
-          received_ticket_amount: receivedTicket,
-          table_number: sanitizedTableNo,
-          note: '',
-          items,
-        });
-        startNewAttempt();   // saved: the next 저장 is a different order
-        resetAll(true);
-        alert('주문이 접수되었습니다.');
-      }catch(e){
-        alert('저장 실패: ' + (e.message||e));
-      }finally{
-        els.btnSubmit.disabled = false;
-      }
-    }
-
-    // ---------- 초기화 ----------
-    function resetAll(clearCart=false){
-      if(clearCart){ CART.clear(); }
-      renderCart();       // 합계/거스름돈 0으로 갱신
-      els.cash.value = '';// 받은 금액 비움
-      els.cashMixed.value = '';
-      els.ticketMixed.value = '';
-      els.paymentRadios.forEach(r=> r.checked = r.value === 'CASH');
-      setMode('DINE_IN');
-      updatePaymentUI();
-      recalcChange();     // 0원 표시 보장
-      els.tableNo.value = '';
-    }
-
-  function setMode(mode){
-      mode = ensureMode(mode);
-      currentMode = mode;
-      els.menuTabs.querySelectorAll('.menu-tab').forEach(btn=>{
-        btn.classList.toggle('active', btn.dataset.mode === mode);
-      });
-      if(mode === 'TAKEOUT'){
-        els.tableNo.placeholder = `예) ${TAKEOUT_TABLE_MIN}`;
-        if(els.tableHelp){
-          els.tableHelp.textContent = `포장 주문은 ${TAKEOUT_TABLE_MIN}~${TAKEOUT_TABLE_MAX} 번호를 입력하세요.`;
-        }
-      }else{
-        els.tableNo.placeholder = '예) 5';
-        if(els.tableHelp){
-          els.tableHelp.textContent = `홀 주문은 기본 테이블 번호를 입력하세요. 포장 주문은 ${TAKEOUT_TABLE_MIN}~${TAKEOUT_TABLE_MAX}을 사용합니다.`;
-        }
-      }
-    }
-
-    // ---------- init ----------
-    document.addEventListener('DOMContentLoaded', ()=>{
-      loadMenus();
-      renderCart();
-      els.cash.addEventListener('input', onSingleAmountInput);
-      els.cashMixed.addEventListener('input', recalcChange);
-      els.ticketMixed.addEventListener('input', recalcChange);
-      els.paymentRadios.forEach(r => r.addEventListener('change', updatePaymentUI));
-      // 6A: touching the order after a failed save makes it a different order.
-      // Keeping the old id would answer 409 and the correction would look
-      // rejected; dropping it means the next 저장 saves what is on screen.
-      [els.cash, els.cashMixed, els.ticketMixed, els.tableNo].forEach(input => {
-        if(input) input.addEventListener('input', startNewAttempt);
-      });
-      els.paymentRadios.forEach(r => r.addEventListener('change', startNewAttempt));
-      els.menu.addEventListener('click', startNewAttempt);
-      els.cart.addEventListener('click', startNewAttempt);
-      updatePaymentUI();
-      els.btnSubmit.addEventListener('click', onSubmit);
-      els.btnReset.addEventListener('click', ()=> resetAll(true));
-      els.menuTabs.addEventListener('click', (ev)=>{
-        const btn = ev.target.closest('.menu-tab');
-        if(!btn) return;
-        setMode(btn.dataset.mode);
-      });
-      setMode(currentMode);
-    });
-
-    // 전역 헬퍼
-    // One listener per container instead of a handler per row. Nothing the
-    // operator typed into a menu name is ever part of a handler.
-    DOM.delegate(els.menu, 'click', '[data-action]', (event, button)=>{
-      const item = MENU_BY_ID.get(button.dataset.id);
-      if(!item) return;
-      if(button.dataset.action === 'add'){
-        addItem(currentMode, item.id, item.name, item.price, +1);
-      }else{
-        promptQty(currentMode, item.id, item.name, item.price);
-      }
-    });
-    DOM.delegate(els.cart, 'click', '[data-action]', (event, button)=>{
-      const {action, mode, id} = button.dataset;
-      const numericId = Number(id);
-      if(action === 'remove'){ setItemQty(mode, numericId, 0); return; }
-      const row = CART.get(cartKey(mode, numericId));
-      if(!row) return;
-      addItem(mode, numericId, row.name, row.price, action === 'inc' ? +1 : -1);
-    });
-  </script>
+  <script src="{% static 'orders/ui/order_state.js' %}"></script>
+  <script src="{% static 'orders/ui/order.js' %}"></script>
+  <script src="{% static 'orders/ui/account_menu.js' %}"></script>
 </body>
 </html>
