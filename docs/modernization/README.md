@@ -6,11 +6,12 @@
 
 ## 현재 작업 재개
 
-**2026-09-22 최신 (UI-05C 제출):** 모니터링 UI-05B는 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로
-머지됐다. 독립 리뷰에서 찾은 수량 원복 충돌도 포함됐다. 별도 `ui/05-stats-dashboard` 브랜치에 [누적·통계 PC](UI_STATS.md)를
-구현·검증했다(D-064). 머지된 develop `e61d6ab`를 기준으로 통계 변경만 [PR83](https://github.com/rlagycks/bazaar_kiosk/pull/83)에 제출했다.
-UI-05B의 0030은 운영 미적용이다. 현재 브랜치·리뷰 보완·검증 결과는 [WORKLOG](WORKLOG.md)를 따른다.
-10E 부하·단계11의 잔여 인수·12 운영 인수는 남아 있다.
+**2026-09-22 최신 (UI-11):** [PR83](https://github.com/rlagycks/bazaar_kiosk/pull/83)의 누적·통계는
+최종 독립 리뷰·CI를 통과했다. 다음 [전체 UI 통합 점검](UI_ACCEPTANCE.md)은
+`ui/05-ui-acceptance`에서 별도 PR로 진행한다. 같은 메뉴의 홀·포장 조작 이름을 구분하고,
+주문→식당/포장 모니터링→통계를 실제 UI와 역할별 통합 테스트로 검증했다.
+05안 기준을 유지한다. Chrome 우선·Safari 호환성 고려이며 실기기/음성 인수는 미실행이다.
+모든 PR의 서브에이전트 리뷰를 AGENTS에 기록했다. 10E 부하·12 운영 인수는 별도다.
 
 **2026-09-21 (UI-05A 이력):** 사용자가 **05안 채택과 코드 반영**을 지시했다(D-062).
 [UI 적용 계획](UI_IMPLEMENTATION.md)에 따라 로그인·내 메뉴·휴대폰 주문/결제를 첫 단계로

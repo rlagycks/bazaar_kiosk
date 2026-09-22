@@ -183,3 +183,21 @@ test('shorthand transfers focus at first ticket digit and remaining typing enter
   assert.equal(ui.posts[0].payload.received_ticket_amount, 5000);
   assert.equal(ui.posts[0].payload.payment_method, 'CASH_TICKET');
 });
+
+test('mixed cart names each quantity and delete control by service mode', async () => {
+  const ui = await app(saved);
+  await ui.click(ui.get('menu-grid').querySelector('[data-action="add"]'));
+  await ui.click(ui.get('menu-tabs').querySelector('[data-mode="TAKEOUT"]'));
+  await ui.click(ui.get('menu-grid').querySelector('[data-action="add"]'));
+  await ui.click(ui.get('btn-checkout'));
+  for (const mode of ['홀', '포장']) {
+    for (const suffix of ['수량 줄이기', '수량 늘리기', '삭제', '주문 수량']) {
+      const nodes = ui.get('cart-items').querySelectorAll('button, output').filter(node => node.attrs['aria-label'] === `${mode} 떡볶이 ${suffix}`);
+      assert.equal(nodes.length, 1, `${mode} ${suffix} is independently identifiable`);
+    }
+  }
+  await ui.click(ui.get('cart-items').querySelectorAll('button').find(node => node.attrs['aria-label'] === '포장 떡볶이 삭제'));
+  assert.equal(ui.get('cart-items').querySelectorAll('article').length, 1);
+  assert.equal(ui.get('total-amount').textContent, '4,000원');
+  assert.match(ui.get('cart-items').textContent, /홀 · 떡볶이/);
+});
