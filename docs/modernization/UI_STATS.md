@@ -4,7 +4,7 @@
 
 [05안 누적·통계 PC](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2135-1187)를
 기존 `/orders/b1-counter/`에 적용했다. PR82의 공통 UI를 기반으로 별도 worktree에서 구현했다.
-PR82에는 이 통계 변경을 포함하지 않는다. 합병·배포 상태는 최신 WORKLOG와 실제 PR을 확인한다.
+PR82 머지 후 develop `e61d6ab` 기준으로 통계 변경만 별도 PR로 제출한다. 합병·배포 상태는 최신 WORKLOG와 실제 PR을 확인한다.
 
 ## 화면과 집계
 
