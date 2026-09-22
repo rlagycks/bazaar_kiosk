@@ -40,7 +40,7 @@ summary : orders, items, revenue, cancelled_orders, legacy_unsplit_orders,
           unattributed_orders, unattributed_amount
 payment : cash, ticket, change, net_cash, cash_ratio, ticket_ratio
 menu    : [{menu_item_id, name, qty, amount}]
-hourly  : [{hour("HH:MM", 서울), orders, revenue}]
+hourly  : [{date("YYYY-MM-DD", 서울), hour("HH:MM", 서울), orders, revenue}]
 ```
 
 ## 검증
@@ -72,3 +72,6 @@ hourly  : [{hour("HH:MM", 서울), orders, revenue}]
 - 메뉴 **이름 스냅샷**(D-008). 지금은 과거 주문도 현재 이름으로 보인다. 금액과 줄 구분은 영향받지 않는다.
 - 옛 수납 기록의 실제 정합(D-012)은 7C. 보고는 해석만 하고 원본을 바꾸지 않는다.
 - 환불 기록(D-048 미결). 취소는 매출에서 빠지지만 돌려준 현금 기록은 없다.
+
+UI-05C/D-064에서 `hourly.date`를 추가했다. 기존 날짜별 시간대 그룹과 합계는 유지한다.
+[새 화면·조회 실패 복구 계약](UI_STATS.md)을 따른다.

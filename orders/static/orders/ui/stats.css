@@ -1,0 +1,58 @@
+.stats-page { max-width: 1520px; margin: auto; padding: 40px; display: grid; gap: 24px; }
+.stats-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.stats-brand { color: var(--ui-accent); font-weight: 700; overflow-wrap: anywhere; }
+.stats-header .ui-button { min-width: 200px; min-height: 52px; }
+.stats-page h1 { font-size: 36px; }
+.stats-page h2 { font-size: 22px; }
+.period-form { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 16px; padding: 16px; background: var(--ui-surface); }
+.period-form label { flex: 1 1 220px; max-width: 300px; display: grid; gap: 6px; border: 1px solid var(--ui-control-border); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--ui-muted); }
+.period-form input { min-width: 0; width: 100%; min-height: 36px; border: 0; background: var(--ui-surface); color: var(--ui-ink); font-size: 20px; font-weight: 700; }
+.period-form .ui-button { min-width: 144px; min-height: 52px; }
+#period-help { flex: 1 0 100%; }
+.stats-error-panel { padding: 20px; border: 1px solid var(--ui-danger); border-radius: 8px; background: var(--ui-surface); display: grid; gap: 12px; justify-items: start; }
+.stats-results { display: grid; gap: 24px; min-width: 0; }
+.stats-page .stats-period { font-size: 16px; color: var(--ui-muted); }
+.stats-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+.metric { background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: 10px; padding: 24px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.metric h3 { font-size: 14px; font-weight: 400; color: var(--ui-muted); margin: 0; }
+.metric-value { font-size: clamp(26px, 2.5vw, 36px); font-weight: 700; overflow-wrap: anywhere; }
+.stats-panel { padding: 24px; background: var(--ui-surface); border: 1px solid var(--ui-line); border-radius: 12px; display: grid; gap: 16px; min-width: 0; }
+.payment-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 24px; margin: 0; }
+.payment-grid dt { color: var(--ui-muted); }
+.payment-grid dd { margin: 8px 0 0; font-size: 26px; font-weight: 700; overflow-wrap: anywhere; }
+.stats-warning { border-color: #a07821; background: #fff7df; }
+.stats-empty h3 { margin: 0; font-size: 24px; }
+.stats-chart-scroll, .stats-table-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+.hourly-chart { display: flex; gap: 24px; min-width: 100%; width: max-content; margin: 0; padding: 0; list-style: none; }
+.hourly-bar { flex: 1 0 130px; width: 180px; max-width: 310px; height: 270px; display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; }
+.hourly-value { font-weight: 700; overflow-wrap: anywhere; }
+.hourly-fill { background: var(--ui-tint); border-radius: 4px 4px 0 0; min-height: 0; flex-shrink: 0; }
+.hourly-peak { background: var(--ui-accent); }
+.hourly-label { color: var(--ui-muted); font-size: 14px; }
+.hourly-details summary { cursor: pointer; padding: 10px 0; font-weight: 700; }
+.menu-sales { min-width: 0; display: grid; gap: 16px; }
+.stats-page table { border-collapse: collapse; width: 100%; min-width: 640px; text-align: left; }
+.stats-page th { background: var(--ui-tint); font-size: 14px; }
+.stats-page td { background: var(--ui-surface); overflow-wrap: anywhere; }
+.stats-page td, .stats-page th { border-bottom: 1px solid var(--ui-line); padding: 16px; }
+.stats-page td:first-child { max-width: 500px; }
+.stats-page .numeric { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stats-page td:last-child { min-width: 180px; }
+body:has(#account-menu[open]) { overflow: hidden; }
+@media (max-width: 1100px) {
+  .stats-page { padding: 24px; }
+  .stats-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .payment-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 600px) {
+  .stats-page { padding: 20px 16px; gap: 20px; }
+  .stats-page h1 { font-size: 28px; }
+  .stats-header .ui-button { min-width: 100px; }
+  .period-form label { max-width: none; flex-basis: 100%; }
+  .period-form .ui-button { flex: 1; min-width: 120px; }
+  .stats-metrics { gap: 12px; }
+  .metric, .stats-panel { padding: 16px; }
+  .metric-value { font-size: 26px; }
+  .payment-grid { gap: 16px; }
+  .payment-grid dd { font-size: 22px; }
+}

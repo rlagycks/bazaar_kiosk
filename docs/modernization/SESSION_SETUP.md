@@ -4,12 +4,13 @@
 
 ## 현재 단계와 기준
 
-**2026-09-22 최신:** PR81 머지 기준 `ea1c77e`에서 UI-05B를 구현하고
-`ui/05-monitoring-workflow`를 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로 제출했다.
-사용자가 이번 브랜치 push·PR·서브에이전트 리뷰 및 다음 UI 작업 병행을 승인했다.
-[모니터링 계약](UI_MONITORING.md), D-063과 최신 WORKLOG를 따른다. UI-05C 누적·통계는
-별도 `bazaar_kiosk-ui05c` worktree의 `ui/05-stats-dashboard` 브랜치에서 진행하며 PR82에 섞지 않는다.
-merge·운영 데이터·운영 마이그레이션 적용·배포는 포함하지 않는다.
+**2026-09-22 최신:** UI-05B PR82가 develop `e61d6ab`로 머지됐다(리뷰 보완 포함).
+사용자가 머지 후 다음 작업을 지시했다. UI-05C는 별도 worktree `bazaar_kiosk-ui05c`,
+브랜치 `ui/05-stats-dashboard`에서 구현·검증했고, develop 위로 미공개 커밋 기준을 정리해
+통계 변경만 PR83으로 제출했다. 기준 변경 전후 전체 파일 내용은 동일하다.
+[통계 계약](UI_STATS.md), D-064 및 최신 WORKLOG를 따른다. 디자인 기준은 Figma 05안과
+확정된 팀 댓글이다. 다음은 전체 화면 통합/접근성 인수(11), 부하(10E), 운영 준비(12)다.
+운영 데이터·운영 마이그레이션 적용·배포는 포함하지 않는다.
 
 **2026-09-21 UI-05A 이력:** D-062로 **05안 UI 채택·코드 적용**이 승인됐다.
 `ui/05-serving-foundation`에서 UI-05A(로그인·내 메뉴·휴대폰 주문/결제)를 진행한다.

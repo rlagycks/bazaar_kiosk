@@ -83,7 +83,7 @@ class DashboardExecutionTests(TestCase):
         self.assertEqual(data["payment"], {
             "cash": 5100, "ticket": 0, "cash_ratio": 1.0, "ticket_ratio": 0.0,
         })
-        self.assertEqual(data["hourly"], [{"hour": "12:00", "orders": 1, "revenue": 5100}])
+        self.assertEqual(data["hourly"], [{"date": "2025-10-18", "hour": "12:00", "orders": 1, "revenue": 5100}])
 
     def test_multiple_rows_sum_each_line_before_grouping_and_preserve_qty_key(self):
         meal = MenuItem.objects.create(name="Meal", price=4300)
@@ -96,7 +96,7 @@ class DashboardExecutionTests(TestCase):
             {"name": "Side", "qty": 4, "amount": 6800},
             {"name": "Meal", "qty": 3, "amount": 13600},
         ])
-        self.assertEqual(data["hourly"], [{"hour": "12:00", "orders": 2, "revenue": 20400}])
+        self.assertEqual(data["hourly"], [{"date": "2025-10-18", "hour": "12:00", "orders": 2, "revenue": 20400}])
 
     def test_cancelled_and_outside_current_period_rows_do_not_enter_totals(self):
         menu = MenuItem.objects.create(name="Meal", price=1000)
@@ -107,7 +107,7 @@ class DashboardExecutionTests(TestCase):
         self.assertEqual(data["summary"], {"orders": 1, "items": 2, "revenue": 2000})
         self.assertEqual(data["menu"], [{"name": "Meal", "qty": 2, "amount": 2000}])
         self.assertEqual(data["payment"]["cash"], 2000)
-        self.assertEqual(data["hourly"], [{"hour": "12:00", "orders": 1, "revenue": 2000}])
+        self.assertEqual(data["hourly"], [{"date": "2025-10-18", "hour": "12:00", "orders": 1, "revenue": 2000}])
 
     def test_menu_orders_by_total_qty_then_name_for_ties(self):
         # Insertion, name ASC/DESC, and quantity order must all differ.
