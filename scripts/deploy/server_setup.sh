@@ -38,6 +38,7 @@ cat > /etc/letsencrypt/renewal-hooks/deploy/bazaar-kiosk-reload.sh <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$repo_dir"
+docker compose -f compose.prod.yaml -f compose.tls.yaml exec -T proxy nginx -t
 docker compose -f compose.prod.yaml -f compose.tls.yaml exec -T proxy nginx -s reload
 EOF
 chmod 755 /etc/letsencrypt/renewal-hooks/deploy/bazaar-kiosk-reload.sh

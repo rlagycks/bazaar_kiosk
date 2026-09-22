@@ -66,6 +66,8 @@ docker compose -f compose.prod.yaml -f compose.tls.yaml exec app python manage.p
 ## 이후 배포
 
 - 호스트에서: `scripts/deploy/deploy.sh <ref>`. 되돌리기는 이전 ref로 같은 명령(`deploy.log`에 이력).
+  호스트 체크아웃에서는 커밋하지 않는다(origin의 ref만 실행). origin에 없는 커밋이 있으면 스크립트가 거부한다.
+  `.env`는 `BK_KEY=VALUE` 줄만 읽는다(셸로 실행하지 않음).
 - GitHub에서: Actions → deploy → ref 입력. 저장소 변수 `BK_DEPLOY_ENABLED=true`와 비밀 4개
   (`BK_DEPLOY_HOST`·`BK_DEPLOY_USER`·`BK_DEPLOY_SSH_KEY`·`BK_DEPLOY_KNOWN_HOSTS`)를 넣기 전까지는 아무 일도
   하지 않는다. `production` 환경에 필수 승인자를 두면 실행 전 승인 단계가 생긴다.

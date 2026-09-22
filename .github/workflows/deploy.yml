@@ -66,5 +66,8 @@ jobs:
           case "$DEPLOY_REF" in
             *[!A-Za-z0-9._/-]*|"") echo "ref has characters this job does not pass through: $DEPLOY_REF"; exit 1 ;;
           esac
+          case "$DEPLOY_DIR" in
+            *[!A-Za-z0-9._/-]*|"") echo "BK_DEPLOY_DIR has characters this job does not pass through"; exit 1 ;;
+          esac
           ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes -o BatchMode=yes "$USER@$HOST" \
             "cd '$DEPLOY_DIR' && bash scripts/deploy/deploy.sh --yes '$DEPLOY_REF'"

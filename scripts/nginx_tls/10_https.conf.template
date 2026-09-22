@@ -43,6 +43,7 @@ server {
     # into a location that has add_header lines of its own.
 
     location = /static/staticfiles.json {
+        add_header Strict-Transport-Security "max-age=${BK_HSTS_MAX_AGE}" always;
         return 404;
     }
 

@@ -53,6 +53,10 @@ if [ "$assume_yes" -ne 1 ]; then
 fi
 
 [ -z "$(git status --porcelain --untracked-files=no)" ] || bk_die "checkout has local modifications; refusing to switch"
+# The host checkout is a place to run refs from origin, never to commit in.
+if [ -n "$(git log --oneline HEAD --not --remotes=origin 2>/dev/null | head -1)" ]; then
+    bk_die "HEAD has commits that are not on origin; push or discard them before deploying"
+fi
 git checkout -q --detach "$sha"
 
 bk_say "building images"

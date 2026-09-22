@@ -37,6 +37,10 @@ services:
       # Replaces the image's conf.d (nginx_prod.conf, plain HTTP) wholesale.
       # The include files the image carries (/etc/nginx/bk_*.conf) stay.
       - ./tls/conf.d:/etc/nginx/conf.d:ro
+      # The whole certbot tree, read-only: certbot's live/ symlinks point into
+      # archive/, so both are needed. This host serves one domain; if it ever
+      # carries another certificate, narrow this to live/ and archive/ of
+      # BK_DOMAIN so the proxy cannot read the other key.
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - ${BK_CERTBOT_WEBROOT:-/var/lib/bazaar_kiosk/certbot-www}:/var/www/certbot:ro
     logging: *bk_logging

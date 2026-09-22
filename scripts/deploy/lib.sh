@@ -16,14 +16,25 @@ BK_SECRET_FILES=(secret_key jwt_signing_key event_password_hash database_url
 bk_die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 bk_say() { printf '==> %s\n' "$*"; }
 
-# Loads .env (KEY=VALUE lines, no shell expansion) so BK_* is available.
+# Loads .env as data: KEY=VALUE lines only, no shell expansion, no sourcing.
+# Comments and blank lines are skipped; anything else is a refused line, so a
+# pasted value with $( ) or backticks can never run as code here. (docker
+# compose reads the same file with the same plain semantics.)
 bk_load_env() {
-    local env_file="$BK_ROOT/.env"
+    local env_file="$BK_ROOT/.env" line key value
     [ -f "$env_file" ] || bk_die ".env not found at $env_file (copy .env.prod.example and fill it in)"
-    set -a
-    # shellcheck disable=SC1090
-    . "$env_file"
-    set +a
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ''|'#'*) continue ;;
+        esac
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+            BK_[A-Z0-9_]*) ;;
+            *) bk_die ".env line is not BK_KEY=VALUE: ${line%%=*}" ;;
+        esac
+        export "$key=$value"
+    done < "$env_file"
     : "${BK_DOMAIN:?BK_DOMAIN must be set in .env}"
     : "${BK_ALLOWED_HOSTS:?BK_ALLOWED_HOSTS must be set in .env}"
     : "${BK_CSRF_TRUSTED_ORIGINS:?BK_CSRF_TRUSTED_ORIGINS must be set in .env}"

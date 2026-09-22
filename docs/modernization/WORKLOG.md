@@ -22,7 +22,10 @@
   렌더링한 설정을 자체 서명 인증서와 함께 `nginx:1.27-alpine`에서 `nginx -t` 통과; `compose config` 병합 결과 proxy만
   80/443 발행; `make_secrets.sh`의 PBKDF2 해시가 `parse_password_hash`·`check_password`를 통과; `.dockerignore` 적용 뒤
   `docker build --target proxy` 성공(정적 파일·include 파일 존재); 격리 PostgreSQL 599개 통과.
-- 독립 리뷰: <!-- 12A1-REVIEW -->
+- 독립 리뷰: CRITICAL/HIGH 0, MEDIUM 1, LOW 5. MEDIUM: `lib.sh`가 `.env`를 `source`해 값 안의 `$( )`가 실행될 수
+  있었음 → `BK_KEY=VALUE` 줄만 읽는 파서로 교체. LOW 반영: 갱신 훅에 `nginx -t` 선행, manifest 404 location에도
+  HSTS, 워크플로의 `BK_DEPLOY_DIR` 문자 검사, origin에 없는 커밋이 있으면 배포 거부, `/etc/letsencrypt` 전체 마운트
+  범위를 주석·런북에 명시(단일 도메인 전제).
 
 ## 2026-09-23 — 포장을 교환권 방식으로(D-069): 번호표 필수·점유 규칙 제거
 
