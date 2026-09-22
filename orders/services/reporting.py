@@ -185,10 +185,12 @@ def dashboard(period: Period, floor: str = "") -> dict:
     # the item count is the menu group summed, not a query of its own.
     item_count = sum(row["qty"] for row in menu)
 
-    # TruncHour with a tzinfo returns the hour already in that zone.
+    # TruncHour with a tzinfo returns the hour already in that zone. Keep its
+    # date so equal clock hours on different days remain distinguishable.
     seoul = timezone.get_current_timezone()
     hourly = [
         {"hour": row["hour"].strftime("%H:%M") if row["hour"] else "",
+         "date": row["hour"].date().isoformat() if row["hour"] else "",
          "orders": row["orders"] or 0, "revenue": row["revenue"] or 0}
         for row in orders.annotate(hour=TruncHour("created_at", tzinfo=seoul))
         .values("hour").annotate(orders=Count("id"), revenue=Sum("total_price")).order_by("hour")

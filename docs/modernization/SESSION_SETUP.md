@@ -4,11 +4,11 @@
 
 ## 현재 단계와 기준
 
-**2026-09-22 최신:** PR81 머지 기준 `ea1c77e`에서 UI-05B를 구현하고
-`ui/05-monitoring-workflow`를 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로 제출했다.
-사용자가 이번 브랜치 push·PR·서브에이전트 리뷰 및 다음 UI 작업 병행을 승인했다.
-[모니터링 계약](UI_MONITORING.md), D-063과 최신 WORKLOG를 따른다. UI-05C 누적·통계는
-별도 `bazaar_kiosk-ui05c` worktree의 `ui/05-stats-dashboard` 브랜치에서 진행하며 PR82에 섞지 않는다.
+**2026-09-22 최신:** UI-05B는 `ui/05-monitoring-workflow`의 PR82로 제출했다. 사용자가
+PR 제출·서브에이전트 리뷰와 다음 UI 작업 병행을 승인했다. UI-05C는 PR82 기반의 별도 worktree
+`bazaar_kiosk-ui05c`, 브랜치 `ui/05-stats-dashboard`에서 구현했다. [통계 계약](UI_STATS.md),
+D-064 및 최신 WORKLOG를 따른다. PR82에 통계 변경을 섞지 않는다. 리뷰 보완 커밋 `37b8473`을 기반으로 하며
+PR82 합병 뒤 통계 PR의 비교 기준을 정리한다. UI-05C는 로컬 작업이다.
 merge·운영 데이터·운영 마이그레이션 적용·배포는 포함하지 않는다.
 
 **2026-09-21 UI-05A 이력:** D-062로 **05안 UI 채택·코드 적용**이 승인됐다.

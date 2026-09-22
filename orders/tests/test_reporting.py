@@ -30,19 +30,19 @@ class DashboardArithmeticTests(TestCase):
         self.soup = MenuItem.objects.create(name="Soup", price=2000)
 
     def order(self, lines, *, status="PREPARING", method="CASH", cash=None, ticket=None,
-              change=None, received=None, at=time(12, 30), series=NumberSeries.REAL):
+              change=None, received=None, at=time(12, 30), series=NumberSeries.REAL, day=DAY):
         total = sum(qty * price for _, qty, price in lines)
         # A row from before the split fields passes `received` alone and keeps
         # cash/ticket NULL; every other row gets the split filled in.
         if received is None and cash is None and ticket is None:
             cash, ticket = (total, 0) if method == "CASH" else (0, total)
         order = Order.objects.create(
-            table=self.table, floor="B1", order_type="DINE_IN", order_date=DAY, status=status,
+            table=self.table, floor="B1", order_type="DINE_IN", order_date=day, status=status,
             number_series=series, total_price=total, payment_method=method,
             received_amount=received if received is not None else (cash or 0) + (ticket or 0),
             received_cash_amount=cash, received_ticket_amount=ticket, change_amount=change,
         )
-        Order.objects.filter(pk=order.pk).update(created_at=datetime.combine(DAY, at, SEOUL))
+        Order.objects.filter(pk=order.pk).update(created_at=datetime.combine(day, at, SEOUL))
         for menu, qty, price in lines:
             OrderItem.objects.create(order=order, menu_item=menu, qty=qty, unit_price=price)
         return order
@@ -74,7 +74,50 @@ class DashboardArithmeticTests(TestCase):
                                            "unattributed_orders": 0, "unattributed_amount": 0})
         self.assertEqual(data["payment"]["cash"], 5000)
         self.assertEqual(data["menu"], [{"menu_item_id": self.meal.id, "name": "Meal", "qty": 1, "amount": 5000}])
-        self.assertEqual(data["hourly"], [{"hour": "12:00", "orders": 1, "revenue": 5000}])
+        self.assertEqual(data["hourly"], [{"date": "2026-09-19", "hour": "12:00", "orders": 1, "revenue": 5000}])
+
+    def test_multiday_hours_keep_separate_dates_and_existing_totals(self):
+        # Insert the later day first: rows must still follow the full local
+        # timestamp, and two orders within one hour must remain one group.
+        self.order([(self.meal, 3, 5000)], day=date(2026, 9, 20))
+        self.order([(self.meal, 1, 5000)], at=time(12, 5))
+        self.order([(self.meal, 2, 5000)], at=time(12, 55))
+        self.order([(self.meal, 4, 5000)], at=time(13, 0))
+        data = self.dashboard(end_date="2026-09-20")
+        self.assertEqual(data["hourly"], [
+            {"date": "2026-09-19", "hour": "12:00", "orders": 2, "revenue": 15000},
+            {"date": "2026-09-19", "hour": "13:00", "orders": 1, "revenue": 20000},
+            {"date": "2026-09-20", "hour": "12:00", "orders": 1, "revenue": 15000},
+        ])
+        self.assertEqual(data["period"], {
+            "start_date": "2026-09-19", "end_date": "2026-09-20",
+            "floor": None, "basis": "explicit", "label": "",
+        })
+        self.assertEqual(data["summary"], {
+            "orders": 4, "items": 10, "revenue": 50000, "cancelled_orders": 0,
+            "legacy_unsplit_orders": 0, "unattributed_orders": 0, "unattributed_amount": 0,
+        })
+        self.assertEqual(data["payment"], {
+            "cash": 50000, "ticket": 0, "change": 0, "net_cash": 50000,
+            "cash_ratio": 1.0, "ticket_ratio": 0.0,
+        })
+        self.assertEqual(data["menu"], [
+            {"menu_item_id": self.meal.id, "name": "Meal", "qty": 10, "amount": 50000},
+        ])
+
+    def test_hourly_dates_cross_seoul_midnight_before_utc_midnight(self):
+        before = self.order([(self.meal, 1, 5000)])
+        after = self.order([(self.meal, 2, 5000)], day=date(2026, 9, 20))
+        utc = ZoneInfo("UTC")
+        Order.objects.filter(pk=before.pk).update(created_at=datetime(2026, 9, 19, 14, 59, tzinfo=utc))
+        Order.objects.filter(pk=after.pk).update(created_at=datetime(2026, 9, 19, 15, 0, tzinfo=utc))
+        self.assertEqual(self.dashboard(end_date="2026-09-20")["hourly"], [
+            {"date": "2026-09-19", "hour": "23:00", "orders": 1, "revenue": 5000},
+            {"date": "2026-09-20", "hour": "00:00", "orders": 1, "revenue": 10000},
+        ])
+        self.assertEqual(self.dashboard(start_date="2026-09-20")["hourly"], [
+            {"date": "2026-09-20", "hour": "00:00", "orders": 1, "revenue": 10000},
+        ])
 
     def test_menu_rows_are_by_id_not_by_name(self):
         other_meal = MenuItem.objects.create(name="Meal", price=7000)

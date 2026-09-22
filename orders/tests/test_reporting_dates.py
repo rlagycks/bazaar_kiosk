@@ -146,9 +146,9 @@ class DashboardPeriodHttpTests(TestCase):
         self.order_on(date(2026, 9, 1), at=time(23, 50))
         second = self.dashboard(start_date="2026-09-02")
         self.assertEqual(second["summary"]["orders"], 1)
-        self.assertEqual(second["hourly"], [{"hour": "00:00", "orders": 1, "revenue": 1000}])
+        self.assertEqual(second["hourly"], [{"date": "2026-09-02", "hour": "00:00", "orders": 1, "revenue": 1000}])
         first = self.dashboard(start_date="2026-09-01")
-        self.assertEqual(first["hourly"], [{"hour": "23:00", "orders": 1, "revenue": 1000}])
+        self.assertEqual(first["hourly"], [{"date": "2026-09-01", "hour": "23:00", "orders": 1, "revenue": 1000}])
 
     def test_practice_orders_never_enter_the_report(self):
         today = timezone.localdate()

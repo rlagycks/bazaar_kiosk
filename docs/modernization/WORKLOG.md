@@ -3,6 +3,39 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-22 — UI-05C: 누적·통계 PC와 조회 실패 복구
+
+- 사용자 승인: PR 제출·리뷰와 다음 UI 작업 병행. 별도 worktree
+  `/Users/gimhyochan/system/bazaar_kiosk-ui05c`, 브랜치 `ui/05-stats-dashboard`를 만들었다.
+  PR82의 수량 원복 충돌 보완까지 기반 `37b8473`에 포함했다. PR82에 UI-05C를 넣지 않았으며
+  통계 변경은 로컬이다. merge·운영 마이그레이션·배포를 하지 않았다.
+- Figma `2135:1187` 누적·통계 PC의 design context와 스크린샷을 확인했다. 공통 05안 색·글꼴·
+  버튼·내 메뉴, 4개 요약 카드, 수납 내역, 시간대 차트/접근 가능한 수치 표, 메뉴별 표를 적용했다.
+  기존 인라인 통계 코드를 `stats.js`/`stats_state.js`로 분리했다. 외부 차트·폰트 의존성은 없다.
+- D-064: 서버 집계/기간/권한 의미 유지, `hourly.date` 추가. 실패 시 기존 결과와 실제 적용 기간
+  유지, 미제출 날짜 입력 보존, 응답 역전 방지, 확인된 0건과 실패 구분, 명시적 재시도를 구현했다.
+  API 문자열은 안전한 DOM 텍스트로 렌더링한다. 새 쓰기 경로나 DB 마이그레이션은 없다.
+- 백엔드 날짜 필드·회귀/페이지 검사를 별도 에이전트에 위임했다. 독립 code-reviewer가
+  통계 프런트/백엔드를 검토했고 신규 결함을 발견하지 못했다.
+- 검증: 집중 PostgreSQL 45개 통과. Node 전체 CI 명령에 `scripts/test_stats_ui.cjs`를 포함해
+  **98개** 통과(통계 13개). API/일반 텍스트 오류, malformed 200, 초기 실패, 요청 역전,
+  재시도, 빈 결과, 음수 순현금, 날짜별 차트, 저장 문자열을 검증했다.
+- 통계만 추가한 최초 PostgreSQL 전체 **615개(27+588)** 통과. 리뷰 보완 통합 후 최종 **622개(27+595), skip 0** 통과.
+  Django check·migration drift·`git diff --check`·변경 문서의 로컬 링크 검사도 통과했다. 실행 명령: `BK_TEST_DATABASE_URL=<전용 fixture URL> /Users/gimhyochan/system/bazaar_kiosk/.venv/bin/python scripts/test_postgres.py`.
+  전용 Compose는 `bk-ui05c-0922`, 포트 55463이며 테스트·브라우저용 UUID DB만 사용했다.
+  로그는 `.venv/ui05c-node.log`, `.venv/ui05c-integrated-pg.log`에 미추적으로 보관한다.
+- 브라우저: 합성 계정/날짜별 주문으로 1440×1000/1024×768을 확인했다. 기본일 4건·매출
+  18,000원·현금 6,000원·거스름돈 1,000원·순현금 5,000원·식권 8,000원과 일치했다.
+  과거 혼합 1건 5,000원은 별도 경고, 매출 포함·수납 제외를 확인했다. 취소 1건·연습 제외,
+  두 날짜 같은 10시 구분·수치 표, 0건의 0%/0%, 역전 기간 오류/재시도 후 이전 결과 보존,
+  정상 기간 재조회·기본일 복귀, 통계 권한만의 내 메뉴·Escape 초점 복귀·POST 로그아웃을 검증했다.
+  HTML 형태 메뉴명은 글자로만 나왔고 페이지 가로 넘침은 없었다. 검증 탭·viewport를 정리했다.
+- 첫 preview의 테이블 필수 제약 누락과 잘못된 합성 혼합 결제 코드를 fixture에서 바로잡았다.
+  애플리케이션 제약·집계 규칙은 바꾸지 않았고 올바른 CASH_TICKET 데이터로 경고를 재확인했다.
+- 문서: UI_STATS·UI_IMPLEMENTATION·REPORTING·DECISIONS·README·BLUEPRINT·SESSION_SETUP 갱신.
+  남은 범위: PR82 합병 후 통계 PR 비교 기준 정리, 실기기/음성 스크린리더 인수, 10E 부하·12 운영 인수.
+  Django 관리자 재디자인, 새 정산 규칙, 실시간 통계는 이번에 추가하지 않았다.
+
 ## 2026-09-22 — PR82 독립 리뷰: 수량 원복 후 오래된 요청 재전송 차단
 
 - UI-05B를 develop 대상 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로 제출했다.

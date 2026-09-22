@@ -1,238 +1,84 @@
 {% load static %}
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>판매 통계 대시보드</title>
-  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
-  <style>
-    body{background:#f3f4f6;}
-    .wrap{max-width:1240px;margin:0 auto;padding:16px;}
-    .hdr{display:flex;flex-direction:column;gap:6px;margin-bottom:16px;}
-    .hdr h2{margin:0;font-size:24px;}
-    .muted{color:#6b7280;font-size:14px;}
-    .grid-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px;}
-    .summary-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:6px;}
-    .summary-card h3{margin:0;font-size:15px;color:#6b7280;}
-    .summary-value{font-size:26px;font-weight:700;color:#111827;}
-    .layout{display:grid;grid-template-columns:2fr 1fr;gap:16px;}
-    @media (max-width:980px){.layout{grid-template-columns:1fr;}}
-    .panel{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;}
-    .panel h3{margin:0 0 12px 0;font-size:18px;}
-    table{width:100%;border-collapse:collapse;}
-    th,td{padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:left;font-size:14px;}
-    th{background:#f9fafb;font-weight:600;}
-    .text-right{text-align:right;}
-    .chips{display:flex;flex-wrap:wrap;gap:8px;}
-    .chip{background:#eef2ff;color:#3730a3;border-radius:999px;padding:6px 12px;font-weight:600;}
-    .ratio-bar{height:8px;background:#e5e7eb;border-radius:999px;overflow:hidden;margin-top:8px;}
-    .ratio-fill{height:100%;background:#2563eb;}
-    .period-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;}
-    .period-form label{font-size:14px;color:#374151;}
-    .period-form input{min-height:36px;padding:4px 8px;border:1px solid #9ca3af;border-radius:6px;}
-    .period-form button{min-height:36px;padding:4px 12px;border:1px solid #2563eb;border-radius:6px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer;}
-    .period-form button[type=button]{background:#fff;color:#2563eb;}
-    .sub-figures{margin-top:6px;font-size:13px;color:#6b7280;}
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>누적·통계 | 바자회</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/ui05.css' %}">
+  <link rel="stylesheet" href="{% static 'orders/ui/account.css' %}">
+  <link rel="stylesheet" href="{% static 'orders/ui/stats.css' %}">
 </head>
-<body>
-  <div class="wrap">
-    <header class="hdr">
-      <h2>판매 통계 대시보드</h2>
-      <div class="muted" id="periodLabel">불러오는 중</div>
-      <form class="period-form" id="periodForm">
-        <label>시작 <input type="date" id="periodStart" name="start_date"></label>
-        <label>끝 <input type="date" id="periodEnd" name="end_date"></label>
-        <button type="submit">조회</button>
-        <button type="button" id="periodReset">기본 기간</button>
-      </form>
-    </header>
-{% include "orders/_practice_banner.html" %}
-
-    <section class="grid-summary">
-      <div class="summary-card">
-        <h3>총 주문 수</h3>
-        <div class="summary-value" id="summaryOrders">0건</div>
-      </div>
-      <div class="summary-card">
-        <h3>총 판매 수량</h3>
-        <div class="summary-value" id="summaryItems">0개</div>
-      </div>
-      <div class="summary-card">
-        <h3>총 매출</h3>
-        <div class="summary-value" id="summaryRevenue">₩0</div>
-        <div class="sub-figures" id="summaryAside"></div>
-      </div>
-      <div class="summary-card">
-        <h3>결제 비율 (현금/티켓)</h3>
-        <div class="chips" id="paymentChips"></div>
-        <div class="ratio-bar">
-          <div class="ratio-fill" id="paymentRatioFill" style="width:0%;"></div>
-        </div>
-        <div class="sub-figures" id="paymentAside"></div>
-      </div>
-    </section>
-
-    <div class="layout">
-      <section class="panel">
-        <h3>메뉴별 판매 현황</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>메뉴</th>
-              <th class="text-right">판매 수량</th>
-              <th class="text-right">매출</th>
-            </tr>
-          </thead>
-          <tbody id="menuTableBody">
-            <tr><td colspan="3" class="muted">데이터 없음</td></tr>
-          </tbody>
-        </table>
-      </section>
-
-      <aside class="panel">
-        <h3>시간대별 매출</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>시간</th>
-              <th class="text-right">주문 수</th>
-              <th class="text-right">매출</th>
-            </tr>
-          </thead>
-          <tbody id="hourlyTableBody">
-            <tr><td colspan="3" class="muted">데이터 없음</td></tr>
-          </tbody>
-        </table>
-      </aside>
+<body class="ui05">
+  <main id="stats-page" class="stats-page" data-dashboard-url="{% url 'orders:stats-dashboard' %}">
+    <header class="stats-header"><p class="stats-brand">BAZAAR / 누적·통계 · {{ account_name }}</p><button class="ui-button" type="button" data-account-menu-open>내 메뉴</button></header>
+    <h1>누적·통계</h1>
+    <p class="ui-muted">전체 행사 주문 · 한국 시간 기준 · 취소·연습 주문 제외</p>
+    {% include 'orders/_practice_banner.html' %}
+    <form id="periodForm" class="period-form" aria-label="통계 조회 기간">
+      <label for="periodStart">시작일<input type="date" id="periodStart" name="start_date"></label>
+      <label for="periodEnd">종료일<input type="date" id="periodEnd" name="end_date"></label>
+      <button id="periodSubmit" class="ui-button ui-button-primary" type="submit">조회</button>
+      <button id="periodReset" class="ui-button" type="button">기본 행사일</button>
+      <p id="period-help" class="ui-muted">기본 기간은 가장 최근의 등록 행사일이며, 등록된 과거·현재 행사일이 없으면 오늘입니다.</p>
+    </form>
+    <p id="stats-status" class="ui-muted" role="status">통계를 불러오는 중…</p>
+    <div class="stats-error-panel" id="stats-error-panel" hidden>
+      <p id="stats-error" class="ui-error" role="alert" tabindex="-1"></p>
+      <button id="stats-retry" class="ui-button" type="button">다시 시도</button>
     </div>
-  </div>
-
+    <section id="stats-results" class="stats-results" aria-labelledby="periodLabel" aria-busy="true">
+      <h2 id="periodLabel" class="stats-period">아직 조회한 결과가 없습니다</h2>
+      <div id="stats-empty" class="stats-panel stats-empty" hidden>
+        <h3>선택한 기간에 집계할 주문이 없습니다</h3>
+        <p>주문 0건 · 판매 수량 0개 · 매출 0원. 날짜를 바꾸거나 기본 행사일로 돌아가세요.</p>
+      </div>
+      <div class="stats-metrics">
+        <section class="metric"><h3>주문 건수</h3><p class="metric-value" id="summaryOrders">—</p><p class="ui-muted" id="summaryExcluded">취소·연습 주문 제외</p></section>
+        <section class="metric"><h3>판매 수량</h3><p class="metric-value" id="summaryItems">—</p><p class="ui-muted">주문 건수와 별도로 집계</p></section>
+        <section class="metric"><h3>총 매출</h3><p class="metric-value" id="summaryRevenue">—</p><p class="ui-muted">표시된 기간의 판매 금액</p></section>
+        <section class="metric"><h3>순현금</h3><p class="metric-value" id="summaryNetCash">—</p><p class="ui-muted">받은 현금 − 거스름돈</p></section>
+      </div>
+      <section class="stats-panel" aria-labelledby="payment-title">
+        <h2 id="payment-title">수납 내역</h2>
+        <dl class="payment-grid">
+          <div><dt>받은 현금</dt><dd id="paymentCash">—</dd></div>
+          <div><dt>거스름돈</dt><dd id="paymentChange">—</dd></div>
+          <div><dt>순현금</dt><dd id="paymentNetCash">—</dd></div>
+          <div><dt>받은 식권</dt><dd id="paymentTicket">—</dd></div>
+        </dl>
+        <p class="ui-muted">순현금은 집계 대상 주문의 현금 수납에서 거스름돈을 뺀 금액입니다. 환불 정산·실제 금고 잔액과는 다를 수 있습니다.</p>
+        <p id="paymentRatio" class="ui-muted"></p>
+        <p id="legacyNotice" class="ui-muted"></p>
+      </section>
+      <section id="unattributedPanel" class="stats-panel stats-warning" aria-labelledby="unattributed-title" hidden>
+        <h2 id="unattributed-title">결제 구분을 확인할 수 없는 기록이 있어요</h2>
+        <p id="unattributedAmount"></p><p class="ui-muted">총 매출에는 포함되며, 결제 수단별 합계와 차이가 날 수 있습니다.</p>
+      </section>
+      <section class="stats-panel" aria-labelledby="hourly-title">
+        <h2 id="hourly-title">시간대별 주문 · 매출 / 한국 시간</h2>
+        <p class="ui-muted">막대 높이는 매출을 나타냅니다. 여러 날을 조회하면 날짜별 시간대를 구분합니다.</p>
+        <div class="stats-chart-scroll" tabindex="0" role="region" aria-label="시간대별 매출 차트"><ol id="hourlyChart" class="hourly-chart"><li class="ui-muted">아직 조회한 결과가 없습니다</li></ol></div>
+        <details class="hourly-details"><summary>시간대별 수치 표 보기</summary>
+          <div class="stats-table-scroll" tabindex="0" role="region" aria-label="시간대별 수치 표">
+            <table><caption class="sr-only">표시된 기간의 날짜·시간별 주문과 매출</caption><thead><tr><th scope="col">날짜 · 시간</th><th scope="col" class="numeric">주문 건수</th><th scope="col" class="numeric">매출</th></tr></thead><tbody id="hourlyTableBody"><tr><td colspan="3">아직 조회한 결과가 없습니다</td></tr></tbody></table>
+          </div>
+        </details>
+      </section>
+      <section class="menu-sales" aria-labelledby="menu-title">
+        <h2 id="menu-title">메뉴별 판매</h2>
+        <div class="stats-table-scroll" tabindex="0" role="region" aria-label="메뉴별 판매 표">
+          <table><caption class="sr-only">메뉴별 판매 수량·매출·집계 기간</caption><thead><tr><th scope="col">메뉴</th><th scope="col" class="numeric">판매 수량</th><th scope="col" class="numeric">매출</th><th scope="col">집계 기준</th></tr></thead><tbody id="menuTableBody"><tr><td colspan="4">아직 조회한 결과가 없습니다</td></tr></tbody></table>
+        </div>
+      </section>
+    </section>
+    <noscript><p class="ui-error">통계를 조회하려면 브라우저에서 JavaScript를 허용해 주세요.</p></noscript>
+  </main>
+  {% include 'orders/_account_menu.html' %}
   <script src="{% static 'orders/ui/auth.js' %}" data-auth-account="{{ request.auth_account.id }}" data-auth-session="{{ request.auth_session_id }}"></script>
   <script src="{% static 'orders/ui/dom.js' %}"></script>
-  <script>
-    const KRW = n => (Number(n)||0).toLocaleString('ko-KR');
-    async function getJSON(url){
-      const r = await window.BazaarAuth.fetch(url,{credentials:'same-origin'});
-      if(!r.ok){
-        const text = await r.text().catch(()=> '');
-        throw new Error(text || ('HTTP '+r.status));
-      }
-      return r.json();
-    }
-
-    const DOM = window.BazaarDom;
-
-    function emptyRow(){
-      return DOM.el('tr', {}, DOM.el('td', {class:'muted', text:'데이터 없음', attrs:{colspan:'3'}}));
-    }
-
-    function renderSummary(summary){
-      document.getElementById('summaryOrders').textContent = (summary.orders||0) + '건';
-      document.getElementById('summaryItems').textContent = (summary.items||0) + '개';
-      document.getElementById('summaryRevenue').textContent = '₩' + KRW(summary.revenue||0);
-      // 8C: cancelled orders leave the figures; say how many did. Rows from
-      // before the split payment fields were interpreted, not rewritten.
-      const aside = [];
-      if(summary.cancelled_orders) aside.push('취소 ' + summary.cancelled_orders + '건 제외');
-      if(summary.legacy_unsplit_orders) aside.push('구형 수납 기록 ' + summary.legacy_unsplit_orders + '건 해석');
-      // A mixed payment with no split cannot be attributed; show the money so
-      // the operator can see why cash + ticket is short of revenue.
-      if(summary.unattributed_orders){
-        aside.push('현금·식권 구분 불가 ' + summary.unattributed_orders + '건 ₩' + KRW(summary.unattributed_amount||0));
-      }
-      document.getElementById('summaryAside').textContent = aside.join(' · ');
-    }
-
-    function renderPayment(payment){
-      const chips = document.getElementById('paymentChips');
-      const ratioFill = document.getElementById('paymentRatioFill');
-      const total = (payment.cash||0) + (payment.ticket||0);
-      const cashPercent = total ? Math.round((payment.cash||0)/total*100) : 0;
-      const ticketPercent = 100 - cashPercent;
-      DOM.render(chips, [
-        DOM.el('span', {class:'chip', text:'현금 ₩' + KRW(payment.cash||0) + ' (' + cashPercent + '%)'}),
-        DOM.el('span', {class:'chip', text:'티켓 ₩' + KRW(payment.ticket||0) + ' (' + ticketPercent + '%)'}),
-      ]);
-      ratioFill.style.width = cashPercent + '%';
-    }
-
-    function renderPaymentAside(payment){
-      // Cash received minus change given back is what the till actually holds.
-      document.getElementById('paymentAside').textContent =
-        '거스름돈 ₩' + KRW(payment.change||0) + ' · 순현금 ₩' + KRW(payment.net_cash||0);
-    }
-
-    function renderMenu(menu){
-      const body = document.getElementById('menuTableBody');
-      if(!menu.length){
-        DOM.render(body, emptyRow());
-        return;
-      }
-      // The menu name is operator input and lands here as text, never markup.
-      DOM.render(body, menu.map(row => DOM.el('tr', {}, [
-        DOM.el('td', {text: row.name}),
-        DOM.el('td', {class:'text-right', text: KRW(row.qty||0)}),
-        DOM.el('td', {class:'text-right', text: '₩' + KRW(row.amount||0)}),
-      ])));
-    }
-
-    function renderHourly(hourly){
-      const body = document.getElementById('hourlyTableBody');
-      if(!hourly.length){
-        DOM.render(body, emptyRow());
-        return;
-      }
-      DOM.render(body, hourly.map(row => DOM.el('tr', {}, [
-        DOM.el('td', {text: row.hour || '-'}),
-        DOM.el('td', {class:'text-right', text: row.orders||0}),
-        DOM.el('td', {class:'text-right', text: '₩' + KRW(row.revenue||0)}),
-      ])));
-    }
-
-    const BASIS_LABEL = {event_day: '행사일', today: '오늘', explicit: '선택 기간'};
-
-    function periodLabel(period){
-      const days = period.start_date === period.end_date
-        ? period.start_date : period.start_date + ' ~ ' + period.end_date;
-      const parts = [(BASIS_LABEL[period.basis] || '') + ' ' + days];
-      if(period.label) parts.push(period.label);
-      if(period.floor) parts.push('층: ' + period.floor);
-      return parts.join(' · ') + ' 기준';
-    }
-
-    async function loadDashboard(params){
-      const url = new URL("{% url 'orders:stats-dashboard' %}", window.location.href);
-      Object.entries(params || {}).forEach(([key, value]) => { if(value) url.searchParams.set(key, value); });
-      try{
-        const data = await getJSON(url.toString());
-        const period = data.period || {};
-        document.getElementById('periodLabel').textContent = periodLabel(period);
-        document.getElementById('periodStart').value = period.start_date || '';
-        document.getElementById('periodEnd').value = period.end_date || '';
-        renderSummary(data.summary || {});
-        renderPayment(data.payment || {});
-        renderPaymentAside(data.payment || {});
-        renderMenu(data.menu || []);
-        renderHourly(data.hourly || []);
-      }catch(e){
-        // The server's refusal is a plain sentence (bad date, inverted range).
-        document.getElementById('periodLabel').textContent = '통계를 불러오지 못했습니다: ' + (e.message || e);
-      }
-    }
-
-    document.addEventListener('DOMContentLoaded', ()=>{
-      loadDashboard();
-      document.getElementById('periodForm').addEventListener('submit', (event)=>{
-        event.preventDefault();
-        loadDashboard({
-          start_date: document.getElementById('periodStart').value,
-          end_date: document.getElementById('periodEnd').value,
-        });
-      });
-      document.getElementById('periodReset').addEventListener('click', ()=> loadDashboard());
-    });
-  </script>
+  <script src="{% static 'orders/ui/stats_state.js' %}"></script>
+  <script src="{% static 'orders/ui/stats.js' %}"></script>
+  <script src="{% static 'orders/ui/account_menu.js' %}"></script>
 </body>
 </html>
