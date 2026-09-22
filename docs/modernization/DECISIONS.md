@@ -6,6 +6,22 @@
 주는 선택 사항은 이 파일에 기록합니다. 대체된 항목도 보존하고 이를 대신한
 결정을 연결하세요.
 
+### D-070 — TLS 종단은 compose의 proxy 컨테이너(호스트 nginx·ALB 없음), 배포는 호스트 스크립트 + 수동 CD
+
+- 날짜: 2026-09-23. 상태: proposed (사용자 방향: "aws에 올릴 거고 도메인 연결해서 https로 들어갈 거야, nginx 사용하려고";
+  "cd도 스크립트 준비만 해두자, 아직 올리진 말고").
+- 결정: 4A3의 `proxy` 컨테이너가 Let's Encrypt 인증서를 들고 80/443을 직접 발행한다(`compose.tls.yaml`). 호스트 nginx나
+  ALB를 앞에 두지 않는다. 이유: 프록시는 `X-Forwarded-For`를 자기 peer로 덮어쓰므로(4A3), 앞에 홉이 하나 더 있으면 앱이
+  보는 클라이언트 주소가 전부 그 홉이 되어 로그인 실패 제한이 한 버킷으로 뭉친다(이슈 #61). `TRUSTED_PROXY_IPS`는
+  `10.89.0.10` 그대로. 인증서는 호스트 certbot(webroot)이 발급·갱신하고 프록시가 읽기 전용으로 마운트한다.
+- 같이 정한 것: HSTS·HTTPS 리다이렉트·`server_tokens off`·로그인/관리자 `limit_req`는 Django가 아니라 프록시가 맡는다
+  (`check --deploy` W004/W008은 그대로 둔다). HSTS는 300 s로 시작해 안정 뒤 1년으로 올린다. 배포는 호스트의
+  `scripts/deploy/deploy.sh`(빌드 → check·migrate → up → 로그인 페이지 200 확인)이며, GitHub Actions `deploy.yml`은
+  수동 실행에 저장소 변수 `BK_DEPLOY_ENABLED`로 잠근다. migration은 컨테이너 시작이 아니라 배포 스크립트가 적용한다.
+- 하지 않은 것: 실제 호스트·DNS·SG 생성과 배포 실행(별도 승인), readiness 엔드포인트, CSP, 백업(12A2).
+- 바꾸려면: ALB/CloudFront를 두는 경우 프록시의 전달 헤더 처리와 신뢰 대역을 함께 바꿔야 하므로 이 결정을 개정한다.
+- 기록: [DEPLOY_RUNBOOK](DEPLOY_RUNBOOK.md), 이슈 #91.
+
 ### D-069 — 포장은 교환권: 번호표 필수·점유 규칙(D-050 포장 부분) 폐기
 
 - 날짜: 2026-09-23. 상태: accepted (사용자 설명: "포장이 교환권을 주고 교환하는 곳에 가서 음식과 바꿔 가는

@@ -3,6 +3,24 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-23 — 운영 준비: 보안 점검(차단 없음)과 12A1 배포 준비(스크립트만, 실행 안 함)
+
+- 사용자 지시: "키랑 올라가면 안 되는 것들 그리고 보안상 문제가 될 수 있는 것들 검증 진행하고 문제없으면 배포 준비";
+  "보안 도구 받지 말고 너가 스캔"; "cd도 스크립트 준비만, 아직 올리진 말고"; 대상은 AWS·도메인·https·nginx.
+- 점검(도구 없이 직접): 추적 파일·git 이력에 비밀값·`.env`·키 파일 없음(`.env.example`만). 설정: `DEBUG` 명시 필수,
+  운영에서 `SECRET_KEY`/`JWT_SIGNING_KEY`(50자↑, 서로 다름)/`ALLOWED_HOSTS`/`CSRF_TRUSTED_ORIGINS`/`EVENT_PASSWORD_HASH`
+  없으면 시작 거부를 `check --deploy`로 재확인(경고는 W004·W008 둘뿐). 쿠키 HttpOnly·Secure·Strict, JWT HS256,
+  CSRF 미들웨어 활성·`csrf_exempt` 0, `mark_safe`/`|safe`/raw SQL 문자열 조립/`innerHTML`/`eval` 0, 민감값 로깅 0,
+  예외 보고 필터가 PIN·해시를 가림. 의존성: Django 5.2.17, PyJWT 2.14.0, psycopg 3.3.5, uvicorn 0.53.0, h11 0.16.0(요청
+  스머글링 수정판), whitenoise 6.10.0. 컨테이너: 비루트, DB·앱 미발행, 앱 DB 역할 권한 축소, 이미지 digest 고정.
+- 차단 사항 없음. 12A1로 미뤄져 있던 것(HSTS·리다이렉트·프록시 하드닝·관리자 로그인 제한)과 `.dockerignore` 부재,
+  Docker 로그 무제한을 이번 배포 준비에서 닫았다.
+- 배포 준비(D-070): `compose.tls.yaml`, `scripts/nginx_tls/` 템플릿, `scripts/deploy/`(server_setup·make_secrets·
+  issue_cert·render_nginx·deploy), `.github/workflows/deploy.yml`(수동·잠금), `.env.prod.example`, `.dockerignore`,
+  [DEPLOY_RUNBOOK](DEPLOY_RUNBOOK.md). 실제 호스트·DNS·배포 실행은 하지 않았다.
+- 검증: <!-- 12A1-VERIFY -->
+- 독립 리뷰: <!-- 12A1-REVIEW -->
+
 ## 2026-09-23 — 포장을 교환권 방식으로(D-069): 번호표 필수·점유 규칙 제거
 
 - 사용자 설명: 포장은 결제 후 교환권을 받아 교환하는 곳에서 음식과 바꾸는 구조이고 서빙이 찾아가지 않는다.

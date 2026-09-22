@@ -1,0 +1,70 @@
+# 12A1 -- manual deployment over ssh. Prepared, not armed:
+#
+#   * runs only on workflow_dispatch (a person clicks it and names the ref)
+#   * runs only when the repository variable BK_DEPLOY_ENABLED is "true"
+#   * uses the "production" environment, so required reviewers can be added there
+#
+# Repository secrets it needs (Settings > Secrets and variables > Actions):
+#   BK_DEPLOY_HOST         hostname or IP of the deployment host
+#   BK_DEPLOY_USER         ssh user that owns the checkout (docker group)
+#   BK_DEPLOY_SSH_KEY      private key for that user, deploy-only, no passphrase
+#   BK_DEPLOY_KNOWN_HOSTS  the host's key line(s), from `ssh-keyscan <host>`
+# Repository variables:
+#   BK_DEPLOY_ENABLED      "true" to arm; anything else keeps this a no-op
+#   BK_DEPLOY_DIR          checkout on the host (default /srv/bazaar_kiosk)
+#
+# The host does the work: scripts/deploy/deploy.sh fetches the ref, builds,
+# migrates, restarts and verifies. This job only carries the ref there.
+# Nothing in the repository is trusted with a key that can reach the host
+# unless a maintainer stores one here on purpose.
+
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "배포할 git ref (브랜치, 태그 또는 커밋). 행사 시간 중 배포 금지(D-067)."
+        required: true
+        default: "develop"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ vars.BK_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      DEPLOY_REF: ${{ inputs.ref }}
+      DEPLOY_DIR: ${{ vars.BK_DEPLOY_DIR || '/srv/bazaar_kiosk' }}
+    steps:
+      - name: Prepare ssh
+        env:
+          SSH_KEY: ${{ secrets.BK_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.BK_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [ -n "$SSH_KEY" ] && [ -n "$KNOWN_HOSTS" ] || { echo "BK_DEPLOY_SSH_KEY / BK_DEPLOY_KNOWN_HOSTS are not set"; exit 1; }
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy on the host
+        env:
+          HOST: ${{ secrets.BK_DEPLOY_HOST }}
+          USER: ${{ secrets.BK_DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          case "$DEPLOY_REF" in
+            *[!A-Za-z0-9._/-]*|"") echo "ref has characters this job does not pass through: $DEPLOY_REF"; exit 1 ;;
+          esac
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes -o BatchMode=yes "$USER@$HOST" \
+            "cd '$DEPLOY_DIR' && bash scripts/deploy/deploy.sh --yes '$DEPLOY_REF'"

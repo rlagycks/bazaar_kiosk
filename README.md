@@ -65,3 +65,9 @@ DATABASE_URL이 누락되거나 PostgreSQL URL이 아니면 시작이 실패합�
 - 원활한 인수인계를 위한 결정 사항 및 작업 로그 템플릿
 
 에이전트는 코드를 변경하기 전에 [AGENTS.md](AGENTS.md)를 읽어야 합니다.
+
+## 배포 준비 (12A1)
+
+운영 배포 구성과 절차는 [docs/modernization/DEPLOY_RUNBOOK.md](docs/modernization/DEPLOY_RUNBOOK.md)를 따른다.
+`compose.prod.yaml` 위에 `compose.tls.yaml`을 얹고, 호스트에서 `scripts/deploy/`의 스크립트로 준비·배포한다.
+실제 호스트 생성과 배포 실행은 별도 승인이다.
