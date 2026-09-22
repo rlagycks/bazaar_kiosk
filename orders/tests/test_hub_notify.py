@@ -124,6 +124,57 @@ class ThePollStillCarriesTheBoardWhenListeningFailsTests(StreamFixture, Transact
         self.assertEqual(running.failures, 0)
 
 
+@override_settings(**AUTH_SETTINGS, **SLOW_POLL)
+class TheListenerComesBackAfterItsConnectionDropsTests(StreamFixture, TransactionTestCase):
+    """The reconnect path: LISTEN succeeded, then the server cut the connection.
+
+    Until now only a refused first connect was pinned; this is the outage
+    that actually happens (database restart, idle cut). With a 5 s poll, a
+    change arriving well inside that after the cut proves the listener is
+    back, not the poll."""
+
+    async def test_a_cut_listen_connection_is_reopened_and_events_resume(self):
+        client = await sync_to_async(self.watcher)("STATS")
+        held: dict = {}
+        marks: dict = {}
+
+        def cut_the_listener():
+            from django.db import connection
+
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE query = %s AND pid <> pg_backend_pid()",
+                    [f"LISTEN {revisions.NOTIFY_CHANNEL}"],
+                )
+                return cursor.rowcount
+
+        async def cut_then_change():
+            await asyncio.sleep(0.4)
+            running = held["hub"]
+            self.assertTrue(running.listening, "the listener never connected")
+            marks["cut"] = await sync_to_async(cut_the_listener, thread_sensitive=True)()
+            # Reconnect is 1 s (± jitter) after the cut is noticed.
+            for _ in range(60):
+                await asyncio.sleep(0.1)
+                if running.listen_failures >= 1 and running.listening:
+                    break
+            marks["back"] = (running.listen_failures, running.listening)
+            marks["written"] = time.monotonic()
+            await sync_to_async(self.make_order, thread_sensitive=True)()
+
+        with _capture_hub(held):
+            task = asyncio.ensure_future(cut_then_change())
+            events = await self.listen(client, want=2, timeout=8.0)
+            marks["seen"] = time.monotonic()
+            await task
+        self.assertEqual(marks["cut"], 1, "exactly one LISTEN backend should have been cut")
+        self.assertEqual(marks["back"], (1, True), "the listener did not come back once")
+        self.assertEqual([name for name, _ in events], ["ready", "change"], events)
+        self.assertLess(marks["seen"] - marks["written"], 2.0,
+                        "the change after the reconnect waited for the poll")
+
+
 class TheListenerLeavesWithTheLastScreenTests(TransactionTestCase):
     @override_settings(**AUTH_SETTINGS, **FAST_POLL)
     async def test_no_subscriptions_means_no_listen_connection(self):

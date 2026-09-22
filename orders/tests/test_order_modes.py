@@ -92,6 +92,22 @@ class TakeoutVoucherTests(TakeoutFixture, TestCase):
         self.assertEqual(self.order_dine_in(table="99").status_code, 400)
         self.assertEqual(self.order_dine_in(table="7").status_code, 201)
 
+    def test_a_dine_in_order_flagged_as_takeout_is_refused_not_crashed(self):
+        """The pair no screen sends used to reach the check constraint as a 500."""
+        response = self.client.post(
+            reverse("orders:orders-collection"),
+            {
+                "request_id": str(uuid.uuid4()),
+                "floor": "B1", "order_type": "DINE_IN", "is_takeout": True, "table_number": "7",
+                "payment_method": "CASH", "received_cash_amount": 8000,
+                "items": [{"menu_item_id": self.menu.id, "qty": 1, "mode": "DINE_IN"}],
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("is_takeout", response.content.decode())
+        self.assertEqual(Order.objects.count(), 0)
+
     def test_a_mixed_order_uses_the_hall_table(self):
         response = self.order_dine_in(table="7", mixed=True)
         self.assertEqual(response.status_code, 201, response.content)
