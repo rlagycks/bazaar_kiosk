@@ -6,6 +6,11 @@
 
 ## 현재 작업 재개
 
+**2026-09-23 최신 (포장 교환권, D-069):** 포장은 교환권 방식으로 바뀌어 번호표 필수·점유 규칙을 뺐다(0031).
+포장만 주문은 테이블 없이 접수하고 주문 번호가 교환권이다. [이슈 #87](https://github.com/rlagycks/bazaar_kiosk/issues/87),
+브랜치 `phase-10g-takeout-voucher`. 10E 결정 항목 중 목표 수치(D-067 제안 채택)·워커 재시작 유예 10 s 유지(행사 중 배포 금지)는
+확정, 보고서는 로컬 브랜치에만 둔다.
+
 **2026-09-22 최신 (UI-05C 제출):** 모니터링 UI-05B는 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로
 머지됐다. 독립 리뷰에서 찾은 수량 원복 충돌도 포함됐다. 별도 `ui/05-stats-dashboard` 브랜치에 [누적·통계 PC](UI_STATS.md)를
 구현·검증했다(D-064). 머지된 develop `e61d6ab`를 기준으로 통계 변경만 [PR83](https://github.com/rlagycks/bazaar_kiosk/pull/83)에 제출했다.

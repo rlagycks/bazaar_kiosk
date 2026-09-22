@@ -199,13 +199,17 @@ class OrderBaselineTests(OrderFixtureMixin, TestCase):
                 data = self.create_order(self.payload(order_type))
                 order = Order.objects.get(pk=data["id"])
                 self.assertEqual(order.order_type, order_type)
-                self.assertEqual(order.table_id, table.pk)
+                # D-069: a takeout order is a voucher and holds no table.
+                self.assertEqual(order.table_id, table.pk if order_type == "DINE_IN" else None)
                 self.assertEqual(order.is_takeout, order_type == "TAKEOUT")
                 self.assertEqual(order.status, "PREPARING")
                 self.assertEqual(order.source, "ORDER")
                 self.assertEqual(order.total_price, 13700)
                 self.assertEqual(order.received_cash_amount, 13700)
-                self.assertEqual(data["table"]["number"], table.number)
+                if order_type == "DINE_IN":
+                    self.assertEqual(data["table"]["number"], table.number)
+                else:
+                    self.assertIsNone(data["table"])
                 self.assert_prices(data)
                 self.assertEqual(self.detail(order.pk), data)
                 self.assertEqual(
