@@ -17,7 +17,9 @@
 - 같이 정한 것: HSTS·HTTPS 리다이렉트·`server_tokens off`·로그인/관리자 `limit_req`는 Django가 아니라 프록시가 맡는다
   (`check --deploy` W004/W008은 그대로 둔다). HSTS는 300 s로 시작해 안정 뒤 1년으로 올린다. 배포는 호스트의
   `scripts/deploy/deploy.sh`(빌드 → check·migrate → up → 로그인 페이지 200 확인)이며, GitHub Actions `deploy.yml`은
-  수동 실행에 저장소 변수 `BK_DEPLOY_ENABLED`로 잠근다. migration은 컨테이너 시작이 아니라 배포 스크립트가 적용한다.
+  `main`에 PR이 병합될 때 실행되고(수동 실행은 되돌리기용) 저장소 변수 `BK_DEPLOY_ENABLED`로 잠근다.
+  **`main`이 배포 브랜치, `develop`이 통합 브랜치다**(사용자 지시: "main을 배포로 돌리고 저기에 PR 머지되는 걸
+  트리거로 CD"). 릴리스는 `develop → main` PR이다. migration은 컨테이너 시작이 아니라 배포 스크립트가 적용한다.
 - 하지 않은 것: 실제 호스트·DNS·SG 생성과 배포 실행(별도 승인), readiness 엔드포인트, CSP, 백업(12A2).
 - 바꾸려면: ALB/CloudFront를 두는 경우 프록시의 전달 헤더 처리와 신뢰 대역을 함께 바꿔야 하므로 이 결정을 개정한다.
 - 기록: [DEPLOY_RUNBOOK](DEPLOY_RUNBOOK.md), 이슈 #91.

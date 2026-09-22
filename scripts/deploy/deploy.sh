@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # 12A1 -- deploy a git ref on the host: build, migrate, restart, verify.
 #
-#   scripts/deploy/deploy.sh [--yes] [<git-ref>]      default ref: develop (on origin)
+#   scripts/deploy/deploy.sh [--yes] [<git-ref>]      default ref: main (on origin)
 #
 # Run on the deployment host from the repository checkout (or through the
-# manual GitHub workflow, which does exactly that over ssh). Steps:
+# GitHub workflow on a merge into main, which does exactly that over ssh).
+# main is the deployment branch; develop is where work lands first. Steps:
 #
 #   1. check out the ref (detached; the checkout is not a working branch)
 #   2. build the app and proxy images from it
@@ -23,7 +24,7 @@
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 assume_yes=0
-ref="develop"
+ref="main"
 for arg in "$@"; do
     case "$arg" in
         --yes) assume_yes=1 ;;

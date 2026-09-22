@@ -15,7 +15,7 @@
 | `scripts/deploy/make_secrets.sh` | `secrets/` 6개 파일 생성. 있는 파일은 건드리지 않는다 |
 | `scripts/deploy/issue_cert.sh` | 첫 인증서 발급(http 부트스트랩 → certbot webroot → https 전환) |
 | `scripts/deploy/deploy.sh` | ref 체크아웃 → 빌드 → check·migrate → `up -d` → 로그인 페이지 200 확인 |
-| `.github/workflows/deploy.yml` | 수동 실행 CD. `BK_DEPLOY_ENABLED=true`일 때만 동작 |
+| `.github/workflows/deploy.yml` | CD. `main`에 PR이 병합되면(push) 실행, 수동 실행은 되돌리기용. `BK_DEPLOY_ENABLED=true`일 때만 동작 |
 | `.env.prod.example` | 호스트의 `.env` 예시(도메인·호스트·오리진). 비밀값 아님 |
 | `.dockerignore` | 빌드 컨텍스트에서 `.git`·`secrets/`·`.env`·`tls/` 제외 |
 
@@ -54,8 +54,8 @@ scripts/deploy/make_secrets.sh
 scripts/deploy/issue_cert.sh ops@example.org --staging   # 리허설
 sudo rm -rf /etc/letsencrypt/live/$BK_DOMAIN /etc/letsencrypt/archive/$BK_DOMAIN /etc/letsencrypt/renewal/$BK_DOMAIN.conf
 scripts/deploy/issue_cert.sh ops@example.org             # 실제
-# 5. 배포
-scripts/deploy/deploy.sh develop
+# 5. 배포 (main이 배포 브랜치)
+scripts/deploy/deploy.sh main
 # 6. 관리자 계정(운영자 등록용, Django 관리자 화면)
 docker compose -f compose.prod.yaml -f compose.tls.yaml exec app python manage.py createsuperuser
 ```
@@ -65,10 +65,13 @@ docker compose -f compose.prod.yaml -f compose.tls.yaml exec app python manage.p
 
 ## 이후 배포
 
+- **브랜치 흐름:** 작업은 PR로 `develop`에 모이고, 릴리스는 `develop → main` PR이다. 그 PR을 병합하면
+  `deploy.yml`이 병합 커밋을 배포한다. `main`에는 직접 push하지 않는다(브랜치 보호 권장: PR 필수, CI 통과 필수).
 - 호스트에서: `scripts/deploy/deploy.sh <ref>`. 되돌리기는 이전 ref로 같은 명령(`deploy.log`에 이력).
+  GitHub에서 되돌릴 때는 Actions → deploy → 이전 커밋 SHA를 ref로 수동 실행.
   호스트 체크아웃에서는 커밋하지 않는다(origin의 ref만 실행). origin에 없는 커밋이 있으면 스크립트가 거부한다.
   `.env`는 `BK_KEY=VALUE` 줄만 읽는다(셸로 실행하지 않음).
-- GitHub에서: Actions → deploy → ref 입력. 저장소 변수 `BK_DEPLOY_ENABLED=true`와 비밀 4개
+- GitHub 워크플로는 저장소 변수 `BK_DEPLOY_ENABLED=true`와 비밀 4개
   (`BK_DEPLOY_HOST`·`BK_DEPLOY_USER`·`BK_DEPLOY_SSH_KEY`·`BK_DEPLOY_KNOWN_HOSTS`)를 넣기 전까지는 아무 일도
   하지 않는다. `production` 환경에 필수 승인자를 두면 실행 전 승인 단계가 생긴다.
 - **행사 시간 중 배포 금지(D-067).** 앱 교체는 열린 주방 스트림을 끊는다. 화면은 몇 초 안에 다시 붙지만

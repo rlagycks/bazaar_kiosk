@@ -1,8 +1,12 @@
-# 12A1 -- manual deployment over ssh. Prepared, not armed:
+# 12A1 -- deployment over ssh. Prepared, not armed:
 #
-#   * runs only on workflow_dispatch (a person clicks it and names the ref)
+#   * runs when a pull request is merged into main (a push to main), or when a
+#     person triggers it by hand with a ref (rollback, re-run)
 #   * runs only when the repository variable BK_DEPLOY_ENABLED is "true"
 #   * uses the "production" environment, so required reviewers can be added there
+#
+# main is the deployment branch (D-070): work lands on develop through PRs,
+# and a develop -> main PR is the release. Merging it is what deploys.
 #
 # Repository secrets it needs (Settings > Secrets and variables > Actions):
 #   BK_DEPLOY_HOST         hostname or IP of the deployment host
@@ -21,12 +25,14 @@
 name: deploy
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       ref:
-        description: "배포할 git ref (브랜치, 태그 또는 커밋). 행사 시간 중 배포 금지(D-067)."
+        description: "배포할 git ref (브랜치, 태그 또는 커밋). 되돌리기·재실행용. 행사 시간 중 배포 금지(D-067)."
         required: true
-        default: "develop"
+        default: "main"
 
 permissions:
   contents: read
@@ -42,7 +48,9 @@ jobs:
     environment: production
     timeout-minutes: 20
     env:
-      DEPLOY_REF: ${{ inputs.ref }}
+      # A merge into main deploys exactly the merged commit; a manual run
+      # deploys whatever ref the person named.
+      DEPLOY_REF: ${{ github.event_name == 'push' && github.sha || inputs.ref }}
       DEPLOY_DIR: ${{ vars.BK_DEPLOY_DIR || '/srv/bazaar_kiosk' }}
     steps:
       - name: Prepare ssh

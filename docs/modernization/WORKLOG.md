@@ -18,6 +18,9 @@
 - 배포 준비(D-070): `compose.tls.yaml`, `scripts/nginx_tls/` 템플릿, `scripts/deploy/`(server_setup·make_secrets·
   issue_cert·render_nginx·deploy), `.github/workflows/deploy.yml`(수동·잠금), `.env.prod.example`, `.dockerignore`,
   [DEPLOY_RUNBOOK](DEPLOY_RUNBOOK.md). 실제 호스트·DNS·배포 실행은 하지 않았다.
+- 사용자 지시(추가): "불필요한 브랜치 정리하고 main을 배포로 돌리고 저기에 PR 머지되는 걸 트리거로 CD" → `deploy.yml`을
+  `main` push(=PR 병합) 트리거로, 수동 실행은 되돌리기용으로; `deploy.sh` 기본 ref `main`; 런북·D-070에 브랜치 흐름 기록.
+  병합된 PR의 원격 브랜치 20개는 삭제 대상으로 목록화(삭제 실행은 사용자).
 - 검증: 스크립트 `bash -n` 6개 통과; `render_nginx.sh` 부트스트랩·전체 모드 동작(인증서 없으면 전체 모드 거부);
   렌더링한 설정을 자체 서명 인증서와 함께 `nginx:1.27-alpine`에서 `nginx -t` 통과; `compose config` 병합 결과 proxy만
   80/443 발행; `make_secrets.sh`의 PBKDF2 해시가 `parse_password_hash`·`check_password`를 통과; `.dockerignore` 적용 뒤
