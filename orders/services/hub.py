@@ -5,10 +5,21 @@ then stays open all evening, so every guarantee the rest of this system gets
 from re-reading the database per request has to be re-established here on
 purpose. That is BK-R038, and it is most of this file.
 
-**Shape.** One task per event loop -- one per uvicorn worker -- polls
+**Shape.** One task per event loop -- one per uvicorn worker -- reads
 `revisions.state()`, which is a single row and needs no transaction. Screens
 do not poll; they hold a subscription. Without this the detection cost would
 be O(open screens), which is the thing 10C's measurement warned about.
+
+**Detection is an event first and a poll second (10F, D-068).** Every write
+ends in `revisions.mark()`, which sends a PostgreSQL NOTIFY inside the same
+transaction; the database delivers it on commit to a second task here that
+holds one LISTEN connection per worker. That task wakes the reader at once,
+so a screen sees a change in the time it takes to read and refetch rather
+than after up to `HUB_POLL_SECONDS` of waiting -- 10E measured that wait as
+nearly all of the p95 display lag. The reader still wakes on its own every
+`HUB_POLL_SECONDS`: that is the path that carries the board when the LISTEN
+connection is down, and it is the only path `health()` counts, so a listener
+outage is never mistaken for a working hub and never for a broken one.
 
 **Revalidation before every event (user decision, D-060).** The alternative
 offered was a fixed ~15s re-check, which is cheaper and bounds revocation at
@@ -67,8 +78,14 @@ import weakref
 from collections import deque
 from dataclasses import dataclass, field
 
+import logging
+import random
+
+import psycopg
 from asgiref.sync import sync_to_async
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 # Why a screen was cut off. The client needs to tell "log in again" from
@@ -90,6 +107,24 @@ MAX_QUEUED_EVENTS = 8
 # back to fetching for itself (D-019). Saying nothing would look exactly like
 # a quiet kitchen.
 MAX_CONSECUTIVE_FAILURES = 3
+
+# The listener's reconnect schedule when the database refuses or drops its
+# connection. Bounded above so an outage of the LISTEN path never turns into
+# a connect storm from three workers, and below so a blip is over quickly.
+LISTEN_RETRY_MIN_SECONDS = 1.0
+LISTEN_RETRY_MAX_SECONDS = 30.0
+# How long the listener waits for a notification before checking whether it
+# still has anyone to wake; also bounds how long a cancelled hub keeps its
+# connection.
+LISTEN_IDLE_CHECK_SECONDS = 5.0
+
+# libpq keys Django's OPTIONS may carry that also belong on the LISTEN
+# connection. Anything else there (pool settings, cursor factories) is
+# Django's business, not libpq's.
+_LIBPQ_OPTIONS = frozenset({
+    "sslmode", "sslrootcert", "sslcert", "sslkey", "hostaddr", "connect_timeout",
+    "application_name", "options", "target_session_attrs", "channel_binding",
+})
 
 
 def poll_seconds() -> float:
@@ -238,6 +273,26 @@ def _still_allowed(session_ids):
     }
 
 
+def _listen_conninfo() -> str:
+    """The LISTEN connection, built from the same settings the ORM uses.
+
+    Read at connect time rather than at import, because under the test runner
+    the database name is swapped after settings load.
+    """
+    from django.db import connections
+
+    conf = connections["default"].settings_dict
+    params = {
+        "dbname": conf.get("NAME"), "user": conf.get("USER"),
+        "password": conf.get("PASSWORD"), "host": conf.get("HOST"), "port": conf.get("PORT"),
+        **{key: value for key, value in (conf.get("OPTIONS") or {}).items()
+           if key in _LIBPQ_OPTIONS},
+    }
+    return psycopg.conninfo.make_conninfo(
+        **{key: value for key, value in params.items() if value not in (None, "")}
+    )
+
+
 def _scope_view(permissions):
     """What this scope can see right now, as (digest, version).
 
@@ -280,6 +335,14 @@ class _Hub:
         self.last_ok: float | None = None
         self.last_checked: float | None = None
         self.failures = 0
+        # The event path (10F). `notified` is set by the listener and waited
+        # on by the reader, so one notification -- or a burst of them -- turns
+        # into exactly one read.
+        self.notified = asyncio.Event()
+        self.listener: asyncio.Task | None = None
+        self.listening = False
+        self.listen_failures = 0
+        self.notifications = 0
 
     def health(self) -> Health:
         stale = None if self.last_ok is None else int(
@@ -303,12 +366,71 @@ class _Hub:
         self.subscriptions.append(subscription)
         if self.task is None or self.task.done():
             self.task = asyncio.ensure_future(self._run())
+        if self.listener is None or self.listener.done():
+            self.listener = asyncio.ensure_future(self._listen())
 
     def remove(self, subscription: Subscription) -> None:
         if subscription in self.subscriptions:
             self.subscriptions.remove(subscription)
+        if not self.subscriptions:
+            # No screen, no connection: the LISTEN connection exists only
+            # while there is someone to wake.
+            self._stop_listening()
+
+    def _stop_listening(self) -> None:
+        # Cancelling only *asks*; the task finishes on a later loop turn. The
+        # reference is dropped now so that a screen reconnecting on the very
+        # next turn -- the common case -- gets a fresh listener from `add()`
+        # instead of finding a task that is not yet `done()` and going without
+        # (review finding). The loop still owns the old task and finishes it.
+        if self.listener is not None and not self.listener.done():
+            self.listener.cancel()
+        self.listener = None
+        self.listening = False
+
+    async def _listen(self) -> None:
+        """Hold one LISTEN connection and wake the reader on every notification.
+
+        Failing here changes nothing a screen can observe except latency: the
+        reader keeps its own schedule, so detection falls back to
+        `HUB_POLL_SECONDS` until the connection is back. That is why this
+        task neither ends streams nor touches `failures`.
+        """
+        delay = LISTEN_RETRY_MIN_SECONDS
+        try:
+            while self.subscriptions:
+                try:
+                    async with await psycopg.AsyncConnection.connect(
+                        _listen_conninfo(), autocommit=True
+                    ) as conn:
+                        from orders.services.revisions import NOTIFY_CHANNEL
+
+                        await conn.execute(f"LISTEN {NOTIFY_CHANNEL}")
+                        self.listening = True
+                        delay = LISTEN_RETRY_MIN_SECONDS
+                        logger.info("hub listener connected on %s", NOTIFY_CHANNEL)
+                        while self.subscriptions:
+                            async for _notice in conn.notifies(timeout=LISTEN_IDLE_CHECK_SECONDS):
+                                self.notifications += 1
+                                self.notified.set()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self.listening = False
+                    self.listen_failures += 1
+                    logger.warning(
+                        "hub listener down (%s); detecting changes by polling every %.2fs",
+                        exc, poll_seconds(),
+                    )
+                    await asyncio.sleep(delay * random.uniform(0.8, 1.2))
+                    delay = min(delay * 2, LISTEN_RETRY_MAX_SECONDS)
+        finally:
+            self.listening = False
 
     async def _run(self) -> None:
+        # If this task is cancelled from outside (a test does), the listener
+        # is not stopped here; it lingers harmlessly -- one connection, an
+        # event nobody reads -- until the last screen unsubscribes.
         while self.subscriptions:
             try:
                 state = await sync_to_async(_read_state, thread_sensitive=True)()
@@ -344,7 +466,16 @@ class _Hub:
                     # is the user's chosen policy made true rather than
                     # weakened -- the change-triggered pass still runs first.
                     await self._revalidate()
-            await asyncio.sleep(poll_seconds())
+            await self._wait_for_change()
+        self._stop_listening()
+
+    async def _wait_for_change(self) -> None:
+        """Until the listener says so, or `HUB_POLL_SECONDS` pass -- whichever first."""
+        try:
+            await asyncio.wait_for(self.notified.wait(), timeout=poll_seconds())
+        except asyncio.TimeoutError:
+            pass
+        self.notified.clear()
 
     def _revalidation_is_due(self) -> bool:
         if not self.subscriptions:

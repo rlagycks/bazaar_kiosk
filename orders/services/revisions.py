@@ -39,9 +39,13 @@ protocol is ever wanted, that is a new decision and a new column.
 
 from __future__ import annotations
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 
 from orders.models import BOARD, ChangeRevision
+
+# The channel every worker's hub listens on (10F). A plain identifier, never
+# built from input, so it can be interpolated into LISTEN as-is.
+NOTIFY_CHANNEL = "bk_board_changed"
 
 
 class NotInTransaction(RuntimeError):
@@ -125,7 +129,21 @@ def mark() -> int:
     row = _counter()
     row.value += 1
     row.save(update_fields=["value"])
+    _announce(row.value)
     return row.value
+
+
+def _announce(value: int) -> None:
+    """Tell every worker's hub, through the database, that the board moved (10F).
+
+    Sent inside the marking transaction on purpose: PostgreSQL delivers a
+    NOTIFY only when that transaction commits, so a rolled-back write never
+    wakes a screen, and the hub cannot hear about a change before it can
+    read it. The payload is informational -- the hub re-reads the marker,
+    generation and all, before it says anything to anyone.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_notify(%s, %s)", [NOTIFY_CHANNEL, str(value)])
 
 
 def save_and_mark(instance, **fields) -> int:

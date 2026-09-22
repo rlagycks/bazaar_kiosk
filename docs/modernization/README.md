@@ -6,6 +6,11 @@
 
 ## 현재 작업 재개
 
+**2026-09-23 최신 (10F 허브 이벤트 감지):** 10E 로컬 부하 측정(별도 미게시 브랜치 `phase-10e-load-verification`)의
+결론 중 하나인 표시 지연(p95 ≈ 1.0 s, 허브 폴링 대기)을 사용자 결정(D-068)에 따라 저장 시점 이벤트
+(LISTEN/NOTIFY)로 줄인다. [이슈 #85](https://github.com/rlagycks/bazaar_kiosk/issues/85), 브랜치 `phase-10f-hub-notify`.
+나머지 10E 결정 항목(목표 수치, 포장 번호 재사용, 워커 재시작 단절 허용)은 대기 중이다.
+
 **2026-09-22 최신 (UI-05C 제출):** 모니터링 UI-05B는 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로
 머지됐다. 독립 리뷰에서 찾은 수량 원복 충돌도 포함됐다. 별도 `ui/05-stats-dashboard` 브랜치에 [누적·통계 PC](UI_STATS.md)를
 구현·검증했다(D-064). 머지된 develop `e61d6ab`를 기준으로 통계 변경만 [PR83](https://github.com/rlagycks/bazaar_kiosk/pull/83)에 제출했다.
