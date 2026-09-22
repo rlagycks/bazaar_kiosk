@@ -36,8 +36,9 @@ def monitor_version(order: Order, *, items=None) -> str:
     """Opaque equality token from persisted source fields, never display labels.
 
     Snapshot readers pass their already-prefetched items; writers pass the rows
-    locked after the order. Including line prices/modes/quantities detects admin
-    edits even when a writer did not touch the order's updated_at timestamp.
+    locked after the order. Quantity writers also advance updated_at under
+    that lock, so restoring earlier quantities cannot restore an old token.
+    Including line prices/modes/quantities detects changes to their source data.
     """
     if items is None:
         items = order.items.all()
@@ -124,6 +125,10 @@ def apply(order_id: int, payload: dict, *, actor, permissions) -> Order:
 
     if action.name == "progress":
         status_service.sync_from_items(order)
+        if changed and order.status == previous:
+            # Status changes already touch the order. Quantity-only writes
+            # must do so too, or 0 -> 1 -> 0 revives an earlier version.
+            order.save(update_fields=["updated_at"])
     elif action.name == "depart":
         status_service.change(order, OrderStatus.READY)
         order.departed_at = timezone.now()

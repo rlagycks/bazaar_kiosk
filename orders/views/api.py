@@ -475,6 +475,11 @@ def order_item_progress(request: HttpRequest, item_id: int):
             status_service.sync_from_items(order)
             if order.status != previous:
                 audit.record_status(order, request.auth_account, previous=previous)
+            elif changed:
+                # The monitor token must distinguish a quantity round trip
+                # even while PREPARING. This shares the item write's lock
+                # and transaction; an unchanged quantity stays a no-op.
+                order.save(update_fields=["updated_at"])
             # 10B: the write most easily missed, in both directions. It is
             # saved here rather than in a service, and *either* half can move
             # without the other.

@@ -4,11 +4,12 @@
 
 ## 현재 단계와 기준
 
-**2026-09-22 최신:** PR81은 `develop`에 머지됐고 이번 기준은 `ea1c77e`다.
-`ui/05-monitoring-workflow`에서 UI-05B를 구현·검증한다. [현재 모니터링 계약](UI_MONITORING.md),
-D-063 및 최신 WORKLOG를 따른다. 다음 UI 범위는 UI-05C 누적·통계다.
-이번 단계는 로컬 구현 승인이다. 과거 UI-05A push/PR 승인을 새 브랜치에 확대하지 않는다.
-운영 데이터·마이그레이션 적용·배포는 별도다.
+**2026-09-22 최신:** PR81 머지 기준 `ea1c77e`에서 UI-05B를 구현하고
+`ui/05-monitoring-workflow`를 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로 제출했다.
+사용자가 이번 브랜치 push·PR·서브에이전트 리뷰 및 다음 UI 작업 병행을 승인했다.
+[모니터링 계약](UI_MONITORING.md), D-063과 최신 WORKLOG를 따른다. UI-05C 누적·통계는
+별도 `bazaar_kiosk-ui05c` worktree의 `ui/05-stats-dashboard` 브랜치에서 진행하며 PR82에 섞지 않는다.
+merge·운영 데이터·운영 마이그레이션 적용·배포는 포함하지 않는다.
 
 **2026-09-21 UI-05A 이력:** D-062로 **05안 UI 채택·코드 적용**이 승인됐다.
 `ui/05-serving-foundation`에서 UI-05A(로그인·내 메뉴·휴대폰 주문/결제)를 진행한다.

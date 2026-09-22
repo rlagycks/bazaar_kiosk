@@ -229,8 +229,9 @@ class OrderAdmin(admin.ModelAdmin):
         previous = locked.status
         if status_service.change(locked, obj.status):
             audit.record_status(locked, None, previous=previous)
-        locked.note = obj.note
-        locked.save(update_fields=["note", "updated_at"])
+        if locked.note != obj.note:
+            locked.note = obj.note
+            locked.save(update_fields=["note", "updated_at"])
         # The note is on the screens, and it is written here rather than
         # through a service. The mark for it happens in `save_related`, which
         # Django calls after this and after the inline items -- see there.
@@ -261,14 +262,16 @@ class OrderAdmin(admin.ModelAdmin):
         reverse of every other writer, which is the shape this design exists
         to forbid (PR #77 security review).
 
-        `save_model` writes the note unconditionally, so there is always
-        something to announce by the time this runs.
+        Mark only actual form/line changes. An unchanged submission must not
+        invalidate a monitor's order version or wake the board.
         """
         super().save_related(request, form, formsets, change)
-        if any(formset.has_changed() for formset in formsets):
+        lines_changed = any(formset.has_changed() for formset in formsets)
+        if lines_changed:
             order = status_service.locked(form.instance.pk)
             order_edits.apply_line_changes(order, None)
-        revisions.mark()
+        if form.has_changed() or lines_changed:
+            revisions.mark()
 
 
 # ---- EventDay (D-047) ----

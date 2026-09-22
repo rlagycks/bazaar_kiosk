@@ -19,7 +19,7 @@ from django.utils import timezone
 from orders.models import (
     MenuItem, Order, OrderEvent, OrderEventKind, OrderItem, OrderStatus, Table,
 )
-from orders.services import audit
+from orders.services import audit, monitoring_actions, revisions
 from orders.tests.auth_support import AUTH_SETTINGS, login_client
 from orders.views import api
 
@@ -87,6 +87,35 @@ class AdminOrderEditTests(TestCase):
         return Order.objects.get(pk=self.order.pk)
 
     # --- quantity, total, change ------------------------------------------
+
+    def test_quantity_round_trip_invalidates_the_original_monitor_version(self):
+        kitchen = self.client_class()
+        login_client(kitchen, "KITCHEN")
+        original = monitoring_actions.monitor_version(self.reload())
+        for quantity in (2, 1):
+            before = self.reload().updated_at
+            response = self.client.post(self.change_url(), self.form(self.existing(qty=quantity)))
+            self.assertEqual(response.status_code, 302)
+            self.assertGreater(self.reload().updated_at, before)
+        order = self.reload()
+        self.assertEqual((order.status, order.items.get().qty, order.total_price), ("PREPARING", 1, 5000))
+        version = monitoring_actions.monitor_version(order)
+        before = (order.events.count(), revisions.current())
+        response = kitchen.patch(
+            reverse("orders:monitor-order-action", args=[order.pk]),
+            {"action": "depart", "expected_version": original}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(monitoring_actions.monitor_version(self.reload()), version)
+        self.assertEqual((order.events.count(), revisions.current()), before)
+
+    def test_unchanged_admin_save_keeps_monitor_version_and_audit_unchanged(self):
+        before = (monitoring_actions.monitor_version(self.reload()),
+                  self.order.events.count(), revisions.current())
+        response = self.client.post(self.change_url(), self.form(self.existing()))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual((monitoring_actions.monitor_version(self.reload()),
+                          self.order.events.count(), revisions.current()), before)
 
     def test_changing_a_quantity_recomputes_the_total_and_the_change(self):
         response = self.client.post(self.change_url(), self.form(self.existing(qty=3)))

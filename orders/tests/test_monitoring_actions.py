@@ -88,6 +88,57 @@ class MonitoringActionTests(MonitoringFixture, TestCase):
         self.assertEqual(self.state(), before)
         self.assertEqual(self.token(), token)
 
+    def test_progress_round_trip_rejects_the_original_version(self):
+        original = self.payload(items=[{"id": self.item.pk, "prepared_qty": 1},
+                                       {"id": self.second.pk, "prepared_qty": 0}])
+        timestamps = [Order.objects.get(pk=self.order.pk).updated_at]
+        for quantity in (1, 0):
+            body = self.payload(items=[{"id": self.item.pk, "prepared_qty": quantity},
+                                       {"id": self.second.pk, "prepared_qty": 0}])
+            self.assertEqual(self.send(body).status_code, 200)
+            self.order.refresh_from_db()
+            timestamps.append(self.order.updated_at)
+        self.assertEqual(self.state()[:3], ("PREPARING", None, [0, 0]))
+        before = self.state()
+        self.assertEqual(self.send(original).status_code, 409)
+        self.assertEqual(self.state(), before)
+        self.assertNotEqual(self.token(), original["expected_version"])
+        self.assertLess(timestamps[0], timestamps[1])
+        self.assertLess(timestamps[1], timestamps[2])
+
+    def test_legacy_progress_round_trip_rejects_the_original_monitor_version(self):
+        original = self.payload("depart")
+        timestamps = [Order.objects.get(pk=self.order.pk).updated_at]
+        for quantity in (1, 0):
+            self.assertEqual(self.progress(self.item, {"prepared_qty": quantity}).status_code, 200)
+            self.order.refresh_from_db()
+            timestamps.append(self.order.updated_at)
+        self.assertEqual(self.state()[:3], ("PREPARING", None, [0, 0]))
+        before = self.state()
+        self.assertEqual(self.send(original).status_code, 409)
+        self.assertEqual(self.state(), before)
+        self.assertLess(timestamps[0], timestamps[1])
+        self.assertLess(timestamps[1], timestamps[2])
+
+    def test_legacy_quantity_noop_keeps_monitor_version_and_audit_unchanged(self):
+        before, token = self.state(), self.token()
+        self.assertEqual(self.progress(self.item, {"prepared_qty": 0}).status_code, 200)
+        self.assertEqual(self.state(), before)
+        self.assertEqual(self.token(), token)
+
+    def test_progress_failure_rolls_back_quantities_and_order_version_for_both_apis(self):
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                before, token = self.state(), self.token()
+                with patch.object(revisions, "mark", side_effect=RuntimeError("injected")):
+                    with self.assertRaisesRegex(RuntimeError, "injected"):
+                        if legacy:
+                            self.progress(self.item, {"prepared_qty": 1})
+                        else:
+                            self.send()
+                self.assertEqual(self.state(), before)
+                self.assertEqual(self.token(), token)
+
     def test_retry_stale_depart_or_cancel_conflicts_but_fresh_retry_is_noop(self):
         for action in ("depart", "cancel"):
             body = self.payload(action)
@@ -239,6 +290,9 @@ class ConcurrentMonitoringTests(MonitoringFixture, TransactionTestCase):
                 client.cookies = self.client_kitchen.cookies.copy()
                 client.defaults = self.client_kitchen.defaults.copy()
                 body = {"action": action, "expected_version": token}
+                if action == "progress":
+                    body["items"] = [{"id": self.item.pk, "prepared_qty": 1},
+                                     {"id": self.second.pk, "prepared_qty": 0}]
                 barrier.wait(timeout=5)
                 response = self.send(body, client=client)
                 results.append((action, response.status_code))
@@ -260,6 +314,11 @@ class ConcurrentMonitoringTests(MonitoringFixture, TransactionTestCase):
         self.race(["depart", "depart"])
         self.assertEqual(self.state()[0], "READY")
         self.assertEqual(self.order.events.filter(kind="STATUS").count(), 1)
+
+    def test_two_progress_saves_have_one_winner_and_one_progress_event(self):
+        self.race(["progress", "progress"])
+        self.assertEqual(self.state()[:3], ("PREPARING", None, [1, 0]))
+        self.assertEqual(self.order.events.filter(kind="PROGRESS").count(), 1)
 
     def test_cancel_racing_depart_has_one_winner_and_never_revives_cancel(self):
         outcomes = self.race(["depart", "cancel"])

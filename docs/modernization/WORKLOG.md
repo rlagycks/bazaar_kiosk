@@ -3,6 +3,21 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-22 — PR82 독립 리뷰: 수량 원복 후 오래된 요청 재전송 차단
+
+- UI-05B를 develop 대상 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로 제출했다.
+  최초 제출 `cd82dbb`의 GitHub CI가 통과했다. merge·운영 적용·배포는 하지 않았다.
+- 독립 리뷰 HIGH 1건: PREPARING 중 수량을 0→1→0으로 바꾸면 주문 시각은 그대로여서 원래
+  `monitor_version`이 다시 유효해질 수 있었다. 원래 요청 재전송이 다른 직원의 정정을 덮을 수 있다.
+- 실제 수량 변경은 모니터링·기존 품목 API 모두 주문 잠금/트랜잭션 안에서 `updated_at`을 갱신한다.
+  관리자 품목 변경도 기존 서비스를 통해 갱신하며 무변경 관리자 저장은 버전·revision을 보존한다.
+  수량 원복 재전송 409, 무변경, 동시 수량 저장 한 번만 성공, 실패 시 시각/수량 롤백 회귀를 추가했다.
+- 검증: 집중 PostgreSQL 95개, 전체 `BK_TEST_DATABASE_URL=<전용 fixture URL> .venv/bin/python scripts/test_postgres.py`
+  **612개(27+585), skip 0** 통과. Django check·migration drift·`git diff --check` 통과.
+  변경은 Python/문서이며 기존 Node 85개·브라우저 검증은 앞선 UI-05B 기록을 따른다.
+  독립 재리뷰에서 원래 HIGH 해결·추가 지적 없음. 결과 로그 `.venv/ui05b-review-pg.log`는 미추적이다.
+- 다음 UI-05C는 별도 `ui/05-stats-dashboard` 브랜치/worktree에서 병행한다. PR82에 포함하지 않는다.
+
 ## 2026-09-22 — UI-05B PR 제출·독립 리뷰와 UI-05C 병행 승인
 
 - 사용자 지시: “pr 올리고 서브에이전트로 리뷰 돌리자 동시에 다음 ui 쪽 작업 시작하자”.
