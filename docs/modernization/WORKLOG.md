@@ -18,7 +18,10 @@
 - 배포 준비(D-070): `compose.tls.yaml`, `scripts/nginx_tls/` 템플릿, `scripts/deploy/`(server_setup·make_secrets·
   issue_cert·render_nginx·deploy), `.github/workflows/deploy.yml`(수동·잠금), `.env.prod.example`, `.dockerignore`,
   [DEPLOY_RUNBOOK](DEPLOY_RUNBOOK.md). 실제 호스트·DNS·배포 실행은 하지 않았다.
-- 검증: <!-- 12A1-VERIFY -->
+- 검증: 스크립트 `bash -n` 6개 통과; `render_nginx.sh` 부트스트랩·전체 모드 동작(인증서 없으면 전체 모드 거부);
+  렌더링한 설정을 자체 서명 인증서와 함께 `nginx:1.27-alpine`에서 `nginx -t` 통과; `compose config` 병합 결과 proxy만
+  80/443 발행; `make_secrets.sh`의 PBKDF2 해시가 `parse_password_hash`·`check_password`를 통과; `.dockerignore` 적용 뒤
+  `docker build --target proxy` 성공(정적 파일·include 파일 존재); 격리 PostgreSQL 599개 통과.
 - 독립 리뷰: <!-- 12A1-REVIEW -->
 
 ## 2026-09-23 — 포장을 교환권 방식으로(D-069): 번호표 필수·점유 규칙 제거
