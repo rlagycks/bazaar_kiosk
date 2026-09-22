@@ -70,7 +70,7 @@
     byId('cart-title').textContent = '담은 메뉴 · ' + (counts.DINE_IN + counts.TAKEOUT) + '개';
     byId('order-summary').textContent = `홀 ${counts.DINE_IN}개 · 포장 ${counts.TAKEOUT}개 / 총 ${won(order.total())}`;
     byId('btn-checkout').disabled = saving || !order.items().length;
-    byId('table-help').textContent = counts.DINE_IN ? '홀·혼합 주문은 식당 테이블 번호를 입력하세요.' : '포장만 주문할 때는 101–120번';
+    byId('table-help').textContent = counts.DINE_IN ? '홀·혼합 주문은 식당 테이블 번호를 입력하세요.' : '포장만 주문할 때는 비워 두세요. 주문 번호가 교환권입니다.';
     updatePayment();
   }
   function updatePayment() {
@@ -110,10 +110,11 @@
     if (saving) return;
     const items = order.items();
     if (!items.length) return fail('메뉴를 담아 주세요.');
-    const table = value('table-number').trim();
-    if (!/^[0-9]+$/.test(table) || Number(table) < 1) return fail('테이블 번호를 입력해 주세요.');
     const hasHall = items.some(row => row.mode === 'DINE_IN');
-    if (!hasHall && (Number(table) < 101 || Number(table) > 120)) return fail('포장 주문 번호는 101~120번으로 입력해 주세요.');
+    // D-069: a takeout-only order is a voucher -- no table, no tag. Anything
+    // typed into the field is dropped rather than sent as a claim.
+    const table = hasHall ? value('table-number').trim() : '';
+    if (hasHall && (!/^[0-9]+$/.test(table) || Number(table) < 1)) return fail('테이블 번호를 입력해 주세요.');
     const payment = settlement();
     if (payment.error) return fail(payment.error);
     const payload = {floor: 'B1', order_type: hasHall ? 'DINE_IN' : 'TAKEOUT', is_takeout: !hasHall,

@@ -1,12 +1,19 @@
-"""6B: a takeout number identifies one waiting customer (D-050).
+"""Takeout is a voucher, not a numbered tag (D-069, supersedes the slot rule of D-050).
 
-Takeout orders are called by a numbered tag, 101 to 120. Nothing stopped two
-live orders from holding the same tag, so two customers could stand there with
-number 105 and the kitchen had no way to tell whose food was whose.
+Last year's flow gave the customer a numbered tag (101–120) and serving went
+looking for the number; one tag could hold one waiting customer, and the
+event ran out of tags at twenty live orders. This year the customer pays,
+takes a voucher and exchanges it at the counter. Nobody is looked for, so a
+takeout order holds no table and no tag: its order number is the voucher.
 
-The contract: a tag held by an order that has not been handed over cannot be
-given out again. A cancelled order releases its tag; a READY one does not,
-because READY means cooked and waiting, not collected.
+What is pinned here:
+
+* a takeout-only order is accepted with no table number, and whatever the
+  screen sends in that field is not a claim on a table;
+* takeout orders never block each other -- READY, PREPARING, twenty of them;
+* dine-in and mixed orders still need a real table;
+* the same request_id racing itself still resolves to one order (the
+  idempotency key now does alone what the slot index used to help with).
 """
 
 import threading
@@ -18,129 +25,112 @@ from django.urls import reverse
 
 from orders.models import MenuItem, Order, OrderStatus, Table
 from orders.tests.auth_support import AUTH_SETTINGS, login_client
-from orders.views import api
 
 
 class TakeoutFixture:
     def setUp(self):
         super().setUp()
-        for number in (7, 105, 106):
+        for number in (7, 105):
             Table.objects.create(number=number)
         self.menu = MenuItem.objects.create(name="Bowl", price=8000)
         login_client(self.client, "ORDER")
 
-    def order_takeout(self, slot="105", client=None, request_id=None):
+    def order_takeout(self, table_number="", client=None, request_id=None):
         return (client or self.client).post(
             reverse("orders:orders-collection"),
             {
                 "request_id": request_id or str(uuid.uuid4()),
-                "floor": "B1", "order_type": "TAKEOUT", "table_number": str(slot),
+                "floor": "B1", "order_type": "TAKEOUT", "table_number": table_number,
                 "payment_method": "CASH", "received_cash_amount": 8000,
-                "items": [{"menu_item_id": self.menu.id, "qty": 1}],
+                "items": [{"menu_item_id": self.menu.id, "qty": 1, "mode": "TAKEOUT"}],
             },
             content_type="application/json",
         )
 
-    def order_dine_in(self, table="7"):
+    def order_dine_in(self, table="7", *, mixed=False):
+        items = [{"menu_item_id": self.menu.id, "qty": 1, "mode": "DINE_IN"}]
+        if mixed:
+            items.append({"menu_item_id": self.menu.id, "qty": 1, "mode": "TAKEOUT"})
         return self.client.post(
             reverse("orders:orders-collection"),
             {
                 "request_id": str(uuid.uuid4()),
                 "floor": "B1", "order_type": "DINE_IN", "table_number": str(table),
-                "payment_method": "CASH", "received_cash_amount": 8000,
-                "items": [{"menu_item_id": self.menu.id, "qty": 1}],
+                "payment_method": "CASH", "received_cash_amount": 8000 * len(items),
+                "items": items,
             },
             content_type="application/json",
         )
 
 
 @override_settings(**AUTH_SETTINGS)
-class TakeoutSlotTests(TakeoutFixture, TestCase):
-    def test_a_free_slot_is_accepted(self):
+class TakeoutVoucherTests(TakeoutFixture, TestCase):
+    def test_a_takeout_order_needs_no_table_and_gets_a_number(self):
+        response = self.order_takeout()
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertIsNone(body["table"])
+        self.assertEqual(body["order_no"], 1, "the order number is the voucher")
+        self.assertTrue(body["is_takeout"])
+
+    def test_a_number_typed_into_the_field_is_not_a_table_claim(self):
+        for typed in ("105", "7", "999", "abc"):
+            with self.subTest(typed=typed):
+                response = self.order_takeout(table_number=typed)
+                self.assertEqual(response.status_code, 201, response.content)
+                self.assertIsNone(response.json()["table"])
+
+    def test_takeout_orders_never_block_each_other(self):
+        numbers = [self.order_takeout().json()["order_no"] for _ in range(25)]
+        self.assertEqual(numbers, list(range(1, 26)))
+        Order.objects.filter(order_no__lte=5).update(status=OrderStatus.READY)
         self.assertEqual(self.order_takeout().status_code, 201)
+        self.assertEqual(Order.objects.count(), 26)
 
-    def test_a_slot_in_use_is_refused(self):
-        self.assertEqual(self.order_takeout().status_code, 201)
-        second = self.order_takeout()
-        self.assertEqual(second.status_code, 409, second.content)
-        self.assertEqual(Order.objects.count(), 1)
-        self.assertIn("105", second.json()["detail"])
+    def test_a_dine_in_order_still_needs_a_table(self):
+        self.assertEqual(self.order_dine_in(table="").status_code, 400)
+        self.assertEqual(self.order_dine_in(table="99").status_code, 400)
+        self.assertEqual(self.order_dine_in(table="7").status_code, 201)
 
-    def test_a_cooked_but_uncollected_order_still_holds_its_slot(self):
-        """READY means waiting on the counter with that tag on it."""
-        created = self.order_takeout().json()
-        Order.objects.filter(pk=created["id"]).update(status=OrderStatus.READY)
-        self.assertEqual(self.order_takeout().status_code, 409)
+    def test_a_mixed_order_uses_the_hall_table(self):
+        response = self.order_dine_in(table="7", mixed=True)
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["table"]["number"], 7)
+        self.assertEqual(self.order_dine_in(table="", mixed=True).status_code, 400)
 
-    def test_a_cancelled_order_releases_its_slot(self):
-        created = self.order_takeout().json()
-        Order.objects.filter(pk=created["id"]).update(status=OrderStatus.CANCELLED)
-        self.assertEqual(self.order_takeout().status_code, 201)
-        self.assertEqual(Order.objects.count(), 2)
+    def test_the_database_itself_lets_takeout_rows_share_or_lack_a_table(self):
+        """The constraints are the contract, not the view: no unique slot, no
+        table requirement for takeout, table still required for dine-in."""
+        from django.db import IntegrityError, transaction
 
-    def test_another_slot_is_unaffected(self):
-        self.assertEqual(self.order_takeout("105").status_code, 201)
-        self.assertEqual(self.order_takeout("106").status_code, 201)
-
-    def test_a_dining_table_may_hold_several_orders(self):
-        """Unchanged on purpose: one table ordering twice in an evening is
-        ordinary, and the table number is not a claim ticket."""
-        self.assertEqual(self.order_dine_in().status_code, 201)
-        self.assertEqual(self.order_dine_in().status_code, 201)
-        self.assertEqual(Order.objects.count(), 2)
-
-    def test_the_slot_range_is_still_enforced(self):
-        for slot in ("100", "121", "7"):
-            with self.subTest(slot=slot):
-                self.assertEqual(self.order_takeout(slot).status_code, 400)
+        tag = Table.objects.get(number=105)
+        for _ in range(2):
+            Order.objects.create(floor="B1", order_type="TAKEOUT", is_takeout=True, table=tag,
+                                 status=OrderStatus.PREPARING, total_price=8000,
+                                 received_amount=8000, payment_method="CASH",
+                                 received_cash_amount=8000, received_ticket_amount=0)
+        Order.objects.create(floor="B1", order_type="TAKEOUT", is_takeout=True, table=None,
+                             status=OrderStatus.PREPARING, total_price=8000,
+                             received_amount=8000, payment_method="CASH",
+                             received_cash_amount=8000, received_ticket_amount=0)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Order.objects.create(floor="B1", order_type="DINE_IN", table=None,
+                                 status=OrderStatus.PREPARING, total_price=8000,
+                                 received_amount=8000, payment_method="CASH",
+                                 received_cash_amount=8000, received_ticket_amount=0)
 
 
 @override_settings(**AUTH_SETTINGS)
-class ConcurrentSlotTests(TakeoutFixture, TransactionTestCase):
-    """Checking before inserting is not enough: both requests would look and
-    both would find the slot free. The database has to hold the line."""
-
-    def test_two_orders_for_one_slot_leave_exactly_one(self):
-        clients = []
-        for _ in range(2):
-            client = self.client_class()
-            login_client(client, "ORDER")
-            clients.append(client)
-
-        start = threading.Barrier(2)
-        codes = []
-        errors = []
-
-        def submit(client):
-            try:
-                start.wait(timeout=5)
-                codes.append(self.order_takeout(client=client).status_code)
-            except Exception as exc:
-                errors.append(exc)
-            finally:
-                connection.close()
-
-        threads = [threading.Thread(target=submit, args=(c,)) for c in clients]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=20)
-
-        self.assertEqual(errors, [])
-        self.assertEqual(sorted(codes), [201, 409])
-        self.assertEqual(Order.objects.count(), 1)
-        # The refused request left nothing behind -- no order, and no number.
-        self.assertEqual(list(Order.objects.values_list("order_no", flat=True)), [1])
-
+class ConcurrentRetryTests(TakeoutFixture, TransactionTestCase):
     def test_a_retry_of_the_same_attempt_racing_itself_gets_its_own_order_back(self):
         """The same request_id twice at once is a retry, not a second customer.
 
         Both arrivals pass the replay check (nothing is committed yet) and both
-        reach the insert. The loser's insert fails on the slot index because the
-        winner -- its own earlier self -- now holds the tag. Answering that with
-        "use another number" would send the volunteer off to create a second
-        order for the same customer (2026-09-20 code review). The loser has to
-        look the id up again and hand back the winner's order.
+        reach the insert. The loser's insert fails on the idempotency key
+        because the winner -- its own earlier self -- committed first. The
+        loser looks the id up again and hands back the winner's order
+        (2026-09-20 code review; the slot index that used to fire first is
+        gone with D-069, so this key is the only line now).
         """
         clients = []
         for _ in range(2):
@@ -174,6 +164,7 @@ class ConcurrentSlotTests(TakeoutFixture, TransactionTestCase):
         self.assertEqual(Order.objects.count(), 1)
         ids = {body["id"] for _, body in results}
         self.assertEqual(ids, {Order.objects.get().id})
+        self.assertEqual(list(Order.objects.values_list("order_no", flat=True)), [1])
 
 
 @override_settings(**AUTH_SETTINGS)

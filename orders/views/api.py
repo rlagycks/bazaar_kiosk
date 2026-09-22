@@ -169,28 +169,9 @@ def orders_collection(request: HttpRequest):
             table = _get_table_by_number(int(table_number_raw))
         except Exception:
             return HttpResponseBadRequest("유효한 테이블 번호가 아닙니다.")
-    elif order_type == OrderType.TAKEOUT:
-        if not table_number_raw:
-            return HttpResponseBadRequest("포장 주문은 101~120 번호를 입력해야 합니다.")
-        try:
-            table_no = int(table_number_raw)
-        except ValueError:
-            return HttpResponseBadRequest("포장 주문 번호는 숫자여야 합니다.")
-        if not (101 <= table_no <= 120):
-            return HttpResponseBadRequest("포장 주문 번호는 101~120 범위여야 합니다.")
-        try:
-            table = _get_table_by_number(table_no)
-        except Table.DoesNotExist:
-            return HttpResponseBadRequest("등록되지 않은 포장 번호입니다.")
-        # D-050: one waiting customer per tag. The unique constraint is the
-        # real boundary; this check exists to answer with a sentence rather
-        # than an integrity error, and to say which number is taken.
-        if _takeout_slot_in_use(table):
-            return JsonResponse(
-                {"detail": f"{table_no}번 포장 번호는 아직 사용 중입니다. "
-                           "다른 번호를 사용해 주세요."},
-                status=409,
-            )
+    # D-069: a takeout-only order is a voucher. The customer exchanges it at
+    # the counter, nobody is looked for by number, so it holds no table --
+    # whatever the screen sent in `table_number` is not a claim on anything.
 
     cash_value, ticket_value = payment.cash, payment.ticket
 
@@ -302,46 +283,18 @@ def orders_collection(request: HttpRequest):
             # told what it is (D-019).
             revisions.mark()
     except IntegrityError as exc:
-        slot_conflict = _is_takeout_slot_conflict(exc)
-        if not slot_conflict and not idempotency.is_key_conflict(exc):
+        if not idempotency.is_key_conflict(exc):
             raise
-        # Whichever index refused us, the winner committed while we waited on
-        # its insert, so its record is readable now. This request created
-        # nothing. Look the attempt up again before deciding what the refusal
-        # means: when the tag is held by *this same attempt* -- a retry that
-        # raced its own first arrival -- the right answer is that order, not
-        # "use another number", which would send the volunteer off to create
-        # a second order for the same customer (2026-09-20 code review).
+        # The same attempt raced its own first arrival: the winner committed
+        # while we waited on its insert, so its record is readable now and is
+        # the answer. This request created nothing (2026-09-20 code review).
         replayed = _replay_if_known(request_key, acting_role, request_digest)
         if replayed is not None:
             return replayed
-        if slot_conflict:
-            # Two different attempts claimed the tag at once; the constraint let
-            # one through. Same answer as the check above, from the other side.
-            return JsonResponse(
-                {"detail": f"{table.number}번 포장 번호는 아직 사용 중입니다. "
-                           "다른 번호를 사용해 주세요."},
-                status=409,
-            )
         raise  # pragma: no cover - a key conflict whose row is gone
 
     order._prefetched_objects_cache = {"items": created_items}
     return JsonResponse(serializers.order(order), status=201)
-
-
-def _is_takeout_slot_conflict(exc: Exception) -> bool:
-    cause = getattr(exc, "__cause__", None)
-    diag = getattr(cause, "diag", None)
-    name = getattr(diag, "constraint_name", None) if diag else None
-    return "uq_active_takeout_slot" in (name or str(exc))
-
-
-def _takeout_slot_in_use(table) -> bool:
-    return Order.objects.filter(
-        table=table,
-        order_type=OrderType.TAKEOUT,
-        status__in=[OrderStatus.PREPARING, OrderStatus.READY],
-    ).exists()
 
 
 def _replay_if_known(key: str, role: str, digest: str):

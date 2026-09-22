@@ -35,6 +35,7 @@ M27 = ("orders", "0027_orderevent_kind_items")
 M28 = ("orders", "0028_change_revision")
 M29 = ("orders", "0029_revision_generation")
 M30 = ("orders", "0030_order_departed_at")
+M31 = ("orders", "0031_takeout_voucher")
 
 
 class MigrationPathTests(TestCase):
@@ -209,7 +210,7 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = M30
+        leaf = M31
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
@@ -688,3 +689,58 @@ class MigrationPathTests(TestCase):
         apps = self.migrate(M19)
         self.fixture(apps, order_type="TAKEOUT", with_table=True)
         self.assert_constraint_failure_preserves(apps, M19, M18)
+
+    # ---- 0031 (D-069): takeout orders stop holding a table or a tag ----
+    # Before it, a takeout row without a table is refused by `orders_table_rule`
+    # and two live takeout rows on one tag by `uq_active_takeout_slot`; after
+    # it, both are ordinary data. Reversal restores the schema only while no
+    # such rows exist -- they are the new contract's data, not a mistake.
+
+    def takeout_row(self, apps, *, table_id=None, status="PREPARING"):
+        return apps.get_model("orders", "Order").objects.using(self.connection.alias).create(
+            floor="B1", order_type="TAKEOUT", source="ORDER", status=status,
+            table_id=table_id, is_takeout=True, total_price=4300,
+            received_amount=4300, payment_method="CASH",
+            received_cash_amount=4300, received_ticket_amount=0,
+        )
+
+    def test_0030_refuses_a_takeout_order_without_a_table(self):
+        apps = self.migrate(M30)
+        with self.assertRaises(IntegrityError) as caught:
+            self.takeout_row(apps)
+        self.assert_database_error(caught.exception, "23514", "orders_table_rule")
+
+    def test_0031_lets_takeout_orders_share_or_lack_a_table_and_reverses_cleanly(self):
+        apps = self.migrate(M30)
+        before = self.snapshot(apps)
+        self.migrate(M31)
+        self.assert_head(M31)
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'uq_active_takeout_slot'")
+            self.assertIsNone(cursor.fetchone(), "the slot index is gone")
+        first, second = self.active_takeout_pair(apps)      # one tag, two live orders
+        loose = self.takeout_row(apps)                         # no table at all
+        self.assertIsNone(loose.table_id)
+        for row in (first, second, loose):
+            row.delete()
+        apps.get_model("orders", "Table").objects.using(self.connection.alias).filter(number=101).delete()
+        self.migrate(M30)
+        self.assert_head(M30)
+        self.assertEqual(self.snapshot(apps), before)
+
+    def test_0031_does_not_reverse_over_voucher_rows(self):
+        apps = self.migrate(M31)
+        self.takeout_row(apps)
+        with self.assertRaises(IntegrityError) as caught:
+            self.migrate(M30)
+        self.assert_database_error(caught.exception, "23514", "orders_table_rule")
+        self.assert_head(M31)
+
+    def test_0031_does_not_reverse_over_takeout_rows_sharing_a_tag(self):
+        """The other constraint reversal restores: one tag, two live orders."""
+        apps = self.migrate(M31)
+        self.active_takeout_pair(apps)
+        with self.assertRaises(IntegrityError) as caught:
+            self.migrate(M30)
+        self.assert_database_error(caught.exception, "23505", "uq_active_takeout_slot")
+        self.assert_head(M31)

@@ -11,7 +11,9 @@
   const hasEdits = () => inputDirty || Boolean(draft?.dirty());
   const modeName = item => item.service_mode === 'TAKEOUT' ? '포장' : '홀';
   const number = order => '#' + String(order.order_no ?? order.id).padStart(3, '0');
-  const tableName = order => (model.kind(order) === '포장' ? '포장 ' : '테이블 ') + (order.table?.number ?? '미지정');
+  // D-069: a takeout order is called by its number -- that is the voucher --
+  // and every place this label appears already shows the number beside it.
+  const tableName = order => (model.kind(order) === '포장' ? '포장 교환권' : '테이블 ' + (order.table?.number ?? '미지정'));
   const clock = value => value ? new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false}) : '—';
   const menuSummary = order => order.items.map(item => `${modeName(item)} ${item.menu_item_name} ${item.qty}`).join(' · ');
   const notice = text => { byId('monitor-notice').textContent = text; };

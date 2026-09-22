@@ -240,12 +240,15 @@ class MonitoringActionTests(MonitoringFixture, TestCase):
             self.assertEqual(self.send(client=hall).status_code, 200)
             self.assertEqual(check.call_args.args[0].pk, self.order.pk)
 
-    def test_departure_keeps_takeout_slot_constraint(self):
+    def test_departure_of_a_takeout_order_holds_nothing(self):
+        """D-069: a takeout order is a voucher; departing it neither holds nor
+        releases a tag, so another takeout order is free to follow at once."""
         Order.objects.filter(pk=self.order.pk).update(order_type="TAKEOUT", is_takeout=True)
         self.order.items.update(service_mode="TAKEOUT")
         self.assertEqual(self.send(self.payload("depart")).status_code, 200)
-        with self.assertRaises(IntegrityError), transaction.atomic():
+        with transaction.atomic():
             Order.objects.create(table=self.table, floor="B1", order_type="TAKEOUT")
+            Order.objects.create(table=None, floor="B1", order_type="TAKEOUT")
 
     def test_shape_validation_rejects_nonprogress_item_edits_and_missing_version(self):
         before = self.state()
