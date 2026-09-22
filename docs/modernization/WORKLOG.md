@@ -25,6 +25,32 @@
   `is_takeout=true`를 직접 보내면 테이블 없이 DB 제약에 걸려 500(현재 화면은 그 조합을 보내지 않음, develop에도 동일) —
   이번 범위 밖으로 남긴다.
 - 남은 것: 10E 부하 도구(별도 로컬 브랜치)의 포장 번호 슬롯 로직을 새 계약에 맞추기.
+## 2026-09-23 — 10F 허브 변경 감지를 LISTEN/NOTIFY 이벤트로(폴링은 예비)
+
+- 사용자 결정(D-068): 10E 측정에서 표시 지연 p95 ≈ 1.0 s가 허브 폴링 대기였고, 주기 단축 대신 저장 시점
+  이벤트로 간다. [이슈 #85](https://github.com/rlagycks/bazaar_kiosk/issues/85). 브랜치 `phase-10f-hub-notify`
+  (develop `7112f2a` 기준, worktree `bazaar_kiosk-10f`).
+- 변경: `orders/services/revisions.py` — `mark()`가 같은 트랜잭션에서 `pg_notify('bk_board_changed', value)`
+  (커밋 시에만 전달). `orders/services/hub.py` — 워커당 LISTEN 태스크(psycopg async 연결 1개, 구독이 있을 때만),
+  알림이 오면 기존 읽기→재검증→범위 비교→`change` 경로를 즉시 실행. 폴링은 `HUB_POLL_SECONDS` 주기의 예비
+  경로이자 health의 유일한 근거로 유지. 연결 실패는 1→30 s 지수 후퇴 재시도, 스트림을 끊거나 `failures`를
+  올리지 않는다. 화면 JS·프레임 형식 무변경.
+- 테스트: `orders/tests/test_hub_notify.py` 6개 — 커밋된 mark만 알림(롤백은 없음), 폴링 5 s 설정에서 2 s 안에
+  `change` 도착, LISTEN 연결 거부 시 폴링으로 도착·health 불변, 마지막 화면이 닫히면 LISTEN 연결 종료, 바로
+  재접속한 화면이 새 리스너를 받음. 기존 `test_sse_server`·`test_asgi_stream` 포함 48개 통과.
+- 검증: 격리 PostgreSQL 전체 `scripts/test_postgres.py` 627개(27+600) 통과, Node `node --test scripts/*.cjs` 99개 통과,
+  `manage.py check` 이상 없음. 작성자 목록 구조 테스트(`test_writer_coverage`)가 `_listen_conninfo`의 `dict.update`를
+  쓰기로 오탐해 dict 합성으로 바꿨다.
+- 측정(10E 도구, 같은 조건: 새 DB, 워커3, 15기기, 분당15건, 300 s, 폴링 기본 1.0 s 유지):
+  저장 응답→SSE change p50/p95 435/919 → **13/31 ms**, 저장 응답→모니터 표시 p50/p95 454/966 → **58/120 ms**
+  (p99 300 ms). 주문 저장 p95 94 ms, snapshot p95 74 ms, 앱 CPU 평균 2.9 %(폴링 1.0 s와 같음, 0.1 s 폴링은 4.5 %),
+  DB 연결 최대 7(LISTEN 3개 포함), 5분 commit 7.2k(폴링 0.1 s는 12.1k). 정확성 대조 위반 0, 스트림 재접속 0.
+  원시 결과는 세션 scratchpad에 있고 저장소에 넣지 않았다.
+- 독립 리뷰(HIGH 1·LOW 1): 마지막 화면이 닫히며 리스너를 취소한 직후 새 화면이 열리면 취소가 아직 끝나지 않아
+  (`done()` 아님) 새 리스너를 띄우지 않고 그 워커가 폴링만 남는 경합을 잡았다. 취소 시 참조를 바로 비워 `add()`가
+  새로 띄우게 고치고 재접속 테스트를 추가했다. 읽기 태스크가 외부에서 취소되면 리스너가 마지막 화면까지 남는
+  것은 무해해 주석으로 남겼다. 깨우기 경로(이벤트 유실·스핀 없음)·연결 종료·주입·비밀번호 로그·health 의미는
+  리뷰가 코드로 확인했다. 미검증: LISTEN 성공 뒤 끊긴 연결의 재접속 경로(코드는 있으나 테스트 없음).
 
 ## 2026-09-22 — PR82 머지 확인·UI-05C 다음 PR 준비
 
