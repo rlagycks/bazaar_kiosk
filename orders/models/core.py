@@ -122,6 +122,8 @@ class Order(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Explicit serving departure only; historical READY rows stay unknown.
+    departed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [

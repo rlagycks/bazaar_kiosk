@@ -71,19 +71,15 @@ class TemplateSourceTests(TestCase):
             with self.subTest(template=name):
                 self.assertIn("ui/dom.js", read(name))
 
-    def test_the_kitchen_board_escapes_every_value_it_interpolates(self):
-        """The kitchen board builds markup but escapes each value. That is a
-        different mitigation, not an exemption: if a raw interpolation appears
-        next to one of these fields, this fails."""
-        source = read("kitchen_supervisor.html")
-        for field in ("item.menu_item_name", "tableLabel", "note", "statusText"):
-            with self.subTest(field=field):
-                self.assertIn(f"escapeHtml({field})", source)
-        # The only innerHTML assignments left are the board itself and fixed
-        # placeholder strings; none may interpolate a value.
-        for assignment in re.findall(r"innerHTML\s*=\s*([^\n;]+)", source):
-            with self.subTest(assignment=assignment.strip()):
-                self.assertNotIn("${", assignment)
+    def test_the_extracted_kitchen_controller_uses_safe_dom_rendering(self):
+        from django.conf import settings
+
+        self.assertIn("ui/dom.js", read("kitchen_supervisor.html"))
+        self.assertIn("ui/monitor.js", read("kitchen_supervisor.html"))
+        source = (settings.BASE_DIR / "orders/static/orders/ui/monitor.js").read_text()
+        self.assertNotIn("innerHTML", source)
+        self.assertNotIn("insertAdjacentHTML", source)
+        self.assertNotRegex(source, r"setAttribute\(['\"]on[a-z]+")
 
     def test_the_shared_helper_refuses_event_and_script_url_attributes(self):
         """The guarantee belongs in the helper, not in every future call site:

@@ -3,6 +3,89 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-22 — PR82 독립 리뷰: 수량 원복 후 오래된 요청 재전송 차단
+
+- UI-05B를 develop 대상 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로 제출했다.
+  최초 제출 `cd82dbb`의 GitHub CI가 통과했다. merge·운영 적용·배포는 하지 않았다.
+- 독립 리뷰 HIGH 1건: PREPARING 중 수량을 0→1→0으로 바꾸면 주문 시각은 그대로여서 원래
+  `monitor_version`이 다시 유효해질 수 있었다. 원래 요청 재전송이 다른 직원의 정정을 덮을 수 있다.
+- 실제 수량 변경은 모니터링·기존 품목 API 모두 주문 잠금/트랜잭션 안에서 `updated_at`을 갱신한다.
+  관리자 품목 변경도 기존 서비스를 통해 갱신하며 무변경 관리자 저장은 버전·revision을 보존한다.
+  수량 원복 재전송 409, 무변경, 동시 수량 저장 한 번만 성공, 실패 시 시각/수량 롤백 회귀를 추가했다.
+- 검증: 집중 PostgreSQL 95개, 전체 `BK_TEST_DATABASE_URL=<전용 fixture URL> .venv/bin/python scripts/test_postgres.py`
+  **612개(27+585), skip 0** 통과. Django check·migration drift·`git diff --check` 통과.
+  변경은 Python/문서이며 기존 Node 85개·브라우저 검증은 앞선 UI-05B 기록을 따른다.
+  독립 재리뷰에서 원래 HIGH 해결·추가 지적 없음. 결과 로그 `.venv/ui05b-review-pg.log`는 미추적이다.
+- 다음 UI-05C는 별도 `ui/05-stats-dashboard` 브랜치/worktree에서 병행한다. PR82에 포함하지 않는다.
+
+## 2026-09-22 — UI-05B PR 제출·독립 리뷰와 UI-05C 병행 승인
+
+- 사용자 지시: “pr 올리고 서브에이전트로 리뷰 돌리자 동시에 다음 ui 쪽 작업 시작하자”.
+  UI-05B commit/push 및 develop 대상 PR 제출을 승인했다. merge·배포는 포함하지 않는다.
+- UI-05B 검증 완료 변경만 제출하며, 다음 UI-05C는 별도 worktree/브랜치에서 진행한다.
+  리뷰 결과와 후속 수정·UI-05C 검증은 각 브랜치의 이후 기록을 따른다.
+
+## 2026-09-22 — UI-05B: PC 모니터링·준비 수량·명시적 서빙 출발
+
+- 사용자: PR81 머지 후 “다음 부분 ui 랑 로직 구현작업 진행”. 실제 PR81 MERGED 및 clean
+  develop `ea1c77e`를 확인하고 `ui/05-monitoring-workflow` 브랜치를 만들었다. 로컬 구현·검증 범위이며
+  이번 브랜치 commit/push/PR/merge·운영 마이그레이션·배포는 하지 않았다.
+- Figma 05안 `2135:1037`(모니터링), `2202:2203`(상세)의 design context를 읽었다.
+  식당·포장·전체 화면에 미완료 가로 목록, 50건씩 전체 내역, 준비 수량 상세, 내 메뉴를 적용했다.
+  화면 인라인 코드를 `monitor.js`/`monitor_state.js`로 추출하고 안전한 DOM 생성으로 통일했다.
+- D-063: 수량 충족만으로 READY가 되지 않는다. 명시적인 출발 확인이 모든 품목 준비·READY·
+  출발 시각을 함께 기록한다. 재개는 수량 유지·출발 시각 제거, 취소는 최종·이력 조회만 가능.
+  기존 READY·일반 상태 API 완료에 출발 시각을 추정하지 않는다. nullable 0030만 추가했다.
+- 주문 잠금 후 버전 비교, 전체 품목 검증, 변경·감사 이벤트·revision의 원자성을 구현했다.
+  조회는 같은 REPEATABLE READ에서 미완료+페이지 내역을 직렬화한다. 커서를 권한·범위·페이지·
+  표현 버전·DB 세대에 결속하고 기존 SSE 스케줄러만 사용한다. 새 writer도 변경 감지 목록에 등록했다.
+- 읽기/쓰기 구현을 분리 위임하고 통합했다. 독립 code-reviewer가 찾은 HTML data 키 불일치,
+  미저장 수량의 재개/목록 이탈 시 유실, 탭 복귀 직후 오래된 값으로 버튼이 활성화되는 문제를
+  수정하고 회귀를 추가했다. 최종 재검토에서 actionable finding 없음.
+- 첫 전체 검증에서 최신 migration 기대값·기존 인라인 템플릿 검사·writer 분류 누락을 발견했다.
+  검사 대상을 추출 controller/새 schema에 맞췄고, 동작 검증은 실제 이벤트 기반 Node 테스트로 보강했다.
+  권한 없는 계정의 최초 로그인은 원래 금지이므로 권한 16조합 검사는 로그인 후 권한을 변경하는
+  기존 인증 계약에 맞춰 수정했다. 비즈니스 규칙을 테스트 편의상 바꾸지 않았다.
+- 주요 파일: models/core·migration0030; services/status·monitoring_actions·monitoring_snapshot;
+  views/monitoring·monitoring_actions·serializers·pages·urls; kitchen_supervisor·monitor CSS/JS/state;
+  새 monitoring PG/Node 테스트와 기존 상태/감사/관리자/보안/SSE/마이그레이션 회귀; CI.
+  문서 UI_MONITORING(신규), UI_IMPLEMENTATION, DECISIONS, ORDER_STATE, KITCHEN_CLIENT,
+  README, SESSION_SETUP, BLUEPRINT를 현재 단계로 갱신했다.
+
+### 검증 결과
+
+전용 Compose `bk-ui05b-0922`, PostgreSQL 15, 포트 `55462`와 UUID fixture DB만 사용했다.
+실제 운영 DB/자격증명은 사용하지 않았다. 테스트·preview 종료 후 해당 프로젝트를 정리했다.
+
+```sh
+BK_TEST_PG_PORT=55462 docker compose -p bk-ui05b-0922 -f compose.test.yaml up -d --wait postgres
+BK_TEST_DATABASE_URL=postgresql://bk_test_runner:synthetic-local-runner-only@127.0.0.1:55462/bk_test_control .venv/bin/python scripts/test_postgres.py
+node --test scripts/test_auth_client.cjs scripts/test_dom_helpers.cjs scripts/test_request_id.cjs scripts/test_kitchen_live.cjs scripts/test_order_state.cjs scripts/test_order_controller.cjs scripts/test_monitor_state.cjs scripts/test_monitor_controller.cjs
+BK_TEST_PG_PORT=55462 docker compose -p bk-ui05b-0922 -f compose.test.yaml down --volumes
+```
+
+- Django system check 정상, migration drift 없음. 전체 **27 migration + 578 application = 605건** 통과,
+  skip 0. PostgreSQL 실제 동시 쓰기·rollback·16조합 권한·CSRF·stale·500건·페이지·동시 snapshot 포함.
+- 최종 Node **85건** 통과. 이후 변경한 controller 관련 Python 정적 연결 검사 23건도 통과.
+  `git diff --check`, 수정 문서 상대 링크·코드 구문 검사 정상.
+- 실제 브라우저: 격리 ASGI preview, 합성 주문 55건/페이지 2개/메뉴 악성 문자열로 검사했다.
+  전체→식당→포장 업무 이동, 상세 +/- 및 부분 수량 저장, 출발 확인/일괄 수량 완료/시각 기록,
+  이력 유지·재개·취소 확인·취소 내역 조회 전용·빈 미완료 목록을 확인했다.
+- PC 1440×1000과 1024×768에서 확인했다. 작은 PC에서 문서 너비 1024px, 모달 top16/bottom752,
+  버튼 영역 bottom751로 화면 안에 있고 본문만 스크롤한다. 상세 제목/입력 label/확인 초기 초점과
+  안전한 텍스트 출력을 확인했다(`img`/`script` 노드 생성 0).
+- 두 탭 검증: 한 탭에서 #002 수량 1을 입력하고 다른 탭에서 출발 처리했다. 원래 탭 복귀 후
+  입력 1 유지, “주문이 변경되었습니다” 안내, 저장 비활성화를 확인했다. 새 탭은 종료했다.
+- preview 종료 정상·fixture DB 제거, 생성한 브라우저 탭 정리 및 viewport 복원.
+  로컬 로그/preview는 무시되는 `.venv/ui05b-*`에만 남고 커밋 대상이 아니다.
+
+### 남은 범위와 다음 단계
+
+UI-05B 로컬 구현·검증 완료. PR 제출은 다음 사용자 지시에서 진행한다. 다음 독립 UI 구현은
+**UI-05C 누적·통계 PC**다. 운영 적용에는 0030이 필요하다. 이전 앱은 schema를 읽을 수 있어도
+자동 READY 의미로 되돌아가므로 안전한 복구는 쓰기 중지 후 정방향 수정이다(UI_MONITORING).
+운영 부하 10E, 실기기·음성 스크린리더 및 운영 인수 12는 완료하지 않았다.
+
 ## 2026-09-21 — 10D2 주방 SSE 클라이언트·재접속·응답 순서 (D-061)
 
 - 브랜치 `phase-10d2-kitchen-client`, 기준 `develop` affc842(PR #79 병합 직후). 관문 둘을 물었고

@@ -34,6 +34,7 @@ M26 = ("orders", "0026_order_change_amount")
 M27 = ("orders", "0027_orderevent_kind_items")
 M28 = ("orders", "0028_change_revision")
 M29 = ("orders", "0029_revision_generation")
+M30 = ("orders", "0030_order_departed_at")
 
 
 class MigrationPathTests(TestCase):
@@ -112,6 +113,31 @@ class MigrationPathTests(TestCase):
         )
         return order
 
+    def test_departure_column_preserves_history_without_backfill_and_reverses(self):
+        apps = self.migrate(M29)
+        alias = self.connection.alias
+        order = self.fixture(apps)
+        historical_order = apps.get_model("orders", "Order")
+        historical_order.objects.using(alias).filter(pk=order.pk).update(status="READY")
+        before = historical_order.objects.using(alias).get(pk=order.pk)
+        previous_updated = before.updated_at
+        target = M30
+        apps = self.migrate(target)
+        current = apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk)
+        self.assertEqual(current.status, "READY")
+        self.assertIsNone(current.departed_at)
+        self.assertEqual(current.updated_at, previous_updated)
+        self.assertEqual(current.note, before.note)
+        # The previous app can still read/write its old fields on the new schema.
+        before.note = "old app remains compatible"
+        before.save(using=alias, update_fields=["note"])
+        apps = self.migrate(M29)
+        restored = apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk)
+        self.assertEqual(restored.status, "READY")
+        self.assertEqual(restored.note, "old app remains compatible")
+        apps = self.migrate(target)
+        self.assertIsNone(apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk).departed_at)
+
     def assert_database_error(self, error, sqlstate, constraint=None):
         cause = error.__cause__
         self.assertIsNotNone(cause)
@@ -183,7 +209,7 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = M29
+        leaf = M30
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)

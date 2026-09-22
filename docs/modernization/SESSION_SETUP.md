@@ -1,10 +1,17 @@
 # 현대화 세션 시작과 인수인계
 
-마지막 상태 정리: 2026-09-21. 이 문서는 모델에 공통인 작업 계약이다.
+마지막 상태 정리: 2026-09-22. 이 문서는 모델에 공통인 작업 계약이다.
 
 ## 현재 단계와 기준
 
-**2026-09-21 최신:** D-062로 **05안 UI 채택·코드 적용**이 승인됐다.
+**2026-09-22 최신:** PR81 머지 기준 `ea1c77e`에서 UI-05B를 구현하고
+`ui/05-monitoring-workflow`를 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로 제출했다.
+사용자가 이번 브랜치 push·PR·서브에이전트 리뷰 및 다음 UI 작업 병행을 승인했다.
+[모니터링 계약](UI_MONITORING.md), D-063과 최신 WORKLOG를 따른다. UI-05C 누적·통계는
+별도 `bazaar_kiosk-ui05c` worktree의 `ui/05-stats-dashboard` 브랜치에서 진행하며 PR82에 섞지 않는다.
+merge·운영 데이터·운영 마이그레이션 적용·배포는 포함하지 않는다.
+
+**2026-09-21 UI-05A 이력:** D-062로 **05안 UI 채택·코드 적용**이 승인됐다.
 `ui/05-serving-foundation`에서 UI-05A(로그인·내 메뉴·휴대폰 주문/결제)를 진행한다.
 [UI_IMPLEMENTATION](UI_IMPLEMENTATION.md)과 최신 WORKLOG의 검증 결과·남은 범위를 따른다.
 개인 계정·권한 4종은 D-051, 현재 SSE 클라이언트는 10D2/D-061이다.

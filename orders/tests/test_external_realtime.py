@@ -154,50 +154,38 @@ class TheBoardSaysHowLiveItIsTests(TestCase):
                     self.assertNotIn("setTimeout(", source.replace("window.setTimeout(resolve", ""))
                     self.assertIsNone(RESCHEDULING_TIMEOUT.search(source))
 
+    def controller(self):
+        self.assertIn("ui/monitor.js", read("kitchen_supervisor.html"))
+        return (settings.BASE_DIR / "orders/static/orders/ui/monitor.js").read_text()
+
     def test_the_read_time_shown_is_the_list_read_not_the_redraw(self):
-        """The scheduler stamps the moment a snapshot was applied or
-        confirmed; the status line shows that and nothing it made up while
-        drawing (PR #74 architecture review)."""
-        source = read("kitchen_supervisor.html")
-        self.assertIn("LAST_LIST_READ_AT", source)
-        render = source.split("function renderStatusLine", 1)[1].split("function ", 1)[0]
-        self.assertIn("LAST_LIST_READ_AT", render)
-        self.assertNotIn("new Date()", render)
+        handler = self.controller().split("function onLiveStatus", 1)[1].split("const live =", 1)[0]
+        self.assertIn("clock(state.applied.at)", handler)
+        self.assertNotIn("new Date()", handler)
 
     def test_a_status_report_redraws_the_line_and_not_the_cards(self):
-        """The scheduler reports on every heartbeat and every read starting
-        or ending. Rebuilding the cards there discarded every node on an idle
-        board 15s apart and put a fresh, enabled button where one had been
-        disabled for an in-flight write (PR #80 code review). Only an applied
-        snapshot rebuilds the cards."""
-        source = read("kitchen_supervisor.html")
-        handler = source.split("function onLiveStatus", 1)[1].split("\n    }\n", 1)[0]
-        for rebuild in ("renderFromStore", "renderOrders", "replaceOrders", "BOARD.innerHTML"):
-            with self.subTest(call=rebuild):
-                self.assertNotIn(rebuild, handler)
-        self.assertIn("renderStatusLine", handler)
-        apply = source.split("function applySnapshot", 1)[1].split("\n    }\n", 1)[0]
-        self.assertIn("replaceOrders", apply)
+        source = self.controller()
+        handler = source.split("function onLiveStatus", 1)[1].split("const live =", 1)[0]
+        self.assertIn("byId('live-status').textContent", handler)
+        self.assertNotIn("DOM.render", handler)
+        self.assertNotIn("drawSnapshot(", handler)
+        apply = source.split("function drawSnapshot", 1)[1].split("function onLiveStatus", 1)[0]
+        self.assertIn("DOM.render(byId('waiting-orders')", apply)
 
     def test_a_failed_read_keeps_the_cards_and_says_so(self):
-        """The scheduler keeps polling after a failed read, but the cards
-        must stay up meanwhile: wiping them would leave the kitchen with an
-        empty screen for the length of one poll."""
-        source = read("kitchen_supervisor.html")
-        handler = source.split("function onLiveStatus", 1)[1].split("\n    }\n", 1)[0]
-        self.assertNotIn("BOARD.innerHTML", handler)
-        self.assertNotIn("ORDER_STORE.clear", handler)
-        self.assertIn("주문 불러오기 실패", handler)
-        self.assertIn("읽기 실패", source.split("function describeFreshness", 1)[1][:600])
+        handler = self.controller().split("function onLiveStatus", 1)[1].split("const live =", 1)[0]
+        self.assertNotIn("DOM.render", handler)
+        self.assertNotIn("orders.clear", handler)
+        self.assertIn("읽기 실패", handler)
+        self.assertIn("목록 유지", handler)
 
     def test_the_only_refresh_control_shows_that_it_heard_the_press(self):
-        source = read("kitchen_supervisor.html")
-        self.assertIn("RELOAD_BUTTON.disabled = state.inFlight", source)
+        source = self.controller()
+        self.assertIn("byId('reload-orders').disabled = state.inFlight", source)
+        self.assertIn("읽는 중…", source)
 
     def test_the_screen_distinguishes_live_from_polling(self):
-        """A board polling because its hub is broken must not read as live,
-        and a live board must not tell the kitchen to press refresh."""
-        source = read("kitchen_supervisor.html")
+        source = self.controller()
         self.assertIn("실시간", source)
         self.assertIn("다시 읽음", source)
         self.assertNotIn("자동 갱신 안 함", source)

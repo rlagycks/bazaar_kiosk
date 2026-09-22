@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.urls import path
 from django.views.generic import RedirectView
 from orders.views import pages, api, auth, stream, stream_probe
+from orders.views import monitoring, monitoring_actions
 
 app_name = "orders"
 
@@ -29,6 +30,8 @@ urlpatterns = [
     path("api/orders/<int:order_id>/status", api.order_status, name="order-status"),
     path("api/orders/items/<int:item_id>/progress", api.order_item_progress, name="order-item-progress"),
     path("api/snapshot/waiting",    api.snapshot_waiting,     name="snapshot-waiting"),
+    path("api/snapshot/monitoring", monitoring.monitoring_snapshot, name="snapshot-monitoring"),
+    path("api/orders/<int:order_id>/monitoring", monitoring_actions.monitor_order_action, name="monitor-order-action"),
     path("api/stats/menu-counts",   api.stats_menu_counts,    name="stats-menu-counts"),
     path("api/stats/dashboard",     api.stats_dashboard,      name="stats-dashboard"),
 

@@ -14,9 +14,11 @@ from django.utils import timezone
 
 from orders.models import NumberSeries, Order, PaymentMethod
 from orders.services import payments
+from orders.services.monitoring_actions import monitor_version
 
 
 def order(o: Order) -> dict[str, Any]:
+    items = list(o.items.all())
     cash_amount = o.received_cash_amount
     ticket_amount = o.received_ticket_amount
     if cash_amount is None:
@@ -32,6 +34,8 @@ def order(o: Order) -> dict[str, Any]:
         "floor": o.floor,
         "order_type": o.order_type,
         "status": o.status,
+        "monitor_version": monitor_version(o, items=items),
+        "departed_at": timezone.localtime(o.departed_at).isoformat() if o.departed_at else None,
         "order_no": o.order_no,
         "order_date": o.order_date.isoformat() if o.order_date else None,
         # D-047: the kitchen shows practice orders, marked; sales leave them out.
@@ -60,6 +64,6 @@ def order(o: Order) -> dict[str, Any]:
                 "remaining_qty": i.remaining_qty,
                 "is_prepared": i.is_prepared,
             }
-            for i in o.items.all()
+            for i in items
         ],
     }

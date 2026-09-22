@@ -14,11 +14,12 @@ import uuid
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from orders.models import (
     MenuItem, Order, OrderEvent, OrderEventKind, OrderItem, OrderStatus, Table,
 )
-from orders.services import audit
+from orders.services import audit, monitoring_actions, revisions
 from orders.tests.auth_support import AUTH_SETTINGS, login_client
 from orders.views import api
 
@@ -86,6 +87,35 @@ class AdminOrderEditTests(TestCase):
         return Order.objects.get(pk=self.order.pk)
 
     # --- quantity, total, change ------------------------------------------
+
+    def test_quantity_round_trip_invalidates_the_original_monitor_version(self):
+        kitchen = self.client_class()
+        login_client(kitchen, "KITCHEN")
+        original = monitoring_actions.monitor_version(self.reload())
+        for quantity in (2, 1):
+            before = self.reload().updated_at
+            response = self.client.post(self.change_url(), self.form(self.existing(qty=quantity)))
+            self.assertEqual(response.status_code, 302)
+            self.assertGreater(self.reload().updated_at, before)
+        order = self.reload()
+        self.assertEqual((order.status, order.items.get().qty, order.total_price), ("PREPARING", 1, 5000))
+        version = monitoring_actions.monitor_version(order)
+        before = (order.events.count(), revisions.current())
+        response = kitchen.patch(
+            reverse("orders:monitor-order-action", args=[order.pk]),
+            {"action": "depart", "expected_version": original}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(monitoring_actions.monitor_version(self.reload()), version)
+        self.assertEqual((order.events.count(), revisions.current()), before)
+
+    def test_unchanged_admin_save_keeps_monitor_version_and_audit_unchanged(self):
+        before = (monitoring_actions.monitor_version(self.reload()),
+                  self.order.events.count(), revisions.current())
+        response = self.client.post(self.change_url(), self.form(self.existing()))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual((monitoring_actions.monitor_version(self.reload()),
+                          self.order.events.count(), revisions.current()), before)
 
     def test_changing_a_quantity_recomputes_the_total_and_the_change(self):
         response = self.client.post(self.change_url(), self.form(self.existing(qty=3)))
@@ -213,7 +243,7 @@ class AdminOrderEditTests(TestCase):
     def test_adding_an_item_to_a_ready_order_sends_it_back_to_preparing(self):
         self.item.prepared_qty = 1
         self.item.save(update_fields=["prepared_qty"])
-        Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.READY)
+        Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.READY, departed_at=timezone.now())
         self.order.refresh_from_db()
         response = self.client.post(self.change_url(), self.form(
             self.existing(),
@@ -221,9 +251,31 @@ class AdminOrderEditTests(TestCase):
         ))
         self.assertEqual(response.status_code, 302, response.content[:500])
         self.assertEqual(self.reload().status, OrderStatus.PREPARING)
+        self.assertIsNone(self.reload().departed_at)
         self.assertTrue(OrderEvent.objects.filter(
             order=self.order, kind=OrderEventKind.STATUS, from_status="READY", to_status="PREPARING",
         ).exists())
+
+    def test_admin_explicit_reopen_keeps_prepared_quantities_and_clears_departure(self):
+        self.item.prepared_qty = 1
+        self.item.save(update_fields=["prepared_qty"])
+        Order.objects.filter(pk=self.order.pk).update(status="READY", departed_at=timezone.now())
+        self.order.refresh_from_db()
+        response = self.client.post(self.change_url(), self.form(self.existing(), status="PREPARING"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.reload().status, "PREPARING")
+        self.assertIsNone(self.reload().departed_at)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.prepared_qty, 1)
+
+    def test_admin_reducing_qty_to_prepared_does_not_automatically_complete(self):
+        self.item.qty = 2
+        self.item.prepared_qty = 1
+        self.item.save(update_fields=["qty", "prepared_qty"])
+        response = self.client.post(self.change_url(), self.form(self.existing(qty=1)))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.reload().status, "PREPARING")
+        self.assertIsNone(self.reload().departed_at)
 
     def test_items_of_a_cancelled_order_cannot_be_edited(self):
         Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.CANCELLED)
@@ -236,7 +288,7 @@ class AdminOrderEditTests(TestCase):
     def test_the_items_event_carries_the_status_the_edit_left(self):
         self.item.prepared_qty = 1
         self.item.save(update_fields=["prepared_qty"])
-        Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.READY)
+        Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.READY, departed_at=timezone.now())
         self.client.post(self.change_url(), self.form(
             self.existing(), {"menu_item": self.soup.pk, "qty": 1, "service_mode": "DINE_IN"},
         ))

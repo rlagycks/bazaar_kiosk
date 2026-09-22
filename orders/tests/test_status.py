@@ -13,7 +13,7 @@ The contract these tests pin:
 * the same status again is a no-op, not an error, so a retry is safe;
 * a refused transition is 409: it is a conflict with the order's state, not a
   malformed request;
-* when item quantities change, the status they imply wins.
+* quantities may reopen READY, but only an explicit completion makes it READY.
 """
 
 import threading
@@ -22,6 +22,7 @@ import uuid
 from django.db import connection
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from orders.models import MenuItem, Order, OrderItem, OrderStatus, Table
 from orders.tests.auth_support import AUTH_SETTINGS, login_client
@@ -142,11 +143,12 @@ class CancelledOrdersAreClosedTests(StatusFixture, TestCase):
 
 @override_settings(**AUTH_SETTINGS)
 class ItemProgressDrivesStatusTests(StatusFixture, TestCase):
-    def test_finishing_every_item_makes_the_order_ready(self):
+    def test_finishing_every_item_stays_preparing_until_explicit_departure(self):
         order, item = self.make_order(qty=2)
         self.assertEqual(self.progress(item, {"done": True}).status_code, 200)
         order.refresh_from_db()
-        self.assertEqual(order.status, READY)
+        self.assertEqual(order.status, PREPARING)
+        self.assertIsNone(order.departed_at)
 
     def test_undoing_an_item_puts_the_order_back_to_preparing(self):
         """The user allowed READY -> PREPARING, and this is the same move made
@@ -156,6 +158,29 @@ class ItemProgressDrivesStatusTests(StatusFixture, TestCase):
         self.assertEqual(self.progress(item, {"prepared_qty": 1}).status_code, 200)
         order.refresh_from_db()
         self.assertEqual(order.status, PREPARING)
+
+    def test_old_quantity_endpoint_reopening_clears_departure(self):
+        order, item = self.make_order(status=READY, qty=2, prepared=2)
+        Order.objects.filter(pk=order.pk).update(departed_at=timezone.now())
+        self.assertEqual(self.progress(item, {"prepared_qty": 1}).status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, PREPARING)
+        self.assertIsNone(order.departed_at)
+
+    def test_old_status_ready_does_not_invent_departure_proof(self):
+        order, item = self.make_order()
+        self.assertEqual(self.set_status(order, READY).status_code, 200)
+        order.refresh_from_db()
+        self.assertIsNone(order.departed_at)
+
+    def test_old_status_reopen_clears_departure_without_changing_quantities(self):
+        order, item = self.make_order(status=READY, qty=2, prepared=2)
+        Order.objects.filter(pk=order.pk).update(departed_at=timezone.now())
+        self.assertEqual(self.set_status(order, PREPARING).status_code, 200)
+        order.refresh_from_db()
+        item.refresh_from_db()
+        self.assertIsNone(order.departed_at)
+        self.assertEqual(item.prepared_qty, 2)
 
     def test_a_manual_ready_is_recomputed_when_quantities_change(self):
         """Two writers, one answer: whatever the quantities say after a change

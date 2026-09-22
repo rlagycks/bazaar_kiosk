@@ -70,24 +70,22 @@ def change(order: Order, target: str) -> bool:
     if target not in ALLOWED_TRANSITIONS.get(order.status, frozenset()):
         raise TransitionRefused(order.status, target)
     order.status = target
-    order.save(update_fields=["status", "updated_at"])
+    fields = ["status", "updated_at"]
+    if target == OrderStatus.PREPARING:
+        order.departed_at = None
+        fields.append("departed_at")
+    order.save(update_fields=fields)
     return True
 
 
 def sync_from_items(order: Order) -> None:
-    """Recompute the status from what the kitchen has actually prepared.
+    """Incomplete quantities reopen READY; quantities alone never complete it.
 
-    This runs after item quantities change, and what the quantities say wins:
-    a manual READY does not survive an item being taken back. A cancelled
-    order is never touched -- cooking on one is refused before reaching here.
+    UI-05B separates food preparation from explicit serving departure. This
+    shared rule covers monitor, old quantity endpoint, and admin line edits.
     """
-    if order.status == OrderStatus.CANCELLED:
-        return
-    remaining = order.items.filter(prepared_qty__lt=F("qty")).exists()
-    desired = OrderStatus.PREPARING if remaining else OrderStatus.READY
-    # Through the same table as the status endpoint, so there is one set of
-    # rules and not a second one hidden in this branch (2026-09-20 code review).
-    change(order, desired)
+    if order.status == OrderStatus.READY and order.items.filter(prepared_qty__lt=F("qty")).exists():
+        change(order, OrderStatus.PREPARING)
 
 
 def is_closed(order: Order) -> bool:
