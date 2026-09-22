@@ -58,6 +58,14 @@ class TemplateSourceTests(TestCase):
                 self.assertNotIn("innerHTML", read(name))
                 self.assertNotIn("insertAdjacentHTML", read(name))
 
+    def test_extracted_serving_controller_preserves_safe_dom_rendering(self):
+        from django.conf import settings
+
+        source = (settings.BASE_DIR / "orders/static/orders/ui/order.js").read_text(encoding="utf-8")
+        self.assertNotIn("innerHTML", source)
+        self.assertNotIn("insertAdjacentHTML", source)
+        self.assertNotRegex(source, r"setAttribute\(['\"]on[a-z]+")
+
     def test_the_converted_templates_use_the_shared_dom_helper(self):
         for name in CONVERTED_TEMPLATES:
             with self.subTest(template=name):

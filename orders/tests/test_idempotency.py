@@ -333,26 +333,17 @@ class OrderScreenWiringTests(TestCase):
         login_client(self.client, "ORDER")
         self.page = self.client.get(reverse("orders:order")).content.decode()
 
-    def test_the_page_loads_the_id_helper_and_sends_the_id(self):
-        self.assertIn("ui/request_id.js", self.page)
-        self.assertIn("request_id: attemptId()", self.page)
+    def test_order_controller_loads_after_its_dependencies(self):
+        """Behavior is exercised by scripts/test_order_state.cjs; this checks
+        that the real page actually loads those helpers before the controller."""
+        controller = self.page.index("ui/order.js")
+        for helper in ("auth.js", "ui/dom.js", "ui/request_id.js", "ui/order_state.js"):
+            with self.subTest(helper=helper):
+                self.assertLess(self.page.index(helper), controller)
 
-    def test_the_id_is_dropped_once_the_order_is_saved(self):
-        """Otherwise the next customer's order replays the previous id and the
-        server answers 409 -- ordering would stop after the first sale."""
-        self.assertIn("startNewAttempt()", self.page)
-
-    def test_editing_the_order_abandons_the_attempt(self):
-        """A correction after a failed save must not carry the old id, which
-        would be refused as a conflict."""
-        for wiring in (
-            "input.addEventListener('input', startNewAttempt)",
-            "els.paymentRadios.forEach(r => r.addEventListener('change', startNewAttempt))",
-            "els.menu.addEventListener('click', startNewAttempt)",
-            "els.cart.addEventListener('click', startNewAttempt)",
-        ):
-            with self.subTest(wiring=wiring):
-                self.assertIn(wiring, self.page)
+    def test_controller_uses_server_generated_routes(self):
+        self.assertIn(f'data-order-url="{reverse("orders:orders-collection")}"', self.page)
+        self.assertIn(f'data-menu-url="{reverse("orders:menus")}"', self.page)
 
     def test_the_helper_does_not_depend_on_a_secure_context(self):
         """Served over plain HTTP on the venue LAN, crypto.randomUUID does not

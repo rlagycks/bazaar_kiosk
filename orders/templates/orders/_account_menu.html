@@ -1,0 +1,28 @@
+<dialog id="account-menu" class="account-menu" aria-labelledby="account-menu-title" aria-describedby="account-menu-name">
+  <div class="account-menu-header">
+    <h2 id="account-menu-title" class="account-menu-title">내 메뉴</h2>
+    <button class="account-menu-close" type="button" data-account-menu-close autofocus>닫기</button>
+  </div>
+  <p id="account-menu-name" class="account-menu-name">{{ account_name }}</p>
+  <nav class="account-menu-links" aria-label="업무 화면">
+    {% if 'SERVING' in request.auth_permissions %}
+    <a class="account-menu-link" href="{% url 'orders:order' %}">주문·서빙</a>
+    {% endif %}
+    {% if can_monitor_hall %}
+    <a class="account-menu-link" href="{% url 'orders:kitchen-hall' %}">식당 모니터링</a>
+    {% endif %}
+    {% if can_monitor_takeout %}
+    <a class="account-menu-link" href="{% url 'orders:kitchen-takeout' %}">포장 모니터링</a>
+    {% endif %}
+    {% if can_monitor_all %}
+    <a class="account-menu-link" href="{% url 'orders:kitchen' %}">전체 모니터링</a>
+    {% endif %}
+    {% if 'STATS' in request.auth_permissions %}
+    <a class="account-menu-link" href="{% url 'orders:b1-counter' %}">누적·통계</a>
+    {% endif %}
+  </nav>
+  <form method="post" action="{% url 'orders:logout' %}" class="account-menu-logout-form">
+    {% csrf_token %}
+    <button class="account-menu-logout" type="submit">로그아웃</button>
+  </form>
+</dialog>

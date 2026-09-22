@@ -4,6 +4,9 @@
 대시보드 시스템입니다. 이 저장소는 점진적인 현대화를 준비하고 있습니다. 현재 동작은
 테스트와 운영자의 결정으로 확인되기 전까지 레거시 동작으로 간주해야 합니다.
 
+2026-09-21: **05안 UI를 채택**하고 로그인·내 메뉴·휴대폰 주문/결제부터 적용했습니다.
+[적용 범위와 다음 단계](docs/modernization/UI_IMPLEMENTATION.md)를 확인하세요.
+
 ## 로컬 설정
 
 개발·테스트·CI·운영에서 PostgreSQL만 지원합니다. Python3.12와 Docker Compose가 필요합니다.
@@ -44,7 +47,7 @@ DATABASE_URL이 누락되거나 PostgreSQL URL이 아니면 시작이 실패합�
 .venv/bin/python scripts/test_postgres.py
 ```
 
-전체 테스트를 발견해 migration15개와 앱/guard65개를 별도 프로세스에서 실행합니다.
+전체 테스트를 발견해 마이그레이션 검사와 앱/guard 검사를 별도 프로세스에서 실행합니다.
 모두 PostgreSQL에서 실행하며 SQLite skip 경로는 없습니다. CI도 같은 명령을 사용합니다.
 [전환 범위·남은 결정](docs/modernization/POSTGRES_ONLY.md)에 기존 DB 파일과 마이그레이션 보존,
 영속 개발 DB·일회용 테스트 DB 구분, 운영 인수 한계를 기록했습니다.
