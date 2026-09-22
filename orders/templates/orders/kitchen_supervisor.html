@@ -1,480 +1,80 @@
 {% load static %}
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>{{ page_title }}</title>
-  <link rel="stylesheet" href="{% static 'orders/ui/styles.css' %}">
-  <style>
-    body{background:#f3f4f6;}
-    .wrap{max-width:1240px;margin:0 auto;padding:16px;}
-    .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
-    .hdr h2{margin:0;font-size:22px;}
-    .hdr .muted{margin-top:4px;}
-    .hdr-actions{display:flex;gap:8px;flex-wrap:wrap;}
-    .logout-form{margin:0;}
-    .scope-nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
-    .scope-nav a{text-decoration:none;color:inherit;}
-    .scope-nav a[aria-current="page"]{background:#2563eb;border-color:#2563eb;color:#fff;}
-    .btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:10px;border:1px solid #d1d5db;background:#fff;font-weight:600;cursor:pointer;transition:all .15s ease;}
-    .btn.secondary{background:#2563eb;border-color:#2563eb;color:#fff;}
-    .btn.ghost{background:#fff;}
-    .btn.logout{background:#fef2f2;border-color:#fecaca;color:#b91c1c;}
-    .btn[disabled]{opacity:.6;cursor:wait;}
-    .panel{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;}
-    .panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;}
-    .panel-title{margin:0;font-size:18px;}
-    .board{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;}
-    .order-card{border:1px solid #e5e7eb;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;background:#f9fafb;}
-    .order-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;}
-    .order-table{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;}
-    .table-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:12px;font-size:15px;font-weight:700;color:#111827;align-self:flex-start;}
-    .table-badge.table{background:#dbeafe;}
-    .table-badge.takeout{background:#fef3c7;color:#b45309;}
-    .table-badge.mixed{background:#ede9fe;color:#5b21b6;}
-    .order-head-right{display:flex;align-items:center;gap:6px;}
-    .order-badge{font-weight:600;font-size:16px;color:#111827;min-width:56px;text-align:right;}
-    .practice-tag{display:inline-block;margin-right:6px;padding:1px 6px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:12px;font-weight:600;vertical-align:middle;}
-    .order-cancel{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;background:transparent;color:#ef4444;font-size:20px;font-weight:700;cursor:pointer;transition:color .12s ease;}
-    .order-cancel:hover{color:#b91c1c;}
-    .order-cancel:disabled{opacity:.4;cursor:not-allowed;}
-    .order-items{display:flex;flex-direction:column;gap:8px;}
-    .order-item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px;border-radius:10px;border:1px solid rgba(209,213,219,0.8);background:#fff;transition:border-color .15s ease, background .15s ease;}
-    .order-item.done{background:#dcfce7;border-color:#34d399;}
-    .item-info{flex:1;min-width:0;}
-    .item-name{font-weight:600;}
-    .item-status{display:flex;align-items:center;gap:8px;margin-top:2px;font-size:13px;color:#6b7280;}
-    .item-status .status-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:#e5e7eb;color:#374151;font-weight:600;font-size:12px;}
-    .order-item.done .item-status{color:#047857;}
-    .order-item.done .item-status .status-pill{background:#bbf7d0;color:#047857;}
-    .mode-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;margin-bottom:4px;}
-    .mode-pill.dine{background:#e0f2fe;color:#0369a1;}
-    .mode-pill.takeout{background:#fef3c7;color:#b45309;}
-    .item-actions{display:flex;align-items:center;gap:6px;}
-    .todo-btn{min-width:56px;padding:8px 12px;border-radius:999px;border:1px solid #dc2626;background:#fee2e2;color:#b91c1c;font-weight:700;cursor:pointer;transition:all .15s ease;}
-    .todo-btn.minus{background:#ede9fe;border-color:#a855f7;color:#5b21b6;}
-    .todo-btn.is-done{background:#34d399;border-color:#059669;color:#fff;}
-    .todo-btn.reset{background:#f3f4f6;border-color:#d1d5db;color:#1f2937;}
-    .todo-btn[disabled]{opacity:.6;cursor:wait;}
-    .order-note{margin-top:4px;padding:8px 10px;border-radius:8px;border:1px dashed #f97316;background:#fff7ed;color:#c2410c;font-size:13px;}
-    .empty{color:#6b7280;text-align:center;padding:48px 0;font-size:15px;border:1px dashed #d1d5db;border-radius:12px;background:#fff;}
-    .muted{color:#6b7280;font-size:13px;}
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ page_title }} | 바자회</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/ui05.css' %}">
+  <link rel="stylesheet" href="{% static 'orders/ui/account.css' %}">
+  <link rel="stylesheet" href="{% static 'orders/ui/monitor.css' %}">
 </head>
-<body>
-  <div class="wrap">
-    <div class="hdr">
-      <div>
-        <h2>{{ page_title }}</h2>
-        <div class="muted">{{ page_hint|default:"주문을 관리하세요." }}{% if account_name %} · {{ account_name }}{% endif %}</div>
-      </div>
-      <div class="hdr-actions">
-        <button class="btn secondary" id="btnReload">새로고침</button>
-        <form method="post" action="{% url 'orders:logout' %}" class="logout-form">{% csrf_token %}
-          <button class="btn logout" type="submit">로그아웃</button>
-        </form>
-      </div>
+<body class="ui05">
+  <main id="monitor-page" class="monitor-page" data-scope="{{ mode_scope }}"
+    data-snapshot-url="{% url 'orders:snapshot-monitoring' %}?scope={{ mode_scope }}&amp;page={{ history_page }}"
+    data-stream-url="{% url 'orders:kitchen-stream' %}"
+    data-action-url="{% url 'orders:monitor-order-action' 0 %}"
+    data-login-url="{% url 'orders:login' %}">
+    <header class="monitor-header">
+      <p class="monitor-brand">BAZAAR / 모니터링 · {{ account_name }}</p>
+      <button class="ui-button" type="button" data-account-menu-open>내 메뉴</button>
+    </header>
+    <h1>{{ page_title }}</h1>
+    <div class="monitor-toolbar">
+      <p class="ui-muted">{{ page_hint }}</p>
+      <button class="ui-button" type="button" id="reload-orders">새로고침</button>
     </div>
-
-{% include "orders/_practice_banner.html" %}
-    <nav class="scope-nav" aria-label="주방 주문 필터">
-      {% if can_monitor_all %}<a class="btn" href="{% url 'orders:kitchen' %}"{% if mode_scope == "ALL" %} aria-current="page"{% endif %}>전체</a>{% endif %}
-      {% if can_monitor_hall %}<a class="btn" href="{% url 'orders:kitchen-hall' %}"{% if mode_scope == "HALL" %} aria-current="page"{% endif %}>홀</a>{% endif %}
-      {% if can_monitor_takeout %}<a class="btn" href="{% url 'orders:kitchen-takeout' %}"{% if mode_scope == "TAKEOUT" %} aria-current="page"{% endif %}>포장</a>{% endif %}
-    </nav>
-
-    <section class="panel">
-      <header class="panel-head">
-        <h3 class="panel-title">대기 주문</h3>
-        <div id="status" class="muted">주문을 불러오는 중...</div>
-      </header>
-        <div id="board" class="board"></div>
+    {% include 'orders/_practice_banner.html' %}
+    <p id="live-status" class="ui-muted" role="status">주문을 불러오는 중…</p>
+    <p id="monitor-notice" class="monitor-notice" role="status" aria-live="polite"></p>
+    <section aria-labelledby="waiting-title">
+      <div class="monitor-section-heading"><h2 id="waiting-title">미완료 주문</h2><span class="ui-muted">오래된 주문부터 →</span></div>
+      <p id="queue-warning" class="ui-error" role="status"></p>
+      <div id="waiting-orders" class="waiting-orders" tabindex="0" role="region" aria-label="미완료 주문 가로 목록" aria-busy="true"><p class="monitor-empty">주문을 불러오는 중입니다.</p></div>
+      <p class="monitor-help">완료 = 모든 음식 준비 후 서빙 출발 · 완료 주문은 아래 내역에 남습니다.</p>
     </section>
-  </div>
-
+    <section id="history" aria-labelledby="history-title">
+      <div class="monitor-section-heading"><h2 id="history-title">전체 주문 내역</h2><span class="ui-muted">최근 접수순 ↓ · 전체 기간</span></div>
+      <div class="history-scroll" tabindex="0" role="region" aria-label="전체 주문 내역 표">
+        <table class="history-table">
+          <caption class="sr-only">준비 중·서빙 출발·취소를 포함한 전체 주문 내역</caption>
+          <thead><tr><th scope="col">주문 · 접수 시각</th><th scope="col">테이블 / 포장</th><th scope="col">메뉴</th><th scope="col">준비 / 주문</th><th scope="col">상태</th><th scope="col">상세</th></tr></thead>
+          <tbody id="history-orders"><tr><td colspan="6">주문을 불러오는 중입니다.</td></tr></tbody>
+        </table>
+      </div>
+      <nav id="history-pagination" class="history-pagination" aria-label="주문 내역 페이지"></nav>
+      <p class="monitor-help">상세에서 준비 수량·상태만 수정할 수 있습니다. 취소된 주문은 조회만 가능합니다.</p>
+    </section>
+    <noscript><p class="ui-error">모니터링하려면 브라우저에서 JavaScript를 허용해 주세요.</p></noscript>
+  </main>
+  <dialog id="order-detail" class="monitor-dialog" aria-labelledby="detail-title">
+    <header class="monitor-dialog-header"><h2 id="detail-title">주문 상세</h2><button class="ui-button" type="button" id="detail-close">닫기</button></header>
+    <div class="monitor-dialog-body">
+      <p id="detail-meta" class="ui-muted"></p><p id="detail-status" class="status-label"></p>
+      <p id="detail-conflict" class="ui-error" role="status"></p>
+      <button type="button" id="detail-reload" class="ui-button" hidden>최신 내용 다시 보기</button>
+      <div id="detail-items" class="detail-items"></div>
+      <p id="detail-note" class="ui-muted"></p>
+      <p class="monitor-help">준비 수량·상태만 변경할 수 있습니다.<br>메뉴·주문 수량·결제 금액은 바뀌지 않습니다.</p>
+    </div>
+    <footer class="monitor-dialog-footer">
+      <p id="detail-error" class="ui-error" role="alert" tabindex="-1"></p>
+      <div class="detail-actions"><button class="ui-button" type="button" id="save-progress">준비 수량 저장</button><button class="ui-button danger" type="button" id="cancel-order">주문 전체 취소…</button></div>
+      <button class="ui-button ui-button-primary" type="button" id="depart-order">완료 · 서빙 출발</button>
+      <button class="ui-button" type="button" id="reopen-order" hidden>준비 중으로 되돌리기…</button>
+    </footer>
+  </dialog>
+  <dialog id="confirm-action" class="monitor-dialog confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-description">
+    <header class="monitor-dialog-header"><h2 id="confirm-title">주문 확인</h2></header>
+    <div class="monitor-dialog-body"><p id="confirm-description"></p><p id="confirm-error" class="ui-error" role="alert" tabindex="-1"></p></div>
+    <footer class="monitor-dialog-footer detail-actions"><button class="ui-button" type="button" id="confirm-back" autofocus>돌아가기</button><button class="ui-button ui-button-primary" type="button" id="confirm-submit">확인</button></footer>
+  </dialog>
+  {% include 'orders/_account_menu.html' %}
   <script src="{% static 'orders/ui/auth.js' %}" data-auth-account="{{ request.auth_account.id }}" data-auth-session="{{ request.auth_session_id }}"></script>
+  <script src="{% static 'orders/ui/dom.js' %}"></script>
   <script src="{% static 'orders/ui/kitchen_live.js' %}"></script>
-  <script>
-    const MODE_SCOPE = "{{ mode_scope|default:'ALL' }}";
-    const getCookie = (name)=>{
-      const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
-      return m?decodeURIComponent(m.pop()):'';
-    };
-    const BOARD = document.getElementById('board');
-    const RELOAD_BUTTON = document.getElementById('btnReload');
-    const STATUS = document.getElementById('status');
-    // 10D2: order data comes from one place, 10C's snapshot, and the one
-    // scheduler below decides when to read it. The stream carries no orders
-    // (D-058); a change means "read again". Nothing else on this page reads.
-    const SNAPSHOT_URL = "{% url 'orders:snapshot-waiting' %}";
-    const STREAM_URL = "{% url 'orders:kitchen-stream' %}";
-    const LOGIN_URL = "{% url 'orders:login' %}";
-    const ITEM_URL = "{% url 'orders:order-item-progress' 0 %}";
-    const ORDER_STATUS_URL = "{% url 'orders:order-status' 0 %}";
-    // How often the board reads for itself while the stream cannot vouch for
-    // it (user decision, D-061). Shown in the status line, so one constant.
-    const POLL_MS = 5000;
-    const ORDER_STORE = new Map();
-    let LAST_PAGE = {total: null, has_more: false};
-    // When the snapshot was last applied or confirmed unchanged -- stamped by
-    // the scheduler, never by a redraw (PR #74 architecture review).
-    let LAST_LIST_READ_AT = null;
-    let LIVE_STATE = null;
-
-    const escapeHtml = (value)=>{
-      if (value == null) return '';
-      return String(value)
-        .replace(/&/g,'&amp;')
-        .replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;')
-        .replace(/"/g,'&quot;')
-        .replace(/'/g,'&#39;');
-    };
-
-    const formatOrderNo = (no)=>{
-      if (!no) return '-';
-      return '#' + String(no).padStart(3,'0');
-    };
-
-    const formatTime = (iso)=>{
-      if (!iso) return '';
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return '';
-      return d.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
-    };
-
-    const formatClock = (date)=> date
-      ? date.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
-      : '아직 없음';
-
-    function getModeCounts(order){
-      const counts = {DINE_IN:0, TAKEOUT:0};
-      (order.items||[]).forEach(item=>{
-        const raw = (item.service_mode || order.order_type || '').toUpperCase();
-        const key = raw === 'TAKEOUT' ? 'TAKEOUT' : 'DINE_IN';
-        counts[key] += 1;
-      });
-      return counts;
-    }
-
-    function includeOrder(order){
-      const counts = getModeCounts(order);
-      if (MODE_SCOPE === 'TAKEOUT'){
-        return counts.DINE_IN === 0 && counts.TAKEOUT > 0;
-      }
-      if (MODE_SCOPE === 'HALL'){
-        return counts.DINE_IN > 0;
-      }
-      return true;
-    }
-
-    async function fetchJSON(url, options){
-      const r = await window.BazaarAuth.fetch(url, Object.assign({credentials:'same-origin'}, options||{}));
-      if (!r.ok){
-        const text = await r.text().catch(()=> '');
-        // Refusals about the order's state (409) answer in JSON. This board is
-        // where they actually land -- cancelling an order someone else already
-        // cancelled, or finishing an item on a cancelled order -- so the
-        // sentence has to come out of the body instead of the braces.
-        let message = text;
-        try {
-          const parsed = JSON.parse(text);
-          if (parsed && parsed.detail) message = parsed.detail;
-        } catch (e) { /* plain-text refusal, already readable */ }
-        throw new Error(message || ('HTTP '+r.status));
-      }
-      return r.json();
-    }
-
-    function renderOrders(list){
-      if (!list.length){
-        BOARD.innerHTML = '<div class="empty">대기 중인 주문이 없습니다.</div>';
-        return;
-      }
-      const html = list.map(order=>{
-        const time = formatTime(order.created_at);
-        const note = (order.note || '').trim();
-        const orderMode = (order.order_type || '').toUpperCase();
-        const modeCounts = {DINE_IN:0, TAKEOUT:0};
-        const itemsHtml = (order.items || []).map(item=>{
-          const done = !!item.is_prepared;
-          const totalQty = Number(item.qty) || 0;
-          const preparedQty = Number(item.prepared_qty) || 0;
-          const statusText = `완료 ${preparedQty} / ${totalQty}`;
-          const isComplete = preparedQty >= totalQty && totalQty > 0;
-          const rawMode = (item.service_mode || orderMode || '').toUpperCase();
-          const itemMode = rawMode === 'TAKEOUT' ? 'TAKEOUT' : 'DINE_IN';
-          modeCounts[itemMode] += 1;
-          const itemModeLabel = itemMode === 'TAKEOUT' ? '포장' : '홀';
-          const itemModeClass = itemMode === 'TAKEOUT' ? 'takeout' : 'dine';
-          return ''
-            + '<div class="order-item'+(done ? ' done' : '')+'">'
-            +   '<div class="item-info">'
-            +     '<span class="mode-pill '+itemModeClass+'">'+itemModeLabel+'</span>'
-            +     '<div class="item-name">'+ escapeHtml(item.menu_item_name) +'</div>'
-            +     '<div class="item-status">'
-            +       '<span class="status-pill">'+ escapeHtml(statusText) +'</span>'
-            +     '</div>'
-            +   '</div>'
-            +   '<div class="item-actions">'
-            +     '<button class="todo-btn minus"'
-            +             ' data-item-id="'+ item.id +'"'
-            +             ' data-prepared="'+ preparedQty +'"'
-            +             ' data-total="'+ totalQty +'">-1</button>'
-            +     '<button class="todo-btn'
-            +         (done ? ' is-done' : '')
-            +         (isComplete ? ' reset' : '')
-            +       '" data-item-id="'+ item.id +'"'
-            +          ' data-prepared="'+ preparedQty +'"'
-            +          ' data-total="'+ totalQty +'">'
-            +       (isComplete ? '완료' : '+1')
-            +     '</button>'
-            +   '</div>'
-            + '</div>';
-        }).join('');
-        const hasTable = !!order.table;
-        let tableLabel = '';
-        let tableBadgeClass = 'table';
-        const dineCount = modeCounts.DINE_IN;
-        const takeCount = modeCounts.TAKEOUT;
-        if (hasTable){
-          const num = order.table.number || order.table.id;
-          const name = order.table.name ? (' ('+order.table.name+')') : '';
-          const baseLabel = '테이블 ' + num + name;
-          if (dineCount === 0 && takeCount > 0){
-            tableLabel = '포장 ' + num + name;
-            tableBadgeClass = 'takeout';
-          }else{
-            tableLabel = baseLabel;
-            if(takeCount > 0 && dineCount > 0){
-              tableBadgeClass = 'mixed';
-            }
-          }
-        }else if(dineCount === 0 && takeCount > 0){
-          tableLabel = '포장 주문';
-          tableBadgeClass = 'takeout';
-        }else if(dineCount > 0 && takeCount > 0){
-          tableLabel = '홀+포장 주문';
-          tableBadgeClass = 'mixed';
-        }else{
-          tableLabel = '홀 주문';
-        }
-        const modeSummary = modeCounts.TAKEOUT && modeCounts.DINE_IN
-          ? '홀+포장'
-          : (modeCounts.TAKEOUT ? '포장' : '홀');
-        const metaParts = [];
-        if(hasTable && dineCount > 0 && takeCount > 0){
-          metaParts.push(modeSummary);
-        }
-        if(time) metaParts.push(time);
-        const metaText = metaParts.join(' · ');
-        const canCancel = order.status !== 'CANCELLED' && order.status !== 'READY';
-        return ''
-          + '<section class="order-card" data-order-id="'+order.id+'">'
-          +   '<header class="order-head">'
-          +     '<div class="order-table">'
-          +       '<div class="table-badge '+tableBadgeClass+'">'+ escapeHtml(tableLabel) +'</div>'
-          +       (metaText ? '<div class="order-meta">'+ escapeHtml(metaText) +'</div>' : '')
-          +     '</div>'
-          +     '<div class="order-head-right">'
-          +       '<div class="order-badge">'
-          +         (order.is_practice ? '<span class="practice-tag">연습</span>' : '')
-          +         escapeHtml(formatOrderNo(order.order_no))
-          +       '</div>'
-          +       (canCancel ? '<button class="order-cancel" data-order-id="'+order.id+'">×</button>' : '')
-          +     '</div>'
-          +   '</header>'
-          +   '<div class="order-items">'+ (itemsHtml || '<div class="item-qty">품목 없음</div>') +'</div>'
-          +   (note ? '<div class="order-note">요청사항: '+ escapeHtml(note) +'</div>' : '')
-          + '</section>';
-      }).join('');
-      BOARD.innerHTML = html;
-    }
-
-    function upsertOrder(order){
-      if (!order || order.status !== 'PREPARING'){
-        if (order && ORDER_STORE.has(order.id)){
-          ORDER_STORE.delete(order.id);
-        }
-        return;
-      }
-      ORDER_STORE.set(order.id, order);
-    }
-
-    // What the status line says about *how* the board is being kept current.
-    // A board polling because its hub is broken must not read as live, and a
-    // live board must not tell the kitchen to press refresh (D-019, D-061).
-    function describeFreshness(state){
-      if (!state) return '주문을 불러오는 중…';
-      if (state.ended) return '로그인 화면으로 이동합니다';
-      if (!state.running) return '탭이 보이지 않아 갱신을 멈췄습니다';
-      const every = Math.round(POLL_MS / 1000) + '초마다 다시 읽음';
-      if (state.lastError){
-        return '읽기 실패 · 화면은 ' + formatClock(LAST_LIST_READ_AT) + ' 목록입니다 · ' + every;
-      }
-      if (!state.polling) return '실시간 연결';
-      if (state.stream !== 'open') return '연결 중 · ' + every;
-      if (!state.hubOk) return '서버 감지 지연 · ' + every;
-      return every;
-    }
-
-    function waitingOrders(){
-      return Array.from(ORDER_STORE.values())
-        .filter(includeOrder)
-        .sort((a,b)=> new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    }
-
-    function renderStatusLine(waiting){
-      let line = describeFreshness(LIVE_STATE)
-        + ' · 목록 읽은 시각 ' + formatClock(LAST_LIST_READ_AT)
-        + ' · 대기 주문 ' + waiting + '건';
-      if (LAST_PAGE.has_more){
-        // Say it rather than let the board go quiet about the rest.
-        line += ' · 서버에 ' + LAST_PAGE.total + '건 대기, 화면은 오래된 순으로 일부만 표시';
-      }
-      STATUS.textContent = line;
-    }
-
-    // The cards are rebuilt only when the list changed. A status report --
-    // every heartbeat, every read starting or ending -- redraws the line and
-    // nothing else: rebuilding the board there threw away every card node
-    // 15s apart on an idle kitchen and, worse, replaced a button disabled
-    // for an in-flight write with a fresh enabled one (PR #80 code review).
-    function renderFromStore(){
-      const ordered = waitingOrders();
-      renderOrders(ordered);
-      renderStatusLine(ordered.length);
-    }
-
-    function replaceOrders(list){
-      ORDER_STORE.clear();
-      list.forEach(order=> upsertOrder(order));
-      renderFromStore();
-    }
-
-    function applySnapshot(data){
-      LAST_PAGE = {total: data.total, has_more: !!data.has_more};
-      replaceOrders(data.orders || []);
-    }
-
-    let LAST_LOGGED_ERROR = null;
-    function onLiveStatus(state){
-      LIVE_STATE = state;
-      LAST_LIST_READ_AT = state.applied.at;
-      // The one button has to show that it heard the press (PR #74
-      // architecture review); the scheduler says when a read is in flight.
-      RELOAD_BUTTON.disabled = state.inFlight;
-      RELOAD_BUTTON.textContent = state.inFlight ? '읽는 중…' : '새로고침';
-      if (state.lastError !== LAST_LOGGED_ERROR){
-        // Keep what is on the board. Wiping the cards on one failed read
-        // would leave the kitchen with an empty screen for a whole poll.
-        // Logged when the failure changes, not on every status report: a
-        // busy kitchen on a flaky network would otherwise say the same
-        // thing twice per event (10D2 code review).
-        if (state.lastError) console.error('주문 불러오기 실패', state.lastError);
-        else if (LAST_LOGGED_ERROR) console.info('주문 읽기 복구');
-        LAST_LOGGED_ERROR = state.lastError;
-      }
-      renderStatusLine(waitingOrders().length);
-    }
-
-    const LIVE = window.BazaarLive.create({
-      streamUrl: STREAM_URL,
-      snapshotUrl: SNAPSHOT_URL,
-      fetch: window.BazaarAuth.fetch,
-      EventSource: window.EventSource,
-      document: document,
-      window: window,
-      pollMs: POLL_MS,
-      onApply: applySnapshot,
-      onStatus: onLiveStatus,
-      // `closed: revoked|reauthenticate` from the stream. The authenticated
-      // fetch sends the page to login by itself; this covers the other path.
-      onAuthLost: ()=>{ window.location.assign(LOGIN_URL); }
-    });
-
-    async function cancelOrder(orderId, button){
-      if (!orderId) return;
-      if (!confirm('이 주문을 취소할까요?')) return;
-      if (button) button.disabled = true;
-      try{
-        await fetchJSON(ORDER_STATUS_URL.replace('/0/','/'+orderId+'/'), {
-          method:'PATCH',
-          headers:{
-            'Content-Type':'application/json',
-            'X-CSRFToken': getCookie('csrftoken') || ''
-          },
-          body: JSON.stringify({status:'CANCELLED'})
-        });
-      }catch(e){
-        alert('취소 실패: ' + e.message);
-      }finally{
-        if (button) button.disabled = false;
-        // The write's own answer is never drawn: a read through the one
-        // scheduler is, so nothing older can land on top of it (BK-R033).
-        // After a refusal too -- someone else may have changed the order.
-        LIVE.refetch('write');
-      }
-    }
-
-    async function setPreparedQty(itemId, nextQty, button){
-      if (!itemId) return;
-      if (button) button.disabled = true;
-      try{
-        await fetchJSON(ITEM_URL.replace('/0/','/'+itemId+'/'), {
-          method:'PATCH',
-          headers:{
-            'Content-Type':'application/json',
-            'X-CSRFToken': getCookie('csrftoken') || ''
-          },
-          body: JSON.stringify({prepared_qty: nextQty})
-        });
-      }catch(e){
-        alert('수량 업데이트 실패: ' + e.message);
-      }finally{
-        if (button) button.disabled = false;
-        LIVE.refetch('write');
-      }
-    }
-
-    RELOAD_BUTTON.addEventListener('click', ()=>{
-      LIVE.refetch('manual');
-    });
-
-    BOARD.addEventListener('click', (ev)=>{
-      const cancel = ev.target.closest('.order-cancel');
-      if(cancel){
-        const orderId = cancel.dataset.orderId;
-        cancelOrder(orderId, cancel);
-        return;
-      }
-      const btn = ev.target.closest('.todo-btn');
-      if (!btn) return;
-      const itemId = btn.dataset.itemId;
-      const total = Number(btn.dataset.total || '0');
-      const prepared = Number(btn.dataset.prepared || '0');
-      if (!itemId) return;
-
-      if (btn.classList.contains('minus')){
-        const next = Math.max(0, prepared - 1);
-        setPreparedQty(itemId, next, btn);
-        return;
-      }
-
-      if (prepared >= total && total > 0){
-        if (!confirm('완료 수량을 0으로 초기화할까요?')) return;
-        setPreparedQty(itemId, 0, btn);
-      }else{
-        const next = total > 0 ? Math.min(total, prepared + 1) : 0;
-        setPreparedQty(itemId, next, btn);
-      }
-    });
-
-    document.addEventListener('DOMContentLoaded', ()=>{
-      LIVE.start();
-    });
-
-  </script>
+  <script src="{% static 'orders/ui/monitor_state.js' %}"></script>
+  <script src="{% static 'orders/ui/monitor.js' %}"></script>
+  <script src="{% static 'orders/ui/account_menu.js' %}"></script>
 </body>
 </html>

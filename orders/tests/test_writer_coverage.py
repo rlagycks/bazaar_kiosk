@@ -88,6 +88,11 @@ INVENTORY: dict[str, tuple[str, str]] = {
         "Cooking progress. Saved inline here, not through a service, and the "
         "status often does not move with it -- the write most easily missed.",
     ),
+    "services.monitoring_actions:apply": (
+        Classification.MARKS,
+        "Atomic monitoring quantities/status/departure and audit; marks exactly "
+        "once when changed, never on stale input, rollback or a no-op retry.",
+    ),
     "services.status:change": (
         Classification.INSIDE_A_MARKED_WRITE,
         "Called by the two views above and by the admin, each inside their own "

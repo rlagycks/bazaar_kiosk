@@ -9,7 +9,7 @@ through here, so an admin save keeps the same promises the screens keep:
 * the total is the price snapshot times quantity, recomputed from the lines;
 * the money received is history and is not touched; the change is derived
   from it again, and a total the money no longer covers is refused (D-048);
-* the status follows what the kitchen has actually prepared (6B);
+* incomplete items reopen READY; preparation alone never completes it (UI-05B);
 * every change leaves an event (D-051).
 
 Callers validate first with `check_lines` -- inside a form, where a refusal

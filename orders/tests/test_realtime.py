@@ -26,6 +26,7 @@ from orders.tests.auth_support import AUTH_SETTINGS, login_client
 from orders.tests.test_sse_server import FAST_HUB, StreamFixture
 
 TEMPLATE = settings.BASE_DIR / "orders/templates/orders/kitchen_supervisor.html"
+CONTROLLER = settings.BASE_DIR / "orders/static/orders/ui/monitor.js"
 SCHEDULER = settings.BASE_DIR / "orders/static/orders/ui/kitchen_live.js"
 CI = settings.BASE_DIR / ".github/workflows/ci.yml"
 
@@ -44,9 +45,10 @@ class TheBoardReadsFromOnePlaceTests(TestCase):
     def test_the_page_loads_the_scheduler_and_points_it_at_this_server(self):
         source = template()
         self.assertIn("orders/ui/kitchen_live.js", source)
-        self.assertIn("{% url 'orders:snapshot-waiting' %}", source)
+        self.assertIn("{% url 'orders:snapshot-monitoring' %}", source)
         self.assertIn("{% url 'orders:kitchen-stream' %}", source)
-        self.assertIn("BazaarLive.create(", source)
+        self.assertIn("orders/ui/monitor.js", source)
+        self.assertIn("BazaarLive.create(", CONTROLLER.read_text())
 
     def test_the_board_no_longer_reads_the_list_or_single_orders_itself(self):
         """The two reads that could race (BK-R033) are gone, not guarded."""
@@ -60,14 +62,11 @@ class TheBoardReadsFromOnePlaceTests(TestCase):
     def test_a_write_never_applies_its_own_response(self):
         """A PATCH answers with an order; drawing that answer is how a late
         list could then undo it. The write asks the scheduler for a read."""
-        source = template()
-        self.assertNotIn("upsertOrder(result", source)
-        for function in ("cancelOrder", "setPreparedQty"):
-            body = source.split("async function " + function, 1)[1].split("\n    }\n", 1)[0]
-            with self.subTest(function=function):
-                self.assertIn("LIVE.refetch(", body)
-                self.assertNotIn("upsertOrder", body)
-                self.assertNotIn("renderFromStore", body)
+        source = CONTROLLER.read_text()
+        body = source.split("async function write(", 1)[1].split("function captureInputs", 1)[0]
+        self.assertIn("live.refetch('write')", body)
+        self.assertNotIn("drawSnapshot(", body)
+        self.assertNotIn("orders.set(", body)
 
     def test_the_template_opens_no_stream_of_its_own(self):
         """One `EventSource`, in the scheduler, refused unless same-origin."""
@@ -77,7 +76,7 @@ class TheBoardReadsFromOnePlaceTests(TestCase):
 
     def test_the_status_line_says_which_way_the_board_is_being_kept_current(self):
         """A board polling because its hub is broken must not read as live."""
-        source = template()
+        source = CONTROLLER.read_text()
         for phrase in ("실시간", "다시 읽음", "읽기 실패", "연결 중", "감지 지연"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, source)
@@ -102,7 +101,7 @@ class TheRenderedPageIsWiredTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 body = response.content.decode()
                 self.assertIn(reverse("orders:kitchen-stream"), body)
-                self.assertIn(reverse("orders:snapshot-waiting"), body)
+                self.assertIn(reverse("orders:snapshot-monitoring"), body)
                 self.assertIn("kitchen_live.js", body)
                 self.assertIsNone(re.search(r"""["'](?:https?:)?//""", body),
                                   "the page addresses only this server")

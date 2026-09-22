@@ -14,6 +14,7 @@ import uuid
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from orders.models import (
     MenuItem, Order, OrderEvent, OrderEventKind, OrderItem, OrderStatus, Table,
@@ -213,7 +214,7 @@ class AdminOrderEditTests(TestCase):
     def test_adding_an_item_to_a_ready_order_sends_it_back_to_preparing(self):
         self.item.prepared_qty = 1
         self.item.save(update_fields=["prepared_qty"])
-        Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.READY)
+        Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.READY, departed_at=timezone.now())
         self.order.refresh_from_db()
         response = self.client.post(self.change_url(), self.form(
             self.existing(),
@@ -221,9 +222,31 @@ class AdminOrderEditTests(TestCase):
         ))
         self.assertEqual(response.status_code, 302, response.content[:500])
         self.assertEqual(self.reload().status, OrderStatus.PREPARING)
+        self.assertIsNone(self.reload().departed_at)
         self.assertTrue(OrderEvent.objects.filter(
             order=self.order, kind=OrderEventKind.STATUS, from_status="READY", to_status="PREPARING",
         ).exists())
+
+    def test_admin_explicit_reopen_keeps_prepared_quantities_and_clears_departure(self):
+        self.item.prepared_qty = 1
+        self.item.save(update_fields=["prepared_qty"])
+        Order.objects.filter(pk=self.order.pk).update(status="READY", departed_at=timezone.now())
+        self.order.refresh_from_db()
+        response = self.client.post(self.change_url(), self.form(self.existing(), status="PREPARING"))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.reload().status, "PREPARING")
+        self.assertIsNone(self.reload().departed_at)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.prepared_qty, 1)
+
+    def test_admin_reducing_qty_to_prepared_does_not_automatically_complete(self):
+        self.item.qty = 2
+        self.item.prepared_qty = 1
+        self.item.save(update_fields=["qty", "prepared_qty"])
+        response = self.client.post(self.change_url(), self.form(self.existing(qty=1)))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.reload().status, "PREPARING")
+        self.assertIsNone(self.reload().departed_at)
 
     def test_items_of_a_cancelled_order_cannot_be_edited(self):
         Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.CANCELLED)
@@ -236,7 +259,7 @@ class AdminOrderEditTests(TestCase):
     def test_the_items_event_carries_the_status_the_edit_left(self):
         self.item.prepared_qty = 1
         self.item.save(update_fields=["prepared_qty"])
-        Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.READY)
+        Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.READY, departed_at=timezone.now())
         self.client.post(self.change_url(), self.form(
             self.existing(), {"menu_item": self.soup.pk, "qty": 1, "service_mode": "DINE_IN"},
         ))

@@ -66,13 +66,9 @@ class LoginBaselineTests(BaselineMixin, TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertTemplateUsed(response, "orders/kitchen_supervisor.html")
                 self.assertEqual(response.context["mode_scope"], scope)
-                self.assertContains(response, 'aria-label="주방 주문 필터"')
+                self.assertContains(response, 'aria-label="업무 화면"')
                 for target in ("kitchen", "kitchen-hall", "kitchen-takeout"):
                     self.assertContains(response, f'href="{reverse(f"orders:{target}")}"')
-                self.assertContains(response, ' aria-current="page"', count=1)
-                self.assertContains(
-                    response, f'href="{reverse(f"orders:{page}")}" aria-current="page"'
-                )
 
     def test_other_accounts_cannot_open_kitchen_filter_pages(self):
         for role in ("ORDER", "B1_COUNTER"):
@@ -313,7 +309,7 @@ class OrderBaselineTests(OrderFixtureMixin, TestCase):
         progress(first, {"done": True})
         assert_progress([2, 0], [0, 3], "PREPARING")
         progress(second, {"done": True})
-        assert_progress([2, 3], [0, 0], "READY")
+        assert_progress([2, 3], [0, 0], "PREPARING")
 
 
 @override_settings(**AUTH_SETTINGS)

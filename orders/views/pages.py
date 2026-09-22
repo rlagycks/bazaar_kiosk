@@ -31,6 +31,14 @@ def _event_day_context() -> dict[str, object]:
         "today": today,
     }
 
+
+def _history_context(request):
+    try:
+        page = int(request.GET.get("page", "1"))
+    except ValueError:
+        page = 1
+    return {"history_page": max(1, min(page, 1_000_000))}
+
 @ensure_csrf_cookie
 @require_permissions(SERVING)
 def order_page(request):
@@ -44,8 +52,8 @@ def b1_counter_page(request):
 @ensure_csrf_cookie
 @require_permissions(all_of=(HALL_MONITOR, TAKEOUT_MONITOR))
 def kitchen_overview_page(request):
-    context = _event_day_context() | _account_context(request) | {
-        "page_title": "주방 총괄",
+    context = _event_day_context() | _account_context(request) | _history_context(request) | {
+        "page_title": "전체 모니터링",
         "page_hint": "모든 주문을 한 화면에서 관리하세요.",
         "mode_scope": "ALL",
     }
@@ -55,9 +63,9 @@ def kitchen_overview_page(request):
 @ensure_csrf_cookie
 @require_permissions(HALL_MONITOR)
 def kitchen_hall_page(request):
-    context = _event_day_context() | _account_context(request) | {
-        "page_title": "홀 총괄",
-        "page_hint": "홀 주문과 홀+포장 주문을 관리하세요.",
+    context = _event_day_context() | _account_context(request) | _history_context(request) | {
+        "page_title": "식당 모니터링",
+        "page_hint": "식당 주문 · 혼합 주문 포함",
         "mode_scope": "HALL",
     }
     return render(request, "orders/kitchen_supervisor.html", context)
@@ -66,9 +74,9 @@ def kitchen_hall_page(request):
 @ensure_csrf_cookie
 @require_permissions(TAKEOUT_MONITOR)
 def kitchen_takeout_page(request):
-    context = _event_day_context() | _account_context(request) | {
-        "page_title": "포장 총괄",
-        "page_hint": "순수 포장 주문을 관리하세요.",
+    context = _event_day_context() | _account_context(request) | _history_context(request) | {
+        "page_title": "포장 모니터링",
+        "page_hint": "포장만 있는 주문",
         "mode_scope": "TAKEOUT",
     }
     return render(request, "orders/kitchen_supervisor.html", context)

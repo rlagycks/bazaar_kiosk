@@ -1,5 +1,10 @@
 # 10D2 — 주방 SSE 클라이언트·재접속·응답 순서 (D-019, D-061)
 
+**2026-09-22 UI-05B 개정:** 스케줄러와 D-061은 유지한다. 현재 화면은
+`monitor.js`에서 미완료와 전체 내역을 묶은 `snapshot/monitoring`을 읽는다.
+아래 waiting-only 화면·브라우저 스크립트는 10D2 당시 검증 이력이며 현재 화면 계약은
+[UI_MONITORING](UI_MONITORING.md)을 따른다.
+
 브랜치 `phase-10d2-kitchen-client`, 기준 `develop` affc842. 상태: 구현 완료.
 
 ## 문제

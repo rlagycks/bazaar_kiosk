@@ -198,7 +198,9 @@ class RefusalReachesTheScreenTests(TestCase):
                 client = self.client_class()
                 login_client(client, "KITCHEN")
                 page = client.get(reverse(f"orders:{name}")).content.decode()
-                self.assertIn("parsed.detail", page)
+                self.assertIn("ui/monitor.js", page)
+                self.assertIn('id="detail-error" class="ui-error" role="alert"', page)
+                self.assertIn('id="confirm-error" class="ui-error" role="alert"', page)
 
     def test_every_state_refusal_carries_a_detail_field(self):
         """409s are JSON; each one has to say something a person can act on."""

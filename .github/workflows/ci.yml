@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: '24.7.0'
       - name: Test browser authentication, serving UI and kitchen scheduler
-        run: node --test scripts/test_auth_client.cjs scripts/test_dom_helpers.cjs scripts/test_request_id.cjs scripts/test_kitchen_live.cjs scripts/test_order_state.cjs scripts/test_order_controller.cjs
+        run: node --test scripts/test_auth_client.cjs scripts/test_dom_helpers.cjs scripts/test_request_id.cjs scripts/test_kitchen_live.cjs scripts/test_order_state.cjs scripts/test_order_controller.cjs scripts/test_monitor_state.cjs scripts/test_monitor_controller.cjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
