@@ -52,10 +52,11 @@
   function renderCart() {
     DOM.render(byId('cart-items'), order.items().map(row => {
       const data = {id: row.id, mode: row.mode};
+      const itemLabel = labels[row.mode] + ' ' + row.name;
       return DOM.el('article', {class: 'order-item', data}, [
         DOM.el('div', {class: 'cart-heading'}, [DOM.el('strong', {text: labels[row.mode] + ' · ' + row.name}), DOM.el('span', {text: won(row.price * row.qty)})]),
-        DOM.el('div', {class: 'quantity-controls'}, [button('−', 'dec', data, row.name + ' 수량 줄이기', 'step'), DOM.el('output', {text: row.qty, attrs: {'aria-label': row.name + ' 주문 수량'}}),
-          button('+', 'inc', data, row.name + ' 수량 늘리기', 'step'), DOM.el('span', {class: 'ui-muted', text: '개'}), button('삭제', 'remove', data, row.name + ' 삭제', 'remove')]),
+        DOM.el('div', {class: 'quantity-controls'}, [button('−', 'dec', data, itemLabel + ' 수량 줄이기', 'step'), DOM.el('output', {text: row.qty, attrs: {'aria-label': itemLabel + ' 주문 수량'}}),
+          button('+', 'inc', data, itemLabel + ' 수량 늘리기', 'step'), DOM.el('span', {class: 'ui-muted', text: '개'}), button('삭제', 'remove', data, itemLabel + ' 삭제', 'remove')]),
       ]);
     }));
     if (!order.items().length) DOM.render(byId('cart-items'), DOM.el('p', {class: 'checkout-empty', text: '담은 메뉴가 없습니다. 돌아가서 메뉴를 담아 주세요.'}));

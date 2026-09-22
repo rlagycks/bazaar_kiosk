@@ -10,6 +10,7 @@ on:
       - postgres-only-runtime
   pull_request:
     branches:
+      - 'ui/**'
       - develop
       - main
       - phase-8a-dashboard-execution

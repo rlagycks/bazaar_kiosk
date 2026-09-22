@@ -135,3 +135,19 @@ test('missing latest order still requires dirty-input discard confirmation',asyn
   await ui.click(ui.get('detail-reload'));
   assert.equal(ui.get('order-detail').open,true);assert.equal(ui.get('prepared-7').value,'1');assert.equal(ui.posts.length,0);
 });
+
+test('mixed detail names prepared quantity buttons by service mode', async () => {
+  const ui = app();
+  const row = baseOrder();
+  row.items[0].menu_item_name = '김밥';
+  row.items.push({...row.items[0], id:8, service_mode:'TAKEOUT'});
+  ui.snapshot(row); await ui.open();
+  for (const mode of ['홀', '포장']) {
+    for (const suffix of ['준비 수량 줄이기', '준비 수량 늘리기']) {
+      assert.equal(ui.get('detail-items').querySelectorAll('button').filter(node => node.attrs['aria-label'] === `${mode} 김밥 ${suffix}`).length,1);
+    }
+  }
+  await ui.click(ui.get('detail-items').querySelectorAll('button').find(node => node.attrs['aria-label'] === '포장 김밥 준비 수량 늘리기'));
+  assert.equal(ui.get('prepared-7').value,'0');
+  assert.equal(ui.get('prepared-8').value,'1');
+});
