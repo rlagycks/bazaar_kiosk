@@ -3,6 +3,1310 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-23 — 포장을 교환권 방식으로(D-069): 번호표 필수·점유 규칙 제거
+
+- 사용자 설명: 포장은 결제 후 교환권을 받아 교환하는 곳에서 음식과 바꾸는 구조이고 서빙이 찾아가지 않는다.
+  101–120 번호표 점유(D-050)는 작년 방식이다. 교환권은 홀 주문 번호와 같은 성격이며 교환 창구 화면은 없다.
+  혼합 주문은 가능, 화면 설계는 그대로 두고 로직만 바꾼다. [이슈 #87](https://github.com/rlagycks/bazaar_kiosk/issues/87),
+  브랜치 `phase-10g-takeout-voucher`(develop `7112f2a` 기준, worktree `bazaar_kiosk-10g`).
+- 변경: 0031 마이그레이션(`uq_active_takeout_slot` 제거, `orders_table_rule`을 홀 주문만 테이블 필수로, 되돌리기는
+  테이블 없는 포장 주문이 있으면 실패). API: 포장만 주문은 테이블 없이 접수하고 `table_number`에 무엇이 오든
+  테이블 주장으로 보지 않는다, 포장 번호 검사·사용 중 409·슬롯 충돌 처리 제거(같은 request_id 경합은 idempotency
+  키가 계속 처리). 휴대폰 화면: 포장만이면 번호 검사 없이 빈 값으로 보내고 안내 문구 변경. 모니터: 포장 주문을
+  "포장 교환권 #번호"로 표시. 주문 번호 부여·통계 분류는 무변경.
+- 테스트: `test_order_modes` 재작성 8개(테이블 없이 접수·번호 부여, 입력값은 테이블 주장 아님, 포장 25건 연속·READY
+  뒤에도 막지 않음, 홀·혼합은 테이블 필수, DB 제약 자체, 같은 request_id 경합 1건), 마이그레이션 경로 4개(0030은
+  테이블 없는 포장 거부, 0031 적용·되돌리기, 교환권 행·번호표 공유 행 위에서는 되돌리기 실패), 기존 baseline·monitoring_actions 갱신.
+- 검증: 격리 PostgreSQL 전체 `scripts/test_postgres.py` 624개(31+593) 통과, `makemigrations --check` 변경 없음,
+  Node 99개 통과, `manage.py check` 이상 없음. 실기기·브라우저 확인은 하지 않았다(화면 설계 무변경, 문구·검사만).
+- 독립 리뷰(MEDIUM 1·LOW 1, 차단 없음): 모니터 확인 문구가 "#012 · 포장 교환권 #012"처럼 번호를 두 번 보여 주던 것을
+  라벨에서 번호를 빼 고쳤다. 0031 되돌리기의 다른 실패 경로(한 번호표에 활성 포장 2건)도 테스트로 고정했다. API 경로·
+  마이그레이션·idempotency 경합·직렬화·문서는 리뷰가 코드로 확인했다. 리뷰가 짚은 기존 문제: `order_type=DINE_IN`에
+  `is_takeout=true`를 직접 보내면 테이블 없이 DB 제약에 걸려 500(현재 화면은 그 조합을 보내지 않음, develop에도 동일) —
+  이번 범위 밖으로 남긴다.
+- 남은 것: 10E 부하 도구(별도 로컬 브랜치)의 포장 번호 슬롯 로직을 새 계약에 맞추기.
+## 2026-09-23 — 10F 허브 변경 감지를 LISTEN/NOTIFY 이벤트로(폴링은 예비)
+
+- 사용자 결정(D-068): 10E 측정에서 표시 지연 p95 ≈ 1.0 s가 허브 폴링 대기였고, 주기 단축 대신 저장 시점
+  이벤트로 간다. [이슈 #85](https://github.com/rlagycks/bazaar_kiosk/issues/85). 브랜치 `phase-10f-hub-notify`
+  (develop `7112f2a` 기준, worktree `bazaar_kiosk-10f`).
+- 변경: `orders/services/revisions.py` — `mark()`가 같은 트랜잭션에서 `pg_notify('bk_board_changed', value)`
+  (커밋 시에만 전달). `orders/services/hub.py` — 워커당 LISTEN 태스크(psycopg async 연결 1개, 구독이 있을 때만),
+  알림이 오면 기존 읽기→재검증→범위 비교→`change` 경로를 즉시 실행. 폴링은 `HUB_POLL_SECONDS` 주기의 예비
+  경로이자 health의 유일한 근거로 유지. 연결 실패는 1→30 s 지수 후퇴 재시도, 스트림을 끊거나 `failures`를
+  올리지 않는다. 화면 JS·프레임 형식 무변경.
+- 테스트: `orders/tests/test_hub_notify.py` 6개 — 커밋된 mark만 알림(롤백은 없음), 폴링 5 s 설정에서 2 s 안에
+  `change` 도착, LISTEN 연결 거부 시 폴링으로 도착·health 불변, 마지막 화면이 닫히면 LISTEN 연결 종료, 바로
+  재접속한 화면이 새 리스너를 받음. 기존 `test_sse_server`·`test_asgi_stream` 포함 48개 통과.
+- 검증: 격리 PostgreSQL 전체 `scripts/test_postgres.py` 627개(27+600) 통과, Node `node --test scripts/*.cjs` 99개 통과,
+  `manage.py check` 이상 없음. 작성자 목록 구조 테스트(`test_writer_coverage`)가 `_listen_conninfo`의 `dict.update`를
+  쓰기로 오탐해 dict 합성으로 바꿨다.
+- 측정(10E 도구, 같은 조건: 새 DB, 워커3, 15기기, 분당15건, 300 s, 폴링 기본 1.0 s 유지):
+  저장 응답→SSE change p50/p95 435/919 → **13/31 ms**, 저장 응답→모니터 표시 p50/p95 454/966 → **58/120 ms**
+  (p99 300 ms). 주문 저장 p95 94 ms, snapshot p95 74 ms, 앱 CPU 평균 2.9 %(폴링 1.0 s와 같음, 0.1 s 폴링은 4.5 %),
+  DB 연결 최대 7(LISTEN 3개 포함), 5분 commit 7.2k(폴링 0.1 s는 12.1k). 정확성 대조 위반 0, 스트림 재접속 0.
+  원시 결과는 세션 scratchpad에 있고 저장소에 넣지 않았다.
+- 독립 리뷰(HIGH 1·LOW 1): 마지막 화면이 닫히며 리스너를 취소한 직후 새 화면이 열리면 취소가 아직 끝나지 않아
+  (`done()` 아님) 새 리스너를 띄우지 않고 그 워커가 폴링만 남는 경합을 잡았다. 취소 시 참조를 바로 비워 `add()`가
+  새로 띄우게 고치고 재접속 테스트를 추가했다. 읽기 태스크가 외부에서 취소되면 리스너가 마지막 화면까지 남는
+  것은 무해해 주석으로 남겼다. 깨우기 경로(이벤트 유실·스핀 없음)·연결 종료·주입·비밀번호 로그·health 의미는
+  리뷰가 코드로 확인했다. 미검증: LISTEN 성공 뒤 끊긴 연결의 재접속 경로(코드는 있으나 테스트 없음).
+
+## 2026-09-22 — PR82 머지 확인·UI-05C 다음 PR 준비
+
+- 사용자: “해당 pr 머지했고 다음 작업 진행하자 남은거 뭐뭐 있는지는 텍스트로 보고하고
+  피그마 5안 대로 가는거지?” 기존 PR 단위 작업 흐름에 따라 UI-05C를 다음 PR로 준비한다.
+- GitHub에서 PR82 MERGED, develop `e61d6ab`, 머지 시각 2026-09-22 07:06:15 UTC를 확인했다.
+  이전 검증 기준 `37b8473`과 develop의 전체 tree는 `44c07d25`로 동일하다.
+  미공개 통계 커밋만 develop 위로 재배치했고 이전 `a865f17`과 전체 diff가 없음을 확인했다.
+  이미 공개한 브랜치 이력은 재작성하지 않았다.
+- 기존 검증(격리 PG 622·Node 98·PC 브라우저·독립 리뷰)을 유지한다. 기준 정리 후 집중 Node
+  13개와 diff 검사를 통과했다. 코드가 동일하므로 로컬 전체 검사를 불필요하게 반복하지 않았다.
+- 05안이 계속 구현 기준임을 재확인했다. 관리자 Django 화면의 새 디자인이나 CSV·실시간 통계 등
+  추가 기능은 채택 범위에 자동 포함하지 않는다. 남은 구현·운영 인수는 텍스트로 보고한다.
+- [PR83](https://github.com/rlagycks/bazaar_kiosk/pull/83)을 develop 대상으로 제출했다.
+  merge·배포·운영 데이터 변경은 하지 않는다. 최종 CI 상태는 해당 PR을 확인한다.
+- 독립 문서 점검으로 다음 순서를 재확인했다: 11 전체 UI/실기기·음성 접근성 인수 →
+  10E 동시 화면·주문량·복구 부하 측정(11과 병행 가능) → 12A1 EC2/HTTPS/프록시/SSE·권한·
+  CSP/요청 제한/경보 → 12A2 호스트 밖 백업·새 호스트 복원 → 12A3 초기 설치·전환 리허설 →
+  12B 최종 감사 → 별도 승인 후 R 운영 전환. 기존 JWT·자체 SSE를 다시 구현 대상으로 잡지 않는다.
+- D-037은 과거 주문 없이 빈 DB 시작이므로 과거 데이터 이전을 필수 작업으로 되살리지 않는다.
+  실제 기존 데이터가 발견되면 다시 판단하며, 삭제 승인이 아니다. EC2 선택은 D-038로 확정됐다.
+- 인수 전 필요한 사용자 값은 실제 기기/브라우저·동시 화면/주문량·허용 지연, 운영 전에는
+  예산/도메인/담당·백업 보존·허용 손실/복구 시간이다. 지금 통계 PR을 막는 추가 결정은 없다.
+
+## 2026-09-22 — UI-05C: 누적·통계 PC와 조회 실패 복구
+
+- 사용자 승인: PR 제출·리뷰와 다음 UI 작업 병행. 별도 worktree
+  `/Users/gimhyochan/system/bazaar_kiosk-ui05c`, 브랜치 `ui/05-stats-dashboard`를 만들었다.
+  PR82의 수량 원복 충돌 보완까지 기반 `37b8473`에 포함했다. PR82에 UI-05C를 넣지 않았으며
+  통계 변경은 로컬이다. merge·운영 마이그레이션·배포를 하지 않았다.
+- Figma `2135:1187` 누적·통계 PC의 design context와 스크린샷을 확인했다. 공통 05안 색·글꼴·
+  버튼·내 메뉴, 4개 요약 카드, 수납 내역, 시간대 차트/접근 가능한 수치 표, 메뉴별 표를 적용했다.
+  기존 인라인 통계 코드를 `stats.js`/`stats_state.js`로 분리했다. 외부 차트·폰트 의존성은 없다.
+- D-064: 서버 집계/기간/권한 의미 유지, `hourly.date` 추가. 실패 시 기존 결과와 실제 적용 기간
+  유지, 미제출 날짜 입력 보존, 응답 역전 방지, 확인된 0건과 실패 구분, 명시적 재시도를 구현했다.
+  API 문자열은 안전한 DOM 텍스트로 렌더링한다. 새 쓰기 경로나 DB 마이그레이션은 없다.
+- 백엔드 날짜 필드·회귀/페이지 검사를 별도 에이전트에 위임했다. 독립 code-reviewer가
+  통계 프런트/백엔드를 검토했고 신규 결함을 발견하지 못했다.
+- 검증: 집중 PostgreSQL 45개 통과. Node 전체 CI 명령에 `scripts/test_stats_ui.cjs`를 포함해
+  **98개** 통과(통계 13개). API/일반 텍스트 오류, malformed 200, 초기 실패, 요청 역전,
+  재시도, 빈 결과, 음수 순현금, 날짜별 차트, 저장 문자열을 검증했다.
+- 통계만 추가한 최초 PostgreSQL 전체 **615개(27+588)** 통과. 리뷰 보완 통합 후 최종 **622개(27+595), skip 0** 통과.
+  Django check·migration drift·`git diff --check`·변경 문서의 로컬 링크 검사도 통과했다. 실행 명령: `BK_TEST_DATABASE_URL=<전용 fixture URL> /Users/gimhyochan/system/bazaar_kiosk/.venv/bin/python scripts/test_postgres.py`.
+  전용 Compose는 `bk-ui05c-0922`, 포트 55463이며 테스트·브라우저용 UUID DB만 사용했다.
+  로그는 `.venv/ui05c-node.log`, `.venv/ui05c-integrated-pg.log`에 미추적으로 보관한다.
+- 브라우저: 합성 계정/날짜별 주문으로 1440×1000/1024×768을 확인했다. 기본일 4건·매출
+  18,000원·현금 6,000원·거스름돈 1,000원·순현금 5,000원·식권 8,000원과 일치했다.
+  과거 혼합 1건 5,000원은 별도 경고, 매출 포함·수납 제외를 확인했다. 취소 1건·연습 제외,
+  두 날짜 같은 10시 구분·수치 표, 0건의 0%/0%, 역전 기간 오류/재시도 후 이전 결과 보존,
+  정상 기간 재조회·기본일 복귀, 통계 권한만의 내 메뉴·Escape 초점 복귀·POST 로그아웃을 검증했다.
+  HTML 형태 메뉴명은 글자로만 나왔고 페이지 가로 넘침은 없었다. 검증 탭·viewport를 정리했다.
+- 첫 preview의 테이블 필수 제약 누락과 잘못된 합성 혼합 결제 코드를 fixture에서 바로잡았다.
+  애플리케이션 제약·집계 규칙은 바꾸지 않았고 올바른 CASH_TICKET 데이터로 경고를 재확인했다.
+- 문서: UI_STATS·UI_IMPLEMENTATION·REPORTING·DECISIONS·README·BLUEPRINT·SESSION_SETUP 갱신.
+  남은 범위: PR82 합병 후 통계 PR 비교 기준 정리, 실기기/음성 스크린리더 인수, 10E 부하·12 운영 인수.
+  Django 관리자 재디자인, 새 정산 규칙, 실시간 통계는 이번에 추가하지 않았다.
+
+## 2026-09-22 — PR82 독립 리뷰: 수량 원복 후 오래된 요청 재전송 차단
+
+- UI-05B를 develop 대상 [PR82](https://github.com/rlagycks/bazaar_kiosk/pull/82)로 제출했다.
+  최초 제출 `cd82dbb`의 GitHub CI가 통과했다. merge·운영 적용·배포는 하지 않았다.
+- 독립 리뷰 HIGH 1건: PREPARING 중 수량을 0→1→0으로 바꾸면 주문 시각은 그대로여서 원래
+  `monitor_version`이 다시 유효해질 수 있었다. 원래 요청 재전송이 다른 직원의 정정을 덮을 수 있다.
+- 실제 수량 변경은 모니터링·기존 품목 API 모두 주문 잠금/트랜잭션 안에서 `updated_at`을 갱신한다.
+  관리자 품목 변경도 기존 서비스를 통해 갱신하며 무변경 관리자 저장은 버전·revision을 보존한다.
+  수량 원복 재전송 409, 무변경, 동시 수량 저장 한 번만 성공, 실패 시 시각/수량 롤백 회귀를 추가했다.
+- 검증: 집중 PostgreSQL 95개, 전체 `BK_TEST_DATABASE_URL=<전용 fixture URL> .venv/bin/python scripts/test_postgres.py`
+  **612개(27+585), skip 0** 통과. Django check·migration drift·`git diff --check` 통과.
+  변경은 Python/문서이며 기존 Node 85개·브라우저 검증은 앞선 UI-05B 기록을 따른다.
+  독립 재리뷰에서 원래 HIGH 해결·추가 지적 없음. 결과 로그 `.venv/ui05b-review-pg.log`는 미추적이다.
+- 다음 UI-05C는 별도 `ui/05-stats-dashboard` 브랜치/worktree에서 병행한다. PR82에 포함하지 않는다.
+
+## 2026-09-22 — UI-05B PR 제출·독립 리뷰와 UI-05C 병행 승인
+
+- 사용자 지시: “pr 올리고 서브에이전트로 리뷰 돌리자 동시에 다음 ui 쪽 작업 시작하자”.
+  UI-05B commit/push 및 develop 대상 PR 제출을 승인했다. merge·배포는 포함하지 않는다.
+- UI-05B 검증 완료 변경만 제출하며, 다음 UI-05C는 별도 worktree/브랜치에서 진행한다.
+  리뷰 결과와 후속 수정·UI-05C 검증은 각 브랜치의 이후 기록을 따른다.
+
+## 2026-09-22 — UI-05B: PC 모니터링·준비 수량·명시적 서빙 출발
+
+- 사용자: PR81 머지 후 “다음 부분 ui 랑 로직 구현작업 진행”. 실제 PR81 MERGED 및 clean
+  develop `ea1c77e`를 확인하고 `ui/05-monitoring-workflow` 브랜치를 만들었다. 로컬 구현·검증 범위이며
+  이번 브랜치 commit/push/PR/merge·운영 마이그레이션·배포는 하지 않았다.
+- Figma 05안 `2135:1037`(모니터링), `2202:2203`(상세)의 design context를 읽었다.
+  식당·포장·전체 화면에 미완료 가로 목록, 50건씩 전체 내역, 준비 수량 상세, 내 메뉴를 적용했다.
+  화면 인라인 코드를 `monitor.js`/`monitor_state.js`로 추출하고 안전한 DOM 생성으로 통일했다.
+- D-063: 수량 충족만으로 READY가 되지 않는다. 명시적인 출발 확인이 모든 품목 준비·READY·
+  출발 시각을 함께 기록한다. 재개는 수량 유지·출발 시각 제거, 취소는 최종·이력 조회만 가능.
+  기존 READY·일반 상태 API 완료에 출발 시각을 추정하지 않는다. nullable 0030만 추가했다.
+- 주문 잠금 후 버전 비교, 전체 품목 검증, 변경·감사 이벤트·revision의 원자성을 구현했다.
+  조회는 같은 REPEATABLE READ에서 미완료+페이지 내역을 직렬화한다. 커서를 권한·범위·페이지·
+  표현 버전·DB 세대에 결속하고 기존 SSE 스케줄러만 사용한다. 새 writer도 변경 감지 목록에 등록했다.
+- 읽기/쓰기 구현을 분리 위임하고 통합했다. 독립 code-reviewer가 찾은 HTML data 키 불일치,
+  미저장 수량의 재개/목록 이탈 시 유실, 탭 복귀 직후 오래된 값으로 버튼이 활성화되는 문제를
+  수정하고 회귀를 추가했다. 최종 재검토에서 actionable finding 없음.
+- 첫 전체 검증에서 최신 migration 기대값·기존 인라인 템플릿 검사·writer 분류 누락을 발견했다.
+  검사 대상을 추출 controller/새 schema에 맞췄고, 동작 검증은 실제 이벤트 기반 Node 테스트로 보강했다.
+  권한 없는 계정의 최초 로그인은 원래 금지이므로 권한 16조합 검사는 로그인 후 권한을 변경하는
+  기존 인증 계약에 맞춰 수정했다. 비즈니스 규칙을 테스트 편의상 바꾸지 않았다.
+- 주요 파일: models/core·migration0030; services/status·monitoring_actions·monitoring_snapshot;
+  views/monitoring·monitoring_actions·serializers·pages·urls; kitchen_supervisor·monitor CSS/JS/state;
+  새 monitoring PG/Node 테스트와 기존 상태/감사/관리자/보안/SSE/마이그레이션 회귀; CI.
+  문서 UI_MONITORING(신규), UI_IMPLEMENTATION, DECISIONS, ORDER_STATE, KITCHEN_CLIENT,
+  README, SESSION_SETUP, BLUEPRINT를 현재 단계로 갱신했다.
+
+### 검증 결과
+
+전용 Compose `bk-ui05b-0922`, PostgreSQL 15, 포트 `55462`와 UUID fixture DB만 사용했다.
+실제 운영 DB/자격증명은 사용하지 않았다. 테스트·preview 종료 후 해당 프로젝트를 정리했다.
+
+```sh
+BK_TEST_PG_PORT=55462 docker compose -p bk-ui05b-0922 -f compose.test.yaml up -d --wait postgres
+BK_TEST_DATABASE_URL=postgresql://bk_test_runner:synthetic-local-runner-only@127.0.0.1:55462/bk_test_control .venv/bin/python scripts/test_postgres.py
+node --test scripts/test_auth_client.cjs scripts/test_dom_helpers.cjs scripts/test_request_id.cjs scripts/test_kitchen_live.cjs scripts/test_order_state.cjs scripts/test_order_controller.cjs scripts/test_monitor_state.cjs scripts/test_monitor_controller.cjs
+BK_TEST_PG_PORT=55462 docker compose -p bk-ui05b-0922 -f compose.test.yaml down --volumes
+```
+
+- Django system check 정상, migration drift 없음. 전체 **27 migration + 578 application = 605건** 통과,
+  skip 0. PostgreSQL 실제 동시 쓰기·rollback·16조합 권한·CSRF·stale·500건·페이지·동시 snapshot 포함.
+- 최종 Node **85건** 통과. 이후 변경한 controller 관련 Python 정적 연결 검사 23건도 통과.
+  `git diff --check`, 수정 문서 상대 링크·코드 구문 검사 정상.
+- 실제 브라우저: 격리 ASGI preview, 합성 주문 55건/페이지 2개/메뉴 악성 문자열로 검사했다.
+  전체→식당→포장 업무 이동, 상세 +/- 및 부분 수량 저장, 출발 확인/일괄 수량 완료/시각 기록,
+  이력 유지·재개·취소 확인·취소 내역 조회 전용·빈 미완료 목록을 확인했다.
+- PC 1440×1000과 1024×768에서 확인했다. 작은 PC에서 문서 너비 1024px, 모달 top16/bottom752,
+  버튼 영역 bottom751로 화면 안에 있고 본문만 스크롤한다. 상세 제목/입력 label/확인 초기 초점과
+  안전한 텍스트 출력을 확인했다(`img`/`script` 노드 생성 0).
+- 두 탭 검증: 한 탭에서 #002 수량 1을 입력하고 다른 탭에서 출발 처리했다. 원래 탭 복귀 후
+  입력 1 유지, “주문이 변경되었습니다” 안내, 저장 비활성화를 확인했다. 새 탭은 종료했다.
+- preview 종료 정상·fixture DB 제거, 생성한 브라우저 탭 정리 및 viewport 복원.
+  로컬 로그/preview는 무시되는 `.venv/ui05b-*`에만 남고 커밋 대상이 아니다.
+
+### 남은 범위와 다음 단계
+
+UI-05B 로컬 구현·검증 완료. PR 제출은 다음 사용자 지시에서 진행한다. 다음 독립 UI 구현은
+**UI-05C 누적·통계 PC**다. 운영 적용에는 0030이 필요하다. 이전 앱은 schema를 읽을 수 있어도
+자동 READY 의미로 되돌아가므로 안전한 복구는 쓰기 중지 후 정방향 수정이다(UI_MONITORING).
+운영 부하 10E, 실기기·음성 스크린리더 및 운영 인수 12는 완료하지 않았다.
+
+## 2026-09-21 — 10D2 주방 SSE 클라이언트·재접속·응답 순서 (D-061)
+
+- 브랜치 `phase-10d2-kitchen-client`, 기준 `develop` affc842(PR #79 병합 직후). 관문 둘을 물었고
+  사용자가 **"5초 후퇴 폴링"**과 **"보이는 탭만 연결"**을 골랐다(D-061). 이로써 D-019는 전부 확정됐다.
+- **읽는 시점을 정하는 곳을 하나로 줄였다.** `orders/static/orders/ui/kitchen_live.js`가 스트림·폴링·
+  재접속·탭 수명을 전부 맡고, 보드는 10C snapshot만 읽는다. 목록 fetch와 단건 fetch를 없앴다 —
+  BK-R033의 "늦은 목록이 최신 단건을 덮는" 경합은 경로가 둘이라 생겼고, 하나가 되면 막을 것이
+  없다. 쓰기 응답도 그리지 않고 같은 스케줄러에 읽기를 요청한다.
+- **폴링 규칙은 D-019 문장 그대로다:** 스트림 open + `hub_ok` + 완전한 snapshot + 마지막 읽기 성공이
+  아니면 5초마다 `since=` 커서로 읽는다. heartbeat 수신은 조건이 아니다.
+- **응답 역전은 버전이 아니라 epoch으로 막았다.** 카드가 요구한 "같은 세대 43→42 방어"를 버전
+  대소로는 할 수 없다(D-059의 버전은 순서가 없다). 읽기를 한 번에 하나로 두고, 일시정지(숨김·
+  `pagehide`)가 epoch을 올려 그 전 응답을 버린다. 테스트가 "숨긴 채 응답 지연 → 보임 → 새 응답
+  먼저 → 옛 응답 도착"을 그대로 재현하고, epoch 검사를 빼면 실패한다.
+- `closed` 사유별 동작: `revoked`/`reauthenticate`는 모든 것을 끝내고 로그인으로, `unverified`와
+  전송 CLOSED는 2→4→…→30초 백오프, CONNECTING은 브라우저에 맡기고 폴링. heartbeat 두 주기
+  침묵은 죽은 연결로 본다. `EventSource`가 없는 브라우저는 폴링만 하고 실시간이라 말하지 않는다.
+- `auth.js`는 한 줄만 바뀌었다 — 로그인으로 보내며 던지는 오류에 `name = 'AuthenticationLost'`를
+  붙여 스케줄러가 "이미 떠나는 중"과 "다시 시도할 실패"를 구분한다.
+- 4B2가 "10D2에서 만료"라고 적어 둔 타이머 울타리(`test_external_realtime.py`)는 없애지 않고
+  "어디에 살아도 되는지"로 바꿨다: `kitchen_live.js`에만, 단발만, 템플릿에는 `setTimeout`도
+  `visibilitychange`도 없음.
+- 변경 파일: `kitchen_live.js`(신규)·`kitchen_supervisor.html`·`auth.js`, 테스트
+  `scripts/test_kitchen_live.cjs`(신규, CI 추가)·`orders/tests/test_realtime.py`(신규)·
+  `test_external_realtime.py`, `scripts/kitchen_board_browser.mjs`(신규), 문서 `KITCHEN_CLIENT.md`(신규)·
+  `DECISIONS.md`(D-061, D-019 확정)·`BLUEPRINT.md`·`RISK_REGISTER.md`(R020/R033/R037/R038)·`README.md`·
+  `SSE_SERVER.md`. **마이그레이션 없음.**
+- 검증: 스케줄러 Node 테스트 **20건**(변이 3종 — `hub_ok` 무시·epoch만 제거·`revoked` 재접속 — 각각
+  하나를 실패시킴), 격리 PostgreSQL **마이그레이션 26건 + 애플리케이션 528건 통과**(신규 11건),
+  `manage.py check`·`makemigrations --check` 이상 없음.
+- **V-BROWSER 실행함.** Chrome 확장·Playwright 브리지가 둘 다 연결되지 않아(4B2와 같음) 로컬
+  Chrome을 headless로 띄우고 DevTools 프로토콜로 직접 구동했다(`scripts/kitchen_board_browser.mjs`,
+  의존성 없음). 격리 PG의 일회용 DB + uvicorn 1워커. **17건 통과:** 다른 연결의 커밋이 0.6~1.7초 뒤
+  표시, `+1`은 PATCH→snapshot 순서로 152ms, 탭 숨김에 스트림 닫힘·보임에 154ms 뒤 실시간, 서버
+  SIGKILL 뒤 154ms에 "연결 중 · 5초마다 다시 읽음", 복구 3.1초 뒤 새로고침 없이 실시간, 비활성화
+  0.5초 뒤 로그인 이동, 페이지 오류 0.
+- **우연히 본 것:** SIGTERM으로 죽인 uvicorn은 열린 스트림을 기다리는 정상 종료 상태가 돼 스트림은
+  살고 새 요청만 실패했다. 보드는 "읽기 실패 → 폴링"으로 맞게 처리했다. 운영 스택은 10A가
+  `--timeout-graceful-shutdown`으로 이 창을 묶어 둔다.
+- 코드 리뷰: HIGH 1 — **epoch 검사에 자기만의 테스트가 없었다.** 제가 돌린 변이는 seq 검사까지 같이 뺀
+  것이라 잡혔고, epoch만 빼면 18건이 전부 통과했다. "숨긴 채로 옛 응답이 도착"하는 경우(새 읽기가 없어
+  seq가 못 막는 유일한 경우)를 테스트로 추가해 닫았다. MEDIUM(실패 중 `change`마다 오류 로그 2회)·
+  LOW(재개 시 백오프 미초기화)도 반영.
+- 보안 리뷰: CRITICAL/HIGH/MEDIUM 없음. LOW 1(브라우저 스크립트의 대상 DB 확인) 반영 — DB 이름이
+  `bk_dev*`/`bk_test*`가 아니면 모든 쓰기를 거부.
+- **PR #80 리뷰 반영(코드·보안·아키텍처, CRITICAL/HIGH 없음).** 아키텍처 리뷰가 **제가 쓴 근거 하나를
+  반증했다** — "D-059의 버전은 순서가 없다"는 generation을 넘을 때만 참이고, 같은 세대 안에서는 D-058의
+  잠긴 행이 순서를 만든다. 비교가 불가능한 게 아니라 읽기가 하나라 불필요한 것이었다. DECISIONS·
+  BLUEPRINT·KITCHEN_CLIENT·SSE_SERVER·RISK의 문장을 바로잡았다. 코드 세 곳: (MEDIUM) `applied`를 `onApply`
+  전에 기록해 렌더가 던지면 안 그린 버전으로 `unchanged`를 받아 "실시간" 아래 얼어붙던 경로 — 순서를
+  바꾸고 테스트 추가. (MEDIUM) 상태 보고마다 보드 전체를 `innerHTML`로 다시 그려 heartbeat마다 카드
+  노드를 버리고 쓰기 중 비활성화한 버튼을 새 것으로 바꾸던 것 — 상태 줄만 갱신, 울타리 테스트. (MEDIUM)
+  "프레임마다 `hub_ok`"는 거짓(`change`에는 없다) — `change` 도착을 허브 정상의 증거로 삼아 첫 구독자의
+  `ready`가 거짓을 실었을 때 바쁜 주방이 계속 폴링하던 경로를 닫음. (LOW) `heartbeat_ms` 누락 시 침묵
+  감지가 꺼지던 것 — 15초 fallback. (LOW) 재접속 지터(줄이는 방향만). 테스트 공백 둘(취소 뒤 늦은 목록,
+  PATCH와 늦은 목록 경합)은 노드 테스트로 수렴 순서를 고정했고, 실제 브라우저는 응답을 붙들 수 없어
+  재현하지 못한다고 적었다. 브라우저 스크립트는 건너뛴 단계를 통과와 따로 센다. `auth.js` 409 백오프가
+  타이머 울타리의 예외임을 테스트와 문서에 명시. 노드 25건.
+- 남은 것: 렌더링 문자열 조립(11), 실제 프록시 경유·다중 워커(12A), 요청 제한(12A1), 모바일 실기기,
+  실제 `pagehide`/`pageshow`, 첫 구독자 `ready`의 `hub_ok` 경합 테스트, `expires_at`·`id:` 테스트(10D1 인계).
+  검사 후 개발 서버·일회용 DB·compose 프로젝트는 제거했다.
+
+## 2026-09-21 — 10D1 인증된 SSE 서버·허브와 세션 회수 (D-060)
+
+- 브랜치 `phase-10d1-sse-hub`, 기준 `develop` 4010690. 관문 둘을 먼저 물었고 사용자가
+  **"EventSource + 리프레시 쿠키"**와 **"이벤트마다 재확인"**을 골랐다(D-060).
+- **이 단계가 다른 단계와 다른 점 하나.** 요청은 한 번 인가되고 끝난다. 스트림은 한 번
+  인가되고 저녁 내내 열려 있다. 나머지 시스템이 "요청마다 DB를 다시 읽는다"에서 공짜로 얻던
+  보장을 전부 의도적으로 다시 세워야 했고, 그래서 이 단계의 테스트는 대부분 스트림을
+  **먹이는** 것이 아니라 **끝내는** 것에 관한 것이다.
+- **쿠키를 고른 이유는 `EventSource`가 헤더를 못 붙이기 때문만이 아니다.** 대안인
+  fetch+ReadableStream은 재접속·백오프·프레임 파싱·BFCache를 전부 직접 쓰게 만드는데, 그게
+  BK-R020/033이 말하는 표면 그 자체다. 리프레시 쿠키는 HttpOnly라 스크립트가 닿지 못하고,
+  회전시키지 않는다(읽기이고 다른 탭과 경합한다). 거절은 **JSON**이어야 한다 — 로그인
+  리다이렉트를 `EventSource`는 불투명한 실패로 보고 **영원히 재시도**한다.
+- **"이벤트마다 재인가"를 묶음 조회로 감당한다.** 변경 하나가 N개 화면을 깨울 때 기기 행을
+  N번이 아니라 한 번에 읽는다. 고른 의미는 그대로고 비용만 변경당으로 묶인다. 10A가 경고한
+  "연결 수가 열린 화면 수를 따라가는" 경로를 이렇게 피했다.
+- **승인된 문서 둘이 충돌해서 해소했다.** 10D1 카드는 "발생 빈도 정보 노출 거부"를 요구하고
+  D-059는 같은 누출을 버전에 대해 의도적으로 허용한다. 둘 다 유지했다 — D-059가 거부한 것은
+  **쓰기 쪽** 표시를 쪼개는 것(두 번째 쓰기 잠금과 그 획득 순서 = 교착 위험)이었고, **허브는
+  카운터가 아니다.** 각 scope가 볼 수 있는 것을 **읽기 쪽**에서 비교하며 거기엔 순서를 정할
+  잠금이 없다. 비교 대상은 화면이 스스로 가져갈 바로 그 snapshot이다 — 손으로 고른 컬럼
+  지문은 `prepared_qty` 하나만 빠져도 보드를 아무 오류 없이 얼린다.
+- **테스트가 제 설계 오류를 고쳤다.** 초안은 "표시를 못 읽음"과 "인가를 확인 못 함"을 같이
+  다뤄 둘 다 스트림을 끊게 했다. heartbeat 테스트가 실패하면서 드러났다 — 앞의 것은 끊으면
+  화면이 재접속해 같은 고장 난 허브를 만나 **루프**가 된다. D-019가 판단을 클라이언트에 두므로
+  (허브 정상성 + 완전한 snapshot) 열어 두고 `hub_ok: false`를 싣는 것이 맞다. 인가 실패는
+  반대로 **닫히는 쪽으로 실패**한다 — 카드가 말한 "상한"은 이벤트 0건이다.
+- **연결 규칙이 10A에서 뒤집힌다.** 허브는 워커당 스레드 하나·연결 하나를 수명 내내 쥐고,
+  스트림은 인증 직후 놓는다. **스트림당 놓고, 허브당 쥔다.** 10C가 10D1 인계로 남긴 항목이다.
+- **측정(`scripts/hub_fanout.py`):** 변경당 쿼리가 화면 3개 이상에서 **22.0으로 평평**
+  (인가 묶음 1 + scope 3 × snapshot 7), 깨운 비율 **100% → 67%**. 10C가 측정한 헛수고 33%가
+  그대로 사라진 몫이다.
+  **지연은 싣지 않았다** — 첫 실행에서 화면 수를 따라 17.5→41.1ms로 오르는 것처럼 보였는데
+  `--screens 12,6,3,1`로 뒤집자 12개가 17.9ms·3개가 22.8ms였다. 추세가 화면 수가 아니라 실행
+  순서를 따라간 것이라 결과가 아니다. **불편한 몫도 적었다:** 허브가 scope마다 온전한 snapshot을
+  가져가므로 쿼리 총량 기준 손익분기는 화면 약 10개다. 그 아래에서 값을 하는 이유는 쿼리 수가
+  아니라 폴 간격만큼의 지연 제거와 헛수고의 무조건적 소멸이다.
+- 변경 파일: `orders/services/hub.py`(신규)·`orders/views/stream.py`(신규)·
+  `orders/services/__init__.py`·`orders/urls.py`, 테스트 `test_sse_server.py`(신규),
+  `scripts/hub_fanout.py`(신규), 문서 `SSE_SERVER.md`(신규)·`DECISIONS.md`(D-060, D-019 갱신)·
+  `BLUEPRINT.md`·`RISK_REGISTER.md`(BK-R038)·`README.md`. **마이그레이션 없음.**
+- 검증: 격리 PostgreSQL **마이그레이션 26건 + 애플리케이션 512건 통과**(신규 15건).
+  변이 확인 — 재인가를 건너뛰면 회수 테스트 2건 실패, scope 비교를 없애면 "포장 화면이 홀
+  변경에 깨지 않는다" 실패.
+- **아키텍처 리뷰 반영: HIGH 5 + MEDIUM 일부.** 공통점은 "아무 오류 없이 보드가 멈추는"
+  경로다. (H1) `Health.ok`에 신선도 항이 없어 폴러가 아예 죽으면 영원히 `hub_ok: true`였다 —
+  `failures`는 읽기가 *실패할 때만* 움직인다. (H3) scope 조회가 한 번 실패하면 그 변경이
+  영구히 사라졌다. (H4) digest가 `MAX_QUEUE` 절단을 무시해 500건 위에서 보드가 멈췄다 —
+  10C에는 없던 구멍이라 그 경계에서 퇴보였다. (H5) `change`의 `version`이 scope 필터가 막은
+  것을 되돌려줬다(전역 카운터라 간격이 곧 못 들은 변경의 개수). 프레임을 비웠다. (H2)
+  `id(loop)` 키잉은 주소 재사용으로 죽은 허브를 물려받는다 — `WeakKeyDictionary`. (M2)
+  `scope_key`가 권한 집합 전체라 같은 보드를 두 번 조회했다. 정규화하되 역할 변경 탐지는
+  원본 튜플로 남겼다.
+- **제가 문서에 쓴 "워커당 연결 하나"가 거짓이었다.** Django가 모든 요청을
+  `ThreadSensitiveContext`로 감싸므로 `thread_sensitive=True`는 요청별 executor를 쓰고, 허브는
+  자신을 시작시킨 요청의 스레드를 물려받았다가 그 요청이 끝나면 옮겨 간다. `AsyncClient`에는
+  그 컨텍스트가 없어 **테스트가 운영과 다른 모양을 검증한다.** 참인 것은 "감지가 워커당"이라는
+  방향뿐이라 그렇게 고쳐 적었다.
+- **측정 주장도 낮췄다.** 22.0이 평평한 것과 67%는 발견이 아니라 하네스 구성의 산물이고
+  (역할 3종만 돌리니 scope가 3을 넘을 수 없다), **워커 수가 비용을 곱하므로** 손익분기는
+  화면 ~10이 아니라 `--workers 3` 기준 ~28이다. 재검증 518건 통과.
+- **10D2 인계:** `unverified` 재접속이 자기 제한적이지 않아 ~3초 루프가 되는데 서버가 `retry:`를
+  안 보내 백오프할 수단이 없다. 브라우저 출처당 연결 한도(~6) 때문에 탭이 6개면 주방이 자기
+  snapshot 요청을 막는다. `expires_at` 만료와 `id:` 부재에 테스트가 없다. `BLUEPRINT.md`가 없는
+  파일(`test_sse_auth`)을 검증 명령으로 적고 있다.
+- **화면은 아직 이 스트림에 붙지 않는다**(10D2). 다중 워커 전달과 실제 프록시 경유는 재지
+  않았고, 요청 제한은 12A1이다.
+- **보안 리뷰 반영: CRITICAL 1 + HIGH 2 + MEDIUM 1.** 넷 다 근본 원인이 같다 — 인가 판단을
+  손으로 다시 구현한 것. (i) **PIN 회전이 열린 스트림을 끊지 못했다** — 허브가 조건을 다시
+  나열하며 credential fingerprint 비교를 빠뜨렸고, 이 저장소에서 그 비교가 곧 D-045의 회수다.
+  회전이 모든 요청을 막고 스트림은 하나도 막지 못했다. `device_is_current()`로 술어를 합쳤다.
+  (ii) 자원 반환 closer로 `lambda: None`을 등록해 그물이 무력했다 — 끊긴 태블릿이 반복되면
+  24슬롯이 차고 정상 화면이 영구히 503을 받는다. 진짜 함수를 멱등으로 등록했다. (iii) 슬롯을
+  잡은 뒤 첫 `yield` 전 구간이 무방비였다(전진하지 않은 제너레이터는 `try`에 들어가지도 않는다).
+  (iv) 한산한 보드에서 "이벤트마다"가 아무 상한도 아니었다 — heartbeat 주기에도 같은 검사를
+  돌린다. 변이 확인: fingerprint 비교를 없애면 새 스트림 테스트가 기존 토큰 테스트 6건과 함께
+  실패한다. 재검증 516건 통과.
+- 다른 세션이 `UI_UX_REDESIGN.md`·`UI_REFERENCES.md`와 이 파일 하단을 동시에 편집 중이라,
+  커밋에는 제 hunk만 선별해 올렸다.
+
+## 2026-09-20 — 10C 버전과 일치하는 권한 snapshot (D-059)
+
+- 브랜치 `phase-10c-snapshot`, 기준 `develop` 7230cce. 10C의 결정 관문 세 개를 먼저 물었고,
+  사용자가 **"REPEATABLE READ 트랜잭션"**, **"generation을 지금 넣기"**,
+  **"측정하고 전역 1행 유지"**를 골랐다(D-059).
+- **문제는 읽기가 두 문장이라는 것.** autocommit에서 표시를 읽는 SELECT와 주문을 읽는 SELECT는
+  서로 다른 PostgreSQL 스냅샷이고, 사이에 커밋이 끼면 **한 번도 함께 참인 적 없는 짝**이 나간다.
+  주문을 먼저 읽으면 화면이 자기가 보여 주는 것보다 앞선 버전을 저장하고, 다른 변경이 올
+  때까지 틀린 것을 계속 보여 준다 — 10B가 쓰기 쪽에서 막은 영구 누락이 읽기 쪽으로 돌아오는
+  경로다. 그래서 snapshot은 짧은 REPEATABLE READ 트랜잭션 하나다.
+- **버전은 비교하는 것이지 크기를 재는 것이 아니다.** `generation:value:scope`. `generation`은
+  복원이 숫자를 되돌리는 경우를 잡고(`>`면 영원히 안 받고, `!=`여도 이미 본 번호를 새 것으로
+  받는다), `scope`는 요청마다 DB에서 읽히는 권한이 바뀐 경우를 잡는다. 둘 중 하나라도 다르면
+  가운데 숫자는 의미가 없으므로 커서를 거부하고 전체를 준다 — 400이 아니라 200 + 전체 목록이다.
+  화면이 두 경우에 할 일이 같은데 왕복만 늘기 때문이다.
+- **잘린 목록에는 `complete=false`를 붙인다.** `MAX_QUEUE`가 자를 수 있고, 잘린 목록에 붙은
+  버전은 "전부 가졌다"는 약속이 아니다. 10B 아키텍처 리뷰가 지목한 항목이다.
+- **테스트가 제 버그를 잡았다.** `_isolate()`가 `connection.in_atomic_block`으로 "내 트랜잭션인가"를
+  판단했는데 **방금 연 블록 안이라 항상 참**이었고, `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ`가
+  한 번도 실행되지 않았다. 읽는 도중 커밋을 barrier로 끼워 넣는 테스트가 `2 != 1`로 실패해
+  드러났다 — 격리가 없으면 스냅샷이 새 주문을 담은 채 옛 버전 라벨을 달고 나온다. 트랜잭션을
+  열기 **전에** 계산한 플래그를 넘기도록 고쳤고, 그 테스트가 곧 이 단계의 변이 검사다.
+- **엄격함을 하나 되돌렸다.** 중첩 호출에서 격리를 못 걸 때 초안은 예외를 던졌다. 그 결과
+  저장소의 모든 `TestCase`에서 엔드포인트가 도달 불가가 됐고(권한 매트릭스 4 ERROR), 게다가
+  바깥 트랜잭션 안에서는 이 격리 수준이 막으려는 커밋이 어차피 안 보여 **잃는 보장이 없었다.**
+  던지지 않고 `Snapshot.isolated`로 보고하고, 운영이 조용히 그리로 가지 않음은
+  `ATOMIC_REQUESTS`가 꺼져 있다는 테스트로 고정했다.
+- **읽기 증폭 측정(독립 2회, `scripts/snapshot_amplification.py`).** 10B가 판단 근거 없이 남기고
+  10C 승인 기준에 넘긴 항목이다. 대기 홀 40 + 포장 40, 홀 변경 20회, 화면 1·3·6·12:
+
+  | 화면 | 재조회 | 헛수고 | 헛수고% | 쿼리/폴 | 중앙값 ms | p90 ms |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 1 | 20 | 0 | 0% | 7.0 | 4.78 / 3.44 | 5.88 / 4.00 |
+  | 3 | 60 | 20 | 33% | 7.0 | 4.56 / 4.04 | 7.06 / 6.73 |
+  | 6 | 120 | 40 | 33% | 7.0 | 5.28 / 4.05 | 6.30 / 4.93 |
+  | 12 | 240 | 80 | 33% | 7.0 | 4.95 / 5.14 | 9.23 / 7.13 |
+
+  두 숫자가 예상보다 셌다. (i) **재조회 횟수 = 폴 횟수** — 변경이 계속 있으면 전역 표시 때문에
+  모든 화면이 모든 변경마다 다시 받고, `unchanged`로 싸게 끝나는 폴은 조용할 때만 나온다.
+  (ii) 그 재조회의 **3분의 1이 헛수고**다(다른 scope의 변경에 깨어나 이미 가진 것을 그대로 받음).
+  그래도 유지한다 — 폴 하나가 쿼리 7개·수 ms이고, 쪼개면 scope 간 잠금 획득 순서라는 새 교착
+  위험을 산다. 단서: 단일 프로세스·순차 폴링이라 **동시 폴링의 연결 경합은 재지 않았다**(10D1).
+- 변경 파일: `orders/services/snapshots.py`(신규), `orders/models/revisions.py`(`generation`)·
+  `orders/migrations/0029_revision_generation.py`(신규), `orders/services/revisions.py`(`state()`)·
+  `orders/services/__init__.py`, `orders/views/api.py`(`snapshot_waiting`)·`orders/urls.py`,
+  `scripts/snapshot_amplification.py`(신규), 테스트 `test_snapshot_consistency.py`(신규)·
+  `test_migration_paths.py`·`test_permissions.py`, 문서 `SNAPSHOT.md`(신규)·`DECISIONS.md`(D-059,
+  D-019 갱신)·`BLUEPRINT.md`·`RISK_REGISTER.md`(BK-R037)·`README.md`.
+- 검증: 격리 PostgreSQL 전체 — 마이그레이션 26건 + 애플리케이션 490건 통과(신규 23건),
+  `manage.py check` 이상 없음, `makemigrations --check` 변경 없음. 0029 정·역방향을 주문과 표시가
+  이미 있는 DB에서 확인했다.
+- **화면은 아직 이 엔드포인트를 부르지 않는다**(10D2). SSE·heartbeat·재접속·세션 회수는 D-019에
+  그대로 남아 10D1 시작 전에 확정해야 한다. 요청 제한은 10B와 같이 12A1 인계다.
+- 이 저장소에서 다른 세션이 `UI_UX_REDESIGN.md`·`UI_REFERENCES.md`와 이 파일 하단을 동시에
+  편집 중이라, 커밋에는 제 hunk만 선별해 올렸다.
+
+- **리뷰 반영(보안·아키텍처·코드 3건).** 보안은 CRITICAL/HIGH 없음이었고, 나머지 둘이
+  **제가 쓴 근거 다섯 개를 반증했다.** 전부 사실 관계라 확인 후 고쳤다.
+  1. **"중첩돼도 잃는 보장이 없다"가 거짓.** 저장소 어디에도 격리 수준을 올리는 곳이 없어
+     모든 `atomic()`은 READ COMMITTED이고, 거기서는 **문장마다 새 스냅샷**이다. 동일 시점
+     보장은 중첩되면 진짜로 사라진다. 보고(`isolated`)하기로 한 결정은 유지하되 근거를
+     바꿨다 — 사라져도 안전한 이유는 `waiting()`이 **버전을 먼저, 주문을 나중에** 읽어
+     최악의 짝이 "데이터가 버전보다 새것"(한 번 더 받고 수렴)이기 때문이다. **읽기 순서가
+     하중을 받는 설계인데 그걸 지키는 테스트가 없었다.** 추가했고, 반환 순서를 뒤집으면
+     실패한다. `isolated`는 계산만 되고 읽는 곳이 없었어서 엔드포인트가 경고를 남기게 했다
+     (저장소의 첫 로거다).
+  2. **`ATOMIC_REQUESTS` 검사가 아무것도 검사하지 않았다.** `settings_test_pg.py:70`이
+     `DATABASES`를 리터럴로 통째 교체하고 그 리터럴에 그 키가 없어, **없던 키가 없음을**
+     확인하고 있었다. 실제 설정을 별도 인터프리터로 부팅하는 `test_required_settings.py`로
+     옮겼다(그 파일 주석이 이미 "여기가 실제 설정을 부팅하는 유일한 곳"이라 적고 있었다).
+  3. **복원 테스트가 `generation` 없이도 통과했다.** 값까지 함께 옮겨 숫자만으로 버전이
+     달라졌기 때문이다. 게다가 근거로 적은 위험("이미 본 301·302를 새 것으로 받는다")이
+     애초에 위험이 아니었다 — 수렴 계약에서 한 번 더 받는 건 무해하다. 진짜 위험은
+     **충돌**이다: 복원된 카운터가 화면이 아직 쥔 값에 도달해 `unchanged`를 답하고 복원
+     이전 화면이 남는 것. generation만 돌리고 값은 그대로 두는 사례로 바꿨다.
+  4. **측정 두 가지를 하네스가 정해 놓고 "발견"이라 적었다.** "재조회 = 폴"은 변경당 폴을
+     1회로 고정했으니 다른 답이 나올 수 없었다. `--polls-per-change`를 넣고 1:3을 재니
+     **폴 3개 중 1개만 재조회**, 폴당 쿼리 7.0→5.0, 중앙값 4.6ms→1.0ms였다. 33%도 설계가
+     아니라 화면 구성비 × 변경 구성비(100% 홀)의 산물이다. 그리고 "`CONN_MAX_AGE=0`이라
+     폴마다 새 연결"이라는 단서는 **이 하네스에서 거짓**이었다 — 요청 주기가 없어 전 구간이
+     연결 하나를 재사용하므로 지연은 오히려 낮게 나왔다. p90 인덱스도 절삭이라 표본이 10의
+     배수가 아니면 틀렸다(기존 값은 전부 20의 배수라 영향 없음). 전부 고쳤다.
+  5. **지연 import의 "순환 때문" 설명이 거짓.** `orders/views/__init__.py`는 아무것도
+     import하지 않고 `selectors`는 `services.scope`만 되짚는다. 양쪽 진입 순서로 확인했고
+     최상단으로 올렸다. 부르는 것 자체는 맞지만(대안이 보드 질의의 두 번째 사본)
+     **오늘 일치하는 이유가 `OrderType` 멤버가 둘뿐이라는 우연**이었으므로 두 질의가 같은
+     주문을 고른다는 테스트를 넣었다. 10D2가 바로 이 자리를 바꾼다.
+- **변이로 확인했다**(리뷰가 지적한 게 "통과하지만 아무것도 잡지 않는 테스트"였으므로):
+  generation 제거 → 복원 테스트 2건 실패, 반환 순서 뒤집기 → 중첩 방향 테스트 실패,
+  `ATOMIC_REQUESTS: True` → 설정 테스트 실패. 셋 다 초안 테스트로는 통과했다.
+- 그 밖에 10B가 10C에 넘긴 "활동률 누출"을 D-059에서 둘로 갈라 답했다(비율은 표시를 쪼개야
+  닫히므로 의도적 허용, 절대 크기도 함께 허용). **요청 제한은 이 누출을 닫지 못하므로**
+  12A1에 위임하지 않는다. 8B가 남긴 `COUNT(*)` 경합이 한 트랜잭션 안에서 함께 닫힌 것,
+  복제본을 붙이면 버전과 데이터가 갈라진다는 것도 적었다.
+- 리뷰 반영 후 검증: 격리 PostgreSQL **마이그레이션 26건 + 애플리케이션 497건 통과**,
+  `manage.py check` 이상 없음.
+
+## 2026-09-20 — 10B 모든 writer의 영속 변경 감지 (D-058)
+
+- 브랜치 `phase-10b-change-detection`, 기준 `develop` d01d812. 10B의 결정 관문 D-019가 열려 있어
+  먼저 물었고, 사용자가 **"최신 대기 상태 수렴"**과 **"서비스 계층 writer 통합"**을 골랐다(D-058).
+- **먼저 writer를 전수 조사했다.** 서비스 계층 통합은 DB trigger와 달리 누가 기억한 호출 지점만
+  덮으므로, 그 목록이 곧 이 단계의 위험이다. 조사가 설계를 두 번 바꿨다.
+  1. **시그널 리시버가 저장소 전체에 하나도 없다.** `post_save` 기반 훅은 선택지가 아니었다.
+  2. **주방의 자기 쓰기가 서비스 밖에 있다.** `prepared_qty`는 `views/api.py`에 인라인으로
+     저장되고, 품목 4개 중 1개만 익으면 주문 상태는 `PREPARING` 그대로다. 상태 서비스에만 건
+     표시는 이 경우를 통째로 놓친다.
+  3. **`EventDay`가 가장 날카롭다.** 행사일 등록이 `series_for()`를 뒤집어 화면의 연습 배지를
+     모든 주문에서 바꾸는데 `orders_order` 행은 하나도 쓰지 않는다. → **주문별 표시로는 안 된다.**
+- **시퀀스가 아니라 잠긴 행을 쓴 이유.** 카드가 인수 기준에 지목한 "ID 10/11 커밋 역전"이다.
+  10을 받은 트랜잭션이 11을 받은 것보다 늦게 커밋하면, 11을 본 화면은 10이 설명하는 변경을
+  영원히 받지 못한다. 시퀀스는 롤백해도 번호가 살아남아 있지도 않은 변경으로 화면을 다시 받게
+  만들기까지 한다. 잠긴 행은 "나중 번호"와 "나중 커밋"을 같은 말로 만든다(D-047과 같은 기법).
+- **잠금은 항상 마지막.** 주문 생성은 번호 카운터를, 조리 진행은 주문·품목 행을 먼저 잠근다.
+  표시를 먼저 잡으면 교착한다 — 카드가 `도메인/revision 잠금 역순 재현`을 검증 항목으로 지목한
+  이유다. 그 결과로 **행별 revision은 두지 않았다**: 늦게 잠그면 값이 INSERT 시점에 없고
+  PostgreSQL은 CHECK를 지연시킬 수 없으며(UNIQUE·FK·EXCLUDE만 가능), 수렴 계약에도 필요 없다.
+- **테스트가 제 설계 하나를 먼저 반증했다.** "트랜잭션당 한 번만 센다"는 제약을 넣으려 했는데,
+  연결에 메모를 남기면 롤백 시 그 메모가 다음 트랜잭션으로 새어 bump를 건너뛴다. 읽는 쪽은
+  "달라졌는가"만 보므로 애초에 필요 없는 제약이라 뺐다. 대신 "단조 증가"와 "주문 하나 = 정확히
+  한 칸"을 고정했다.
+- **측정(독립 2회, `scripts/marker_contention.py`):** 모든 쓰기가 커밋 전에 행 잠금 하나를 잡으므로
+  직렬화된다. 직렬로는 차이 없음(두 회차가 반대 방향 = 잡음). 동시 4—16에서 **처리량 −24%―−38%**,
+  **p90 2—3배**(16 동시 21.96→46.04 / 16.88→55.46ms). 16 동시에서 중앙값은 오히려 나아졌는데
+  (12.21→10.77) 직렬화가 대기를 고르게 만들기 때문이고 값은 전부 꼬리로 간다 — 중앙값만 보고
+  공짜라고 말하면 안 된다. 바닥값 670—720 writes/s는 이 주방의 쓰기량보다 두 자릿수 위다.
+- 변경 파일: `orders/models/revisions.py`(신규)·`orders/models/__init__.py`,
+  `orders/migrations/0028_change_revision.py`(신규), `orders/services/revisions.py`(신규)·
+  `orders/services/__init__.py`, `orders/services/totals.py`(트랜잭션+표시 부여)·
+  `orders/services/status.py`(`change_by_id`), `orders/views/api.py`(생성·상태·조리 진행 3경로),
+  `orders/admin.py`(`MarksTheBoard` 믹스인 + `OrderAdmin` 직접 쓰기 2곳),
+  `scripts/marker_contention.py`(신규), 테스트 `test_change_tracking.py`(신규)·
+  `test_writer_coverage.py`(신규)·`test_migration_paths.py`,
+  문서 5개(`CHANGE_DETECTION.md` 신규, DECISIONS D-058·D-019, BLUEPRINT 10B, RISK BK-R036, README).
+- **리뷰 반영(PR #77, security·architect·code-reviewer).** 세 건은 제 주장이 틀렸다는 지적이고
+  맞았다. 두 리뷰가 독립적으로 같은 버그를 찾았고 한쪽은 실제 PostgreSQL에서 재현했다.
+  1. **(CRITICAL) "모든 writer가 표시한다"가 이미 깨져 있었다.** 조리 진행에서 표시가 품목
+     수량 변화(`changed`)에만 걸려 있었다. 부분 조리 주문을 수동으로 READY로 올린 뒤 이미 끝난
+     품목을 다시 누르면 `changed=False`인데 `sync_from_items`가 주문을 PREPARING으로 되돌린다 —
+     주문 행이 커밋되고 표시는 그대로. 폴링이 없으므로(4B2) **화면이 영구히 낡는다.** 이 단계가
+     없애겠다고 선언한 실패 그 자체다. `if changed or order.status != previous:`로 고치고
+     회귀 테스트로 고정했다(되돌려서 실패하는 것까지 확인).
+  2. **(HIGH) "표시는 항상 마지막에 잠근다"가 관리자에서 거짓이었다.** `save_model`에서 표시한
+     뒤 Django가 인라인 품목을 쓰므로 순서가 역방향이었고, 표시 행을 폼 제출 끝까지 쥐고 있었다.
+     더해서 목록 일괄 편집은 **행마다** 표시하므로 표시를 잡은 뒤 다음 행을 잠근다 —
+     **표시가 순환의 한가운데인 ABBA 교착**이 성립한다(운영자 둘이 정렬을 다르게 해 겹치는 행을
+     수정). 관리자는 `save_related`에서 표시하고 목록 POST는 전체를 감싼 트랜잭션에서 한 번만
+     표시하도록 고쳤다. 그 래퍼가 Django가 안 감싸 주는 일괄 삭제에도 트랜잭션을 준다.
+     문장도 좁혔다 — 성립하는 명제는 "다른 writer가 다툴 수 있는 행은 표시 뒤에 잡지 않는다".
+  3. **(HIGH) 분류 기준이 틀려 `AccountAdmin`을 놓쳤다.** "화면이 그리는가"로 물었는데,
+     권한은 요청마다 DB에서 읽히고(`_identity`) `scope.visible`이 그걸로 주문을 좁힌다. 즉
+     권한을 끄면 **화면이 볼 수 있는 집합**이 주문 행 하나 없이 바뀐다 — `EventDay`와 같은
+     종류인데 놓쳤다. 맞는 질문은 "화면이 **무엇을 볼 수 있는지** 바꾸는가"다. 믹스인을 붙이고,
+     AST가 원리적으로 못 보는 관리자를 **런타임 레지스트리로 훑는 테스트**를 추가했다.
+  4. **(MEDIUM) 근거가 무효였다.** "PostgreSQL이 CHECK를 지연시킬 수 없어 행별 revision을 못
+     둔다"고 적었는데, 사실이지만 근거가 못 된다 — nullable 컬럼 + 트랜잭션 끝 UPDATE면 제약이
+     아예 필요 없다. 유효한 이유 둘로 바꿔 적었다.
+  5. **(MEDIUM) 제약 이름이 거짓말했다.** `change_revision_never_decreases`는 `value >= 0`만
+     강제하므로 5→3도 통과한다. `change_revision_is_not_negative`로 고치고, 단조성은
+     "`mark()`가 유일한 writer"라는 사실을 테스트로 고정했다(0028은 미머지라 직접 수정).
+  6. 그 밖: `except Exception` → `IntegrityError`(0028 미적용 DB에서 모든 쓰기가 원인 없는 500이
+     되는 배포 순서 함정), 스캐너의 중첩 함수 오귀속 수정(리뷰어가 재현 — 클로저 안 쓰기가
+     바깥 함수로 귀속돼 안전망이 뚫렸다), `NOT_A_MODEL` 축소(`form`/`request`/`results` 등은
+     실제 모델을 담는 흔한 이름이라 거짓 음성을 만든다), async 쓰기 3종 추가,
+     `save_and_mark()` 무인자 호출이 전체 행을 덮어쓰던 것 거부, `recalc_totals`에 행 잠금,
+     보장된 3초 대기 제거(테스트 5.0초→2.8초).
+- **범위 밖으로 남긴 것(기록만):** 쓰기 엔드포인트 요청 제한(이 단계가 증폭했지만 12A1 소관),
+  전역 표시가 권한 경계 너머 활동량을 흘리는 것(10C가 정할 것), `board_write()` 컨텍스트
+  리팩터(구조적으로 맞지만 11단계/10D1), 읽기 증폭 측정(10C 승인 기준).
+- **10C 읽기 계약 세 줄을 문서에 박았다:** 표시를 데이터보다 먼저 읽을 것(반대로 하면 쓰기
+  쪽에서 막은 커밋 역전이 읽기 쪽으로 돌아온다), 비교는 `!=`일 것, `has_more`면 표시를
+  완전함의 근거로 쓰지 말 것.
+- 검증: 격리 PostgreSQL에서 **마이그레이션 25건 + 애플리케이션 467건 통과**(신규 33건, 리뷰 반영 후 재실행).
+  `manage.py check` 이상 없음, `makemigrations --check` 변경 없음. 0028 정·역방향을 주문이 있는
+  DB에서 확인했고 되돌린 뒤 스냅샷이 적용 전과 일치한다. 주문 생성과 조리 진행 동시 실행에서
+  교착 없음(201/200).
+- 남은 것: **화면은 아직 이 숫자를 읽지 않는다** — 10C(같은 시점 snapshot)와 10D1(허브).
+  D-019의 snapshot 격리·generation·cursor·heartbeat·재접속은 여전히 pending이며 10C 전에 확정해야
+  한다. `OrderAdmin.has_delete_permission` 공백과 writer 없는 `FloorOrderCounter`는 11단계 인계.
+
+## 2026-09-20 — 10A ASGI·미들웨어·프록시 최소 실행 증명 (D-057)
+
+- 브랜치 `phase-10a-asgi-runtime`, 기준 `develop` df9c35a. 사용자 지시: "기다렸다가 리뷰 반영하고 머지한 뒤
+  10A 진행해". 범위를 물었고 **"운영 실행까지 ASGI로 전환"**을 골랐다. 워커는 **uvicorn 단독 --workers 3**,
+  정적 파일은 **nginx 직접 제공**을 선택했다(D-057).
+- **운영이 WSGI로 돌고 있었다.** `compose.prod.yaml`이 `gunicorn ...wsgi:application`을 실행했고, WSGI 워커는
+  스트리밍 응답을 모아서 한 번에 보낸다. `asgi.py`는 있었지만 아무도 실행하지 않았다. 이 구성에서 SSE는 느린
+  것이 아니라 불가능했다(BK-R035).
+- **동기 미들웨어 하나가 요청 경로를 스레드로 끌어내리고 있었다.** 미들웨어 8개 중 `WhiteNoiseMiddleware`만
+  `async_capable=False`였고, Django는 동기 전용 미들웨어 **안쪽 전체**를 `async_to_sync`로 감싼다. 체인 생성을
+  계측해 `BRIDGE async_to_sync around middleware whitenoise...`를 확인했다. WhiteNoise는 최신 6.12에도 async
+  경로가 없어 정적 파일을 프록시로 옮겼다(저장 백엔드는 유지). 되돌아오는 것은 시스템 검사 `orders.E001`이 막는다.
+- **대가를 재 보니 제가 처음 적은 것보다 작았고, 원인도 달랐다.** 초안은 동기 미들웨어가 async 뷰를
+  **다른 이벤트 루프**에서 돌린다고 적었다. 그것을 증명하려고 쓴 테스트가 **실패**했다. asgiref의
+  `AsyncToSync`는 `SyncToAsync` 스레드 안에서 호출되면 코루틴을 `main_event_loop`로 되돌린다 — 루프는 갈리지
+  않는다. 실제 `ASGIHandler`로 32 동시 × 128요청을 돌려 잰 값은 `async만 p90 36~39ms` 대 `동기 1개 p90 44~50ms`,
+  직렬로는 차이 없음(1.43 vs 1.41ms). 즉 **정확성이 아니라 꼬리 지연**이다. 테스트를 뒤집어
+  `OneLoopEitherWayTests`로 두 경우 모두 루프가 같음을 고정했고, `checks.py`·`settings.py`·probe의 근거를
+  측정값으로 전부 고쳐 적었다.
+- **`--no-proxy-headers`가 보안 경계다.** uvicorn의 프록시 헤더 처리는 기본 켜짐이고 gunicorn과 달리
+  `REMOTE_ADDR`을 덮어쓴다. 켜 둔 채 전환했다면 이슈 #61의 판단이 `TRUSTED_PROXY_IPS`에서 명령줄로 조용히
+  옮겨 갔을 것이다. 프록시 경유 실패 11회 `200×9, 429, 429`, 스푸핑한 `X-Forwarded-For`로도 429로 재확인했다.
+- **측정이 제가 넣을 뻔한 결함을 잡았다.** 스트리밍 location에 `proxy_set_header Connection "";`을 넣자 400이
+  났다. nginx는 자기 레벨에 `proxy_set_header`가 하나라도 있으면 **상위의 것을 전부 상속하지 않는다**. 헤더 하나를
+  더한 것이 `Host`·`X-Forwarded-For`·`X-Forwarded-Proto`를 통째로 떨어뜨렸다. 공통 헤더를
+  `scripts/nginx_proxy_headers.conf`로 빼고 프록시하는 모든 location이 include하도록 했고, 회귀 테스트로 묶었다.
+- V-STREAM(실제 `compose.prod.yaml` 스택, uvicorn 워커 3개, nginx, `curl -N`): 프레임 간격
+  `[503, 502, 501, 504, 502] ms`(요청 500ms), 첫 프레임 t+75ms, 응답 종료 t+2587ms. 열린 스트림 0/6/24/48에서
+  `GET /orders/menus/` 중앙값 20/21/22/19ms, DB 연결 1 고정, 워커 스레드 9/15/33/57, FD 63/69/87/111.
+  클라이언트가 모두 사라지면 스레드 9·FD 63·DB 1로 기준선 복귀. 스트림을 연 채 `stop -t 30 app`이 10.7초에 종료
+  (`--timeout-graceful-shutdown 10`). 정적 파일은 프록시가 내고 **앱이 본 `/static/` 요청 0건**.
+  측정 절차는 즉석 스크립트로 끝내지 않고 `scripts/stream_smoke.py`로 커밋해 재현 가능하게 했다.
+- **인계(10D·D-007):** 스트림 1개가 워커 스레드 1개를 차지한다. **원인을 처음에는 "인증이 DB를 읽으려고 만든
+  스레드"라고 적었는데 틀렸다.** `SyncToAsync.__call__`을 계측해 보니 요청당 첫 thread-sensitive 호출은
+  `Signal.asend.<locals>.sync_send`, 즉 `request_started`의 동기 리시버(`reset_queries`,
+  `close_old_connections`)이고 요청 객체·미들웨어·인증보다 **먼저** 스레드를 만든다. 그러므로 "인증을 async로"
+  같은 완화책으로는 스레드가 **하나도** 줄지 않는다 — 요청당 1개는 구조적이다. CPU는 쓰지 않고 RSS는 스트림당
+  약 90kB다. 동시 화면 상한과 목표는 D-007에 남는다.
+- **"DB 연결 1"은 런타임의 성질이 아니라 이 뷰의 성질이다.** probe는 첫 프레임 전에 연결을 놓고 다시 읽지 않는다.
+  이벤트마다 DB를 건드리는 10D1의 허브는 매번 놓지 않으면 연결 수가 열린 화면 수를 따라간다. `CONN_MAX_AGE=0`의
+  놓고-다시-여는 비용도 그때 드러나므로 연결 재사용·pooler는 10E에서 다시 본다.
+- **리뷰 반영(PR #76, code-reviewer·security-reviewer·architect).** 세 건은 제 주장을 반증한 지적이라 문서를
+  다시 썼고(위 두 항목), 나머지는 코드로 막았다. (1) probe에 동시 상한이 없어 인증된 기기 하나가 워커 스레드를
+  계속 늘릴 수 있었다 → 워커당 `MAX_OPEN_STREAMS = 32`, 초과는 `503 + Retry-After`, 슬롯 반납은 제너레이터의
+  `finally`와 `_resource_closers` 양쪽에서 멱등하게. (2) `orders.E001`이 CI에서만 살아 있었다 → 컨테이너 시작
+  명령이 `python manage.py check`를 먼저 돌리고 그다음 `exec uvicorn`(컨테이너 로그로 확인). (3) 정적 파일을
+  프록시로 옮기며 `nosniff`·`Referrer-Policy`·COOP가 사라졌다 → `scripts/nginx_static_headers.conf`,
+  실제 응답으로 확인. (4) `/static/staticfiles.json`이 그대로 나갔다 → `return 404`, 확인. (5) 프록시의
+  비버퍼링 location 밖에 스트리밍 경로를 하나라도 두면 조용히 WSGI처럼 보인다 → 뷰에 `streams = True`를 달고
+  URLconf를 훑어 nginx prefix와 대조하는 테스트. (6) `stream.py`라는 이름이 10D1의 자리를 먼저 차지했다 →
+  `stream_probe.py`로 `git mv`.
+- 변경 파일: `bazaar_kiosk/settings.py`(미들웨어·정적·`CONN_MAX_AGE`·probe 스위치), `orders/checks.py`(신규),
+  `orders/apps.py`, `orders/views/stream_probe.py`(신규), `orders/views/guards.py`(async 경로), `orders/urls.py`,
+  `requirements*.txt`(gunicorn→uvicorn), `Dockerfile`(app/proxy 두 타깃), `compose.prod.yaml`,
+  `scripts/nginx_prod.conf`, `scripts/nginx_proxy_headers.conf`(신규), `scripts/nginx_static_headers.conf`(신규),
+  `scripts/stream_smoke.py`(신규), `.env.example`,
+  테스트 `test_asgi_stream.py`(신규)·`test_runtime_config.py`, 문서 6개(`ASGI_RUNTIME.md` 신규,
+  DECISIONS D-057·D-006, BLUEPRINT 10A, RISK BK-R035·BK-R039, README, DEPLOYMENT_CANDIDATE).
+- 검증: `.venv/bin/python scripts/test_postgres.py` -> 마이그레이션 24건, 애플리케이션 435건 통과(리뷰 반영 후 재실행).
+  `manage.py check` 이상 없음, `check --deploy` 경고는 이전과 동일, `makemigrations --check` 변경 없음.
+  **스키마 변경과 마이그레이션 없음.** 측정 후 컨테이너·볼륨·합성 비밀 파일 제거.
+- 남은 것: 브라우저·HTTP/2·여러 탭·BFCache는 BK-R039로 12A1. 실제 SSE는 10B/10C/10D. D-019는 여전히 pending이며
+  10B 시작 전에 확정해야 한다.
+
+## 2026-09-20 — 9 API 입력 계약과 경계 추출
+
+- 브랜치 `phase-9-api-boundaries`, 기준 `develop` 2475b54. 사용자 지시: "10D 시작하자 pr 올리고 리뷰 돌린 뒤 머지".
+  10D는 선행 카드 넷(9·10A·10B·10C)이 모두 미구현이라 시작할 수 없음을 보고했고, 지금 가능한 9와 10A 중
+  사용자가 **9**(임계 경로)를 골랐다. D-019는 여전히 pending이며 10B 시작 시 확정해야 한다.
+- BK-R015: 쓰기 엔드포인트 셋이 본문을 파싱한 결과를 매핑처럼 다뤄, `[]`·`"text"`·`5`·`null` 같은 유효한 JSON이
+  `AttributeError`로 500을 냈다. 필드 단위로도 같았다(숫자 `floor`가 `.upper()`에서 끝남). 구현 전 적대적 입력
+  조합에서 **500 36건**을 측정했고 구현 후 **0건**이다. `orders/views/validators.py`가 본문과 필드 타입을 경계에서
+  거르고 위반을 문장과 400으로 답한다. `idempotency.fingerprint`도 items가 목록이 아닐 때 순회하지 않도록 고쳤다.
+- BK-R024: `orders/views/api.py`(573줄, 그중 `orders_collection` 하나가 228줄)에서 직렬화를 `serializers.py`로,
+  조회를 `selectors.py`로 동작 변경 없이 꺼냈다. 515줄로 줄었다. 큰 감소가 아니며 이 단계는 성능 개선이 아니다.
+- 동작 보존: URL·역할·응답 그대로. `floor`·`order_type`은 기존대로 공백을 다듬지 **않고**, `is_takeout`은 기존대로
+  `bool()` 강제를 유지했다. 받는 범위를 넓히거나 좁히는 것 둘 다 동작 변경이기 때문이다.
+- 인계: 쿼리 기준선(주방 보드 6쿼리 이하, 주문 2건과 20건이 동일 — N+1 없음. 주문 상세 8쿼리 이하)과
+  writer 책임표 8개를 `API_CONTRACTS.md`에 적었다. 10B가 revision을 어디에 붙일지 판단할 입력이다.
+- 변경 파일: `orders/views/validators.py`·`serializers.py`·`selectors.py`(신규), `orders/views/api.py`,
+  `orders/services/idempotency.py`, `orders/tests/test_api_contracts.py`(신규), 문서 4개(`API_CONTRACTS.md` 신규,
+  BLUEPRINT 9, RISK BK-R015·BK-R024, README).
+- 검증: `.venv/bin/python scripts/test_postgres.py` -> 마이그레이션 24건, 애플리케이션 401건 통과.
+  `manage.py check` 이상 없음, `makemigrations --check` 변경 없음. **스키마 변경과 마이그레이션 없음.**
+- 남은 것: `orders_collection`은 아직 GET과 POST를 한 함수에 담고 있고, 쪼개면 URL 계약을 건드린다. 명령 추출은
+  10B가 revision을 붙일 때 함께 보는 편이 낫다. API 버전 표기는 없다(D-008).
+
+## 2026-09-20 — 4B2 브라우저의 외부 Realtime 제거, 폴링도 함께 제거 (D-056)
+
+- 브랜치 `phase-4b2-remove-external-realtime`, 기준 `develop` c76bccb. 사용자 지시: "4B2 시작하자 pr 올리고 리뷰 돌린 뒤 머지".
+- 결정 관문: 폴링 주기를 물었더니 사용자가 **"어차피 SSE로 갈 거고 지금 서비스 중 아니라서 폴링도 같이 없애 버릴 생각"**이라고
+  답했다. 제시한 세 선택지(5초·2초·가변) 어느 것도 아닌 네 번째 답이라 D-056으로 기록했다.
+- 제거: CDN의 외부 Realtime SDK `<script>`, HTML에 주입하던 프로젝트 URL·익명 키, `orders_order`·`orders_orderitem` 직접 구독,
+  5초 폴링 타이머, `_supabase_context`, `SUPABASE_URL`·`SUPABASE_ANON_KEY` 설정(운영·테스트 프로필·`.env.example` 모두).
+- 남긴 갱신 경로: 새로고침 버튼, 카드 조작, 탭 복귀 시 **단발** 읽기(타이머 아님). 상태 줄이 자동 갱신 없음과 목록 읽은 시각을 말한다.
+- 변경 파일: `orders/templates/orders/kitchen_supervisor.html`, `orders/views/pages.py`, `bazaar_kiosk/settings.py`,
+  `settings_test_pg.py`, `.env.example`, `orders/tests/test_external_realtime.py`(신규), `test_settings_isolation.py`, 문서 8개
+  (`EXTERNAL_REALTIME_REMOVAL.md` 신규, D-056, BLUEPRINT 4B2와 10B·10C·10D1·10D2 롤백 주석, RISK 4건, README,
+  CONTENT_SECURITY, SESSION_SETUP).
+- 검증: `.venv/bin/python scripts/test_postgres.py` -> 마이그레이션 24건, 애플리케이션 389건 통과. `manage.py check` 이상 없음,
+  `makemigrations --check` 변경 없음. **스키마 변경과 마이그레이션 없음.**
+  격리 PostgreSQL(포트 55471, 전용 compose 프로젝트)에 개발 서버(8010)를 띄워 실제 HTTP로 확인했다. 세 페이지 모두 외부 origin 0,
+  외부 토큰 0, `setInterval` 0. 주문 생성 201 -> 보드 `mode=queue count=1 total=1`. 계정 비활성화 후 같은 토큰 401,
+  페이지 302, refresh 401. 검사 후 서버 종료와 `down -v`로 제거했고 무관한 컨테이너는 건드리지 않았다.
+- **V-BROWSER 미실행.** Chrome 확장과 Playwright 브리지가 모두 연결되지 않아 실제 브라우저 네트워크 기록을 남기지 못했다.
+  카드 인수 기준 미충족 상태이며 배포 전에 확인해야 한다.
+- 리뷰(PR #74): 코드 APPROVE, 보안 HIGH 2, 아키텍처 조건부 승인 HIGH 3. 코드 결함은 하나였다. 상태 줄의 "읽은 시각"이 실제로는
+  렌더 시각이라 단건 갱신이 그 시각을 밀어 올렸고, 이 단계가 유일한 완화책으로 내세운 고지가 스스로 거짓이 됐다. 목록 읽은
+  시각으로 고정했다. 읽기 실패 시 카드를 지우지 않도록 바꾸고, 새로고침 버튼에 진행 표시를 넣었다. 타이머 회귀 울타리를
+  재귀 `setTimeout`과 공유 JS까지 넓혔고, 외부 origin 검사를 벤더 이름 대신 절대 URL·스트림 API 자체로 바꿨다.
+- 받아들인 잔여 위험: 탭을 바꾸지 않는 배치는 갱신 0, 앞에 떠 있는 화면은 권한 회수를 감지하지 못함, `prepared_qty`의 stale
+  절대값 쓰기 창이 5초에서 무한. 셋 다 10D가 닫는다. **실제 행사 운영 전 10D 선행 필수.**
+- 남은 것: 외부 publication·RLS·키 회수·배포 env 정리는 승인이 필요한 인계 목록이며 BK-R018은 열려 있다. BK-R029는 CSP가
+  남아 부분 해결이다(12A1).
+
+## 2026-09-20 — 8B 주방 대기 목록 완전성과 캐시 정확성 (D-055)
+
+- 브랜치 `phase-8b-kitchen-queries`, 기준 `develop` ecb9844. 사용자 지시: "8B 시작하자 pr 올리고 리뷰 돌린 뒤 머지".
+  8C는 이미 머지돼 있어(PR #71) 다음 미구현 카드가 8B임을 확인한 뒤 사용자가 8B를 골랐다.
+- 결정 관문: 대기 목록 계약을 물었고 사용자가 **"오래된 순서로 전부"**(권장)를 골랐다 -> D-055.
+- BK-R009: 화면이 `limit=80`을 보내고 서버가 최신순으로 잘라서, 대기 81건부터 가장 오래 기다린 주문이
+  표시 없이 빠졌다. 전날 넘어온 주문이 항상 먼저 사라지는 쪽이었다. `orders/services/queues.py`를 추가해
+  대기 큐(오래된 순 전부, 상한 500)와 조회 페이지(최신 순, `limit` 유지)를 나눴다. 응답은 항상 `total`과
+  `has_more`를 싣고, 대기 목록에서는 호출자의 `limit`을 무시한다. 역할 필터는 잘라내기 전에 적용된다.
+- BK-R010: `_get_table_by_number`의 프로세스 `lru_cache`를 제거했다. 이 조회가 주문 생성의 유일한 테이블
+  사용 가능 검증이라서, 캐시가 있으면 같은 POST가 어느 워커에 걸리느냐에 따라 성공·실패가 갈렸다.
+  메뉴·테이블 목록의 `cache_page(60)`도 제거했다. 기본 백엔드가 프로세스 메모리라 워커마다 창이 따로 돌았다.
+  테스트 10곳의 `cache_clear()` 호출도 함께 없앴다.
+- 변경 파일: `orders/services/queues.py`(신규), `orders/services/__init__.py`, `orders/views/api.py`,
+  `orders/templates/orders/kitchen_supervisor.html`, `orders/tests/test_kitchen_queries.py`(신규),
+  `orders/tests/test_cache_behavior.py`(신규), `cache_clear` 호출이 있던 테스트 8개, 문서 5개.
+- 검증: `.venv/bin/python scripts/test_postgres.py` -> 마이그레이션 24건, 애플리케이션 363건 통과.
+  `manage.py check` 이상 없음, `makemigrations --check` 변경 없음. **스키마 변경과 마이그레이션 없음.**
+- 남은 것: 폴링 주기·재접속 계약은 4B2·10D, revision 일관성은 10C. 500건 상한에 실제로 걸리는 운영은
+  관측된 적이 없고, 걸린다면 목록 문제가 아니라 조리 능력 문제다.
+
+## 2026-09-20 — 메뉴 10개·내 메뉴 후속 Figma 비교안
+
+- 사용자 요청: 메뉴 수 증가와 로그아웃/업무 이동 메뉴에 대한 검토를 별도 비교본으로 만든다.
+  04 섹션(`2126:643`)에 A 직전 배치+10개, B 밀도 개선+10개, C 내 메뉴, D 스크롤 주문 모달을 추가했다.
+- 두 목록은 동일한 합성 메뉴/가격/수량을 사용한다. 한 줄 헤더, 92px 메뉴 행, 44px 수량 버튼,
+  홀/포장 수량, 주문 요약 고정. 내 메뉴에서 권한 화면 이동과 로그아웃을 구분했다.
+- 미저장 주문 이탈 확인을 예시로 연결했고, 모달은 본문만 스크롤하고 합계/저장을 고정했다.
+  실제 인증·입력 보존·수량 계산·주문 처리는 구현하지 않았다.
+- 검증: 기존 01~03 fingerprint 동일, 양쪽 메뉴 10개, 첫 화면 노출 3→6개(캔버스 측정),
+  글꼴·텍스트 경계·18개 연결 검사 통과. 주요 렌더링과 문서 링크·렌더링·diff 공백 검사 통과.
+- [UI_UX_REDESIGN.md](UI_UX_REDESIGN.md)에 화면 링크와 검증 한계를 기록했다.
+  문서 작성 당시 브랜치는 `phase-8c-reporting`. 이번 작업은 Figma·문서 변경이며 앱·push/merge는 건드리지 않았다.
+
+## 2026-09-20 — 서빙 수량 조절·주문 정보 모달 비교 사본
+
+- 사용자 요청대로 기존 Figma 개선안을 덮어쓰지 않고 오른쪽에 03 비교 섹션을 추가했다.
+  A는 기존 서빙 프리뷰 복사, B는 메뉴별 `− 숫자 + 삭제`, C는 주문 정보 모달을 연 상태다.
+- 모달은 테이블·담은 메뉴·결제를 묶었으며 결제 입력 후 저장하는 순서를 유지한다.
+  B 하단의 OVERLAY 열기와 배경/돌아가기의 CLOSE 연결을 기록했다. 입력·계산·저장은 실행하지 않는다.
+- 검증: 기존 02 섹션 862개 노드 fingerprint 동일, 새 비교안 글꼴·텍스트 경계·목적지 검사 통과,
+  전체 비교판과 주요 화면 렌더링 확인. 문서 링크·렌더링·diff 공백 검사 통과.
+- 상세 링크·제안 범위는 [UI_UX_REDESIGN.md](UI_UX_REDESIGN.md)의 추가 비교안을 따른다.
+  다른 세션의 `phase-8c-reporting` 앱 변경은 보존했다. 이번 작업은 Figma·문서만 변경했다.
+
+## 2026-09-20 — Figma 개선안에 개인 계정·권한 4종 반영
+
+- 사용자 요청: 현재 PR과 개인 계정(이름 + 행사 공용 비밀번호), 권한 4종, 이름 기반 기록,
+  JWT 자동 갱신을 확인하고 Figma 개선안에 반영. PR #67 MERGED, #68 OPEN을 확인했다.
+- Figma `lrCdmOhZQfKiUIfz76tXvt`의 기존 개선안 섹션 `2004:3`을 수정했다.
+  역할 선택/PIN을 개인 로그인/일반 오류로 교체하고 서빙·모니터링·통계에 개인 이름과 범위를 반영했다.
+  내 업무 탐색, 재로그인/403/연결 오류/로그인 제한, 개인 계정·복수 권한 관리, 읽기 전용 주문 이력을 추가했다.
+- JWT 동작은 구현을 유지한다. 자동 갱신은 사용자 조작 없이 진행하며, 새 안내와 탐색은 UI 제안이다.
+  통합 모니터링은 두 권한 조합, 누적·통계는 Django 관리자와 별개임을 명시했다.
+- 검증: 원본 11개 화면/2,202개 노드 fingerprint 동일. 변경 화면 17개의 글꼴 일치,
+  텍스트 넘침 0건, 끊어진 목적지 0건. 주요 Figma 렌더링을 확인하고 툴바 넘침을 수정했다.
+  문서 로컬 링크·Markdown 렌더링·미완성 표식·diff 공백 검사를 수행했다. 실제 인증 E2E는 범위 밖이다.
+- 상세 화면 링크·구현과 제안의 구분·기존 작업 이력은 [UI_UX_REDESIGN.md](UI_UX_REDESIGN.md)에 기록했다.
+- 시작 브랜치는 `fix/order-create-serving-only`였고 작업 중 다른 세션에서
+  `phase-7a-payment-validation`으로 변경됐다. 해당 세션의 앱/마이그레이션/테스트 변경은 건드리지 않았다.
+  이번 작업에서는 애플리케이션 수정, 커밋, push/merge, 운영 배포를 하지 않았다.
+
+## 2026-09-20 — 7C 레거시 금액·과거 데이터 (D-054)
+
+- PR #71 머지(develop `1570fed`) 뒤 사용자 지시 “7C 시작하자”. 결정 관문 D-012를 물어 **D-054로 확정**했다:
+  “원본 그대로, 점검 도구만”(권장과 같음). 브랜치 `phase-7c-legacy-amounts`.
+- **전제 확인이 먼저였다.** D-037로 배포 시 보존할 과거 주문이 없다. 그래서 이 단계는 값을 복원하지 않는다.
+  남은 문제는 (1) 스키마에 남은 모호한 형태를 통계·상세가 해석해야 한다는 것(BK-R007), (2) 그런 행이 있는지
+  알 방법이 없었다는 것(BK-R031)이다.
+- 구현: `orders/services/legacy_audit.py`(집계 쿼리 하나, 쓰기 없음)와 읽기 전용 관리 명령
+  `check_legacy_amounts`(문장·`--json`). 주문 생성은 `or None`을 버리고 **모든 금액 칸에 숫자를 저장**한다(0 포함).
+  0원 주문도 `NULL`이 아니라 0이다. 관리 명령 패키지를 새로 만들었다.
+- 에이전트 판단(D-054에 표시): 점검 항목 구성과 해석 가능/불가 구분, 0원 저장.
+- TDD: `test_legacy_reconciliation.py` 13개를 먼저 썼다. 새 주문의 금액 칸, 새 DB의 빈 점검 결과, 단일·혼합 집계,
+  합계와 분할 불일치, 누락 집계, 점검이 아무것도 쓰지 않음, 명령 출력 두 가지, 세 형태를 상세와 통계가 같게 읽는지 대조.
+- 마이그레이션 없음. 백필 없음.
+- 검증: 전용 PG `check`·`makemigrations --check` 무결, **마이그레이션 24 + 앱 326 통과, skip 0**.
+- 문서: [LEGACY_AMOUNTS.md](LEGACY_AMOUNTS.md) 신설, DECISIONS D-054·D-012, BLUEPRINT 7C, RISK BK-R007/031, README.
+- **PR #72 리뷰:** 코드 에이전트 CRITICAL/HIGH 없음(MEDIUM 1, LOW 1 반영). DB 에이전트가 실측으로 HIGH 2건을
+  찾아 둘 다 고쳤다. (1) 한쪽 수단만 기록된 행이 어느 집계에도 잡히지 않아, 7C 이전 주문만 있는 DB가 "문제 없음"으로
+  보고됐다 -> `half_split` 집계 추가. (2) 분할 합산이 `int4`라 큰 금액 두 칸이 만나면 감사 전체가
+  `integer out of range`로 실패했다 -> `bigint` 캐스팅. 인덱스 제안은 실측 결과 실행 계획이 바뀌지 않아 도입하지
+  않았다. 자세한 내용은 LEGACY_AMOUNTS.md.
+- 남은 것: 운영 DB에 데이터가 발견되면 D-037 무효(이 명령이 근거), 삭제된 필드 복구는 백업뿐, 메뉴 이름 스냅샷(D-008).
+
+## 2026-09-20 — 8C 통계 정확성: 기간·정산·과거 표시 (D-053)
+
+- PR #70 머지(develop `4236630`) 뒤 사용자 지시 “8C 시작하자”. 결정 관문 D-013을 물어 **D-053으로 확정**했다:
+  “가장 최근 행사일, 없으면 오늘”(권장과 같음). 브랜치 `phase-8c-reporting`.
+- **선행 조건 처리:** 카드의 선행은 8A·7C·5다. 7C(레거시 금액 정합, D-012)는 아직이므로 **보고는 옛 수납 기록을
+  해석만 하고 원본을 바꾸지 않으며 해석한 건수를 응답에 표시**한다. 데이터 정합 자체는 7C에 남는다.
+- **고친 것:** 기간이 `2025-10-18`로 고정돼 있었다(BK-R006). 메뉴 집계가 이름 기준이라 동명이 메뉴가 한 줄로
+  합쳐졌다(BK-R034). 현금 지표에 거스름돈이 반영되지 않아 금고 잔액과 달랐다. 시간별 집계가 UTC로 잘렸다.
+- 구현: `orders/services/reporting.py`(`resolve_period`·`clean_floor`·`dashboard`), 뷰는 HTTP만 담당.
+  금액은 SQL 식으로 옛 행까지 주문 상세와 같게 읽고, 취소 건수·해석 건수를 따로 센다. 카운터 화면에 기간 선택과
+  거스름돈·순현금·취소 표시를 추가했다(DOM API, `innerHTML` 없음).
+- TDD: `test_reporting_dates.py`·`test_reporting.py`를 먼저 써서 RED(모듈 부재 2, 옛 의미 5)를 확인한 뒤 구현.
+  기존 특성화 테스트(`test_dashboard_execution`, `test_order_numbering`의 연습 주문)는 명시 기간을 요청하도록 바꿨다.
+- 검증: 전용 PG `check`·`makemigrations --check` 무결, **마이그레이션 24 + 앱 310 통과, skip 0**. 마이그레이션 없음.
+- **관찰(고치지 않음):** 첫 전체 실행(46초)에서 `test_jwt_http`의 로그인 제한 1건과 `test_payments`의 인증 3건이
+  실패했다가 재실행(23초)과 단독 실행에서 재현되지 않았다. 변경 전 코드에서도 단독 통과를 확인했으므로 8C가 아니라
+  부하가 큰 환경에서 드러나는 기존 불안정 테스트로 본다. 원인은 규명하지 않았다.
+- 문서: [REPORTING.md](REPORTING.md) 신설, DECISIONS D-053·D-013·D-012, BLUEPRINT 8C, RISK BK-R006/026/034, README.
+- **PR #71 리뷰:** 코드·DB 에이전트 2개, CRITICAL/HIGH 없음. 코드 MEDIUM 1건(제거된 import를 참조하는 죽은 헬퍼)과
+  LOW 3건 반영. DB MEDIUM 4건 반영: 취소·매출 집계를 한 스캔으로, 품목 수는 메뉴 집계에서 계산해 **쿼리 5→3**,
+  옛 혼합 결제의 구분 불가 금액을 응답·화면에 드러냄, NULL 단가를 명시적으로 0 처리. DB 측정 결과 복합 인덱스는
+  플래너가 쓰지 않아 추가하지 않았다. 상세는 REPORTING.md.
+- 남은 것: 메뉴 이름 스냅샷(D-008), 레거시 수납 정합(D-012, 7C), 환불 기록(D-048), 브라우저 여정.
+
+## 2026-09-20 — 7B 관리자 쓰기와 불변 조건 연결 (D-052)
+
+- PR #69 머지(develop `e53b32c`) 뒤 사용자 지시 “7B 시작하자”. 결정 관문 D-011을 선택지로 물어 **D-052로 확정**했다:
+  “품목 수정 허용, 서비스 경유”(권장은 “읽기 전용 + 상태만 서비스 경유”, 권장과 다름). 브랜치 `phase-7b-admin-invariants`.
+- **고친 것:** 관리자에서 수량을 바꾸면 저장 합계가 그대로였고(BK-R008), 단가·번호·수납을 폼으로 덮어쓸 수 있었고,
+  취소된 주문을 준비중으로 되살릴 수 있었으며, 주문 생성도 관리자에서 가능했다.
+- 구현: `orders/services/order_edits.py`(검사 `check_lines`, 적용 `apply_line_changes`), `OrderEventKind.ITEMS`(0027,
+  choices만), 관리자 인라인 formset의 `clean()`이 서비스 검사를 먼저 돌려 문장으로 거부, `save_model`은 행을 잠근 채
+  주방 전이표를 지나고, `save_related`가 합계·거스름돈 재계산과 이력·상태 동기화를 실행. 단가·번호·수납·합계·거스름돈
+  읽기 전용, 새 품목 단가는 저장 시점 메뉴 가격, 주문 생성 불가.
+- 에이전트 판단(D-052에 표시): 거스름돈 재계산, 수납 부족 시 거부(D-048), 조리 수량 미만·이력 있는 삭제 거부,
+  품목 변경 후 상태 재동기화, 취소 주문 편집 거부, 행위자 NULL.
+- TDD: `test_admin_integrity.py`(실제 admin form POST 14개)를 먼저 썼다. 첫 실행 17/18, 조리 이력 삭제 거부는 Django의
+  보호 객체 검사가 먼저 걸려 문구가 달랐고 우리 검사를 앞으로 옮겼다.
+- 검증: 전용 PG `check`·`makemigrations --check` 무결, **마이그레이션 24 + 앱 284 통과, skip 0**, `git diff --check` 깨끗.
+- 문서: [ADMIN_EDITS.md](ADMIN_EDITS.md) 신설, DECISIONS D-052·D-011, BLUEPRINT 7B, RISK BK-R008, README.
+- **PR #70 리뷰:** 코드·보안 에이전트 2개. HIGH 1건(검증과 저장 사이 경합에서 거부 예외가 500) → 변경 폼 POST의 첫
+  읽기부터 `select_for_update`로 닫음. MEDIUM 3건(읽기 전용 집합 회귀, 비활성·비주방 메뉴 추가, 수량 상한) 반영, LOW 3건
+  반영. test_admin_integrity 19개 등 35개 재실행 통과. 상세는 ADMIN_EDITS.md.
+- 남은 것: 관리자 사용자와 `Account` 연결(행위자), 브라우저 admin 폼 여정.
+
+## 2026-09-20 — 7A 서버 결제 검증과 금액 의미 (D-048 구현)
+
+- PR #68 머지(develop `7e99436`) 뒤 사용자 지시 “7A 시작하자”로 착수. 브랜치 `phase-7a-payment-validation`.
+- **고친 것:** 금액을 `int()`로 받아 `True`→1원, `1.9`→1원으로 잘렸고 5000원 주문에 0원 수납도 201이었다(BK-R014).
+  이제 `orders/services/payments.py`가 정수·숫자 문자열만 받고 float/bool/음수/소수/상한 초과를 400으로 거부하며,
+  합계(서버 가격 스냅샷 × 수량)보다 적은 수납은 **아무것도 저장하지 않고 400**이다(D-048). 거스름돈은 생성 시
+  서버가 정해 `Order.change_amount`(0026, 추가만)에 저장한다.
+- 에이전트 판단(뒤집을 수 있음): 식권 초과분은 거스름돈이 아니다(기존 `_serialize_order` 계산과 동일). 상한은
+  금액 한 칸·합계 1,000만 원, 수량 99. 단일 결제는 `received_cash_amount`/`received_ticket_amount`를 우선 읽고
+  `received_amount`와 함께 오면 일치해야 한다. 주문 화면의 거스름돈 표시를 서버 규칙에 맞췄다(전에는 식권 초과분도 표시).
+- TDD: `test_payments.py`를 먼저 써서 모듈 부재로 RED를 확인한 뒤 구현. 첫 전체 실행에서 기존 테스트 26+7건이
+  실패했는데, CASH 결제가 `received_cash_amount`만 보내는 경우를 서버가 읽지 않은 것이 원인이라 서비스를 고쳤다.
+  남은 5건은 감사 테스트 픽스처가 실제 부족 결제(2,000원 주문에 1,000원)였고 픽스처를 고쳤다(업무 규칙은 바꾸지 않음).
+- 검증: 전용 PG `manage.py check`·`makemigrations --check` 무결, 마이그레이션 24 통과(0026 정·역방향 포함), 앱 270
+  중 위 5건 수정 후 test_audit·test_payments 33개 재실행 통과. 전체 재실행 결과는 PR에 기록.
+- 문서: [PAYMENTS.md](PAYMENTS.md) 신설, BLUEPRINT 7A, DECISIONS D-048·D-005, RISK BK-R014/R030, README.
+- 전체 재실행: 마이그레이션 24 + 앱 270 통과, skip 0. CI 통과.
+- **PR #69 리뷰:** 코드·DB 에이전트 2개. HIGH 1건(`str.isdigit()`가 유니코드 숫자·4300자 초과 문자열을 통과시켜
+  500)을 ASCII 숫자 1~12자 제한으로 고치고 회귀를 추가했다(77개 재실행 통과). MEDIUM 2건(단일 결제 교차 검증 문서화,
+  6A 지문의 금액 정규화 불일치)은 PAYMENTS.md에 기록. DB: 0026 안전, 인덱스 불필요.
+- 남은 것: 환불 기록(D-048 미결), 취소 주문 매출 제외(8C), 레거시 수납 필드 정합(7C), 브라우저 여정.
+
+## 2026-09-20 — 주문 생성 POST 서빙 한정 (D-051 판단 5 확정)
+
+- PR #67 머지(develop `6ffafdb`) 뒤 사용자가 “주문생성은 서빙 권한으로”라고 결정했다. 브랜치
+  `phase-4a4-order-create-serving`.
+- 변경: `orders-collection` POST 가드를 `by_method={"GET": 읽기 권한, "POST": (SERVING,)}`로 좁혔다.
+  `roles.SERVING_PERMISSIONS` 추가. 4A4까지는 인증된 전원이 생성할 수 있었다.
+- TDD: 권한 매트릭스의 생성 행을 `("SERVING",)`으로 바꿔 RED 4건(HALL/TAKEOUT/STATS/BOTH 201≠403)을
+  확인한 뒤 가드를 고쳤다. 6A “다른 계정의 요청 ID 재전송” 테스트는 카운터 계정 대신 두 번째 서빙 계정을 쓴다.
+- 검증: 전용 PG에서 test_permissions·test_idempotency·test_audit·test_scope·test_baseline·test_order_modes·
+  test_order_numbering 112개 통과. 전체 스위트는 CI에서 확인.
+- 문서: ACCOUNTS 매트릭스·남은 것, DECISIONS D-051 구현 메모·D-003 행.
+
+## 2026-09-20 — 4A4 개인 계정·권한 4종·행위자 기록 (D-051 구현)
+
+- PR #66 머지(develop `61b9412`) 뒤 브랜치 `phase-4a4-personal-accounts`에서 D-051을 구현했다.
+  사용자가 4A4 착수와 "PR → 리뷰 에이전트 → 문제없으면 머지"를 승인했다.
+- **바뀐 것:** 공용 계정 3개(`ROLE_ACCOUNTS`)가 사라지고 `Account`(이름 유일, 권한 4개 불리언, 활성)와
+  행사 공용 비밀번호 해시 `EVENT_PASSWORD_HASH`로 로그인한다. 권한 코드는 SERVING·HALL_MONITOR·
+  TAKEOUT_MONITOR·STATS. 토큰 `sub`는 계정 UUID이고 역할 claim은 없다. 권한은 매 요청 DB에서 읽어
+  관리자 화면의 변경이 다음 요청부터 적용된다. 기존 기기는 0025가 전부 회수한다.
+- **서버 경계:** `services/scope.py`가 주문을 매장 항목 유무로 HALL/TAKEOUT으로 나누고(혼합 = 식당),
+  목록은 `Exists` 서브쿼리로 거르며 단건·상태·조리 진행은 범위 밖이면 403이다. 누적·통계는 전체를 읽는다.
+- **행위자 기록:** `Order.created_by`와 append-only `OrderEvent`(CREATED/STATUS/PROGRESS)를 주문과 같은
+  트랜잭션에 쓴다. 6A `OrderRequest.role`은 `actor`(계정 UUID)로 이름을 바꿨다.
+- 페이지·API 가드는 `require_permissions`/`require_api_permissions`(any-of, all-of)로 바꿨다. 주방
+  종합 화면은 두 모니터링 권한을 모두 요구하고 내비게이션은 가진 권한만 보인다.
+- 검증(전용 PG fixture, 격리 프로젝트): `manage.py check` 무결, `makemigrations --check` 변경 없음,
+  **마이그레이션 23 + 앱 242 = 265개 통과, skip 0**, `node --test scripts/test_auth_client.cjs` 12개 통과,
+  `git diff --check` 깨끗. 브라우저 여정은 돌리지 않았다(PR 리뷰 뒤 남은 위험으로 기록).
+- 에이전트가 정한 것(사용자 확인 대상 아님): 주문 생성 POST는 현행대로 인증된 전원이 가능하다(D-051
+  판단 5, 확인 필요). 테스트 계정 별칭(ORDER/KITCHEN/B1_COUNTER)은 옛 여정을 그대로 읽히려는 용도다.
+- 문서: [ACCOUNTS.md](ACCOUNTS.md) 신설, JWT_AUTHENTICATION·API_AUTHORIZATION·REQUIRED_SETTINGS·
+  DEPLOYMENT_CANDIDATE·SESSION_SETUP·BLUEPRINT(4A4)·DECISIONS(D-051 구현 메모)·RISK_REGISTER·README.
+- 남은 위험: 이름만으로는 사칭을 막지 못한다(공용 비밀번호). 운영 인수 시 실제 비밀번호 해시와 계정
+  등록이 필요하고, 배포 직후 모든 기기가 재로그인한다. 다음: PR 리뷰 → 머지 → 7A.
+- **PR #67 리뷰:** 코드·보안·DB 에이전트 3개, CRITICAL/HIGH 없음. MEDIUM 2건(0025 잠금 창 → 트래픽 없는
+  배포 창 명시, 포장 목록 anti-join 확장성 → 필요 시 부분 인덱스)과 LOW 3건을 ACCOUNTS.md에 기록했다. CI 통과 후 머지.
+
+## 2026-09-19 — 기획 변경: 개인 계정·권한 4종 (D-051)
+
+- 사용자가 기획 변경을 전달했다. 개인 계정, 이름 입력 기반 로깅·권한 부여, JWT 인증·인가와
+  access 자동 갱신, 권한 4종(포장 모니터링·식당 모니터링·서빙·누적+통계).
+- 확인한 사실: JWT·자동 갱신·기기별 회전은 4A2에서 이미 구현돼 있어 그대로 쓴다. 바뀌는 것은
+  주체 모델이다. D-032/034/035/040/045가 모두 “공용 계정, 개인 식별 없음”을 전제했다.
+- 갈림길 네 가지를 선택지로 물어 **D-051로 확정**했다. “이름 + 행사 공용 비밀번호”(권장과 다름),
+  “여러 개 가능 (권장)”, “서버가 강제 (권장)”, “DB에 행위자 저장 (권장)”. 권한 코드·혼합 주문 분류
+  (매장 항목이 있으면 식당)·미등록 이름 처리·관리자 화면 등록·행위자 표 구조는 에이전트가 정하고 표시했다.
+- 문서만 갱신했다: DECISIONS(D-051, 대기 목록 D-002/D-003), BLUEPRINT(4A4 카드, 의존성 표,
+  7A/10C/10D1 선행, 4A2 안내), RISK_REGISTER 머리말, API_AUTHORIZATION 안내, README, 이 로그.
+  코드·마이그레이션·테스트는 바꾸지 않았다.
+- 브랜치 상태: `phase-6b-status-consistency`에 6B 구현이 **커밋되지 않은 채** 남아 있다. 이 문서 변경도
+  같은 워크트리에 있으므로 커밋 시 6B 코드와 분리하거나 한 PR에 담을지 정해야 한다.
+- 다음 권장: 6B 커밋·PR → 머지 후 `phase-4a4-personal-accounts` 브랜치에서 4A4 착수. 착수 시
+  주문 생성 POST를 서빙 권한으로 한정할지 한 번 확인한다.
+
+## 2026-09-18 — 6B 상태 전이와 포장 번호 (D-050)
+
+- 6A 머지(#65) 뒤 이어서 진행했다. 브랜치 `phase-6b-status-consistency`, 기준 develop `f66ab90`.
+  결정 관문 D-014/D-015 중 업무 규칙 세 가지를 사용자에게 물어 **D-050으로 확정**했다.
+  “취소는 최종 (권장)”, “완료→준비중 되돌릴 수 있다 (권장)”, “사용 중인 포장 번호 거부 (권장)”.
+  셋 다 권장안과 같다. 질문하지 않은 빈칸(완료 주문의 취소, 같은 상태 재전송, 거부 코드,
+  두 writer 우선순위, 홀 테이블 중복)은 에이전트가 정하고 그렇게 표시했다.
+- **고친 것:** 취소된 주문에 PREPARING을 보내면 되살아났다(200). 상태 엔드포인트는 받은 값을
+  그대로 저장했고, 조리 진행 엔드포인트는 취소를 거부해 두 writer의 규칙이 달랐다. 아무도
+  주문을 잠그지 않아 취소와 진행이 동시에 오면 취소가 사라질 수 있었다. 포장 번호표(101~120)는
+  제한이 없어 손님 두 명이 같은 번호를 들 수 있었다.
+- 구현: `orders/services/status.py`에 전이표를 두고 두 엔드포인트를 모두 통과시켰다.
+  상태 변경은 주문 행을 잠그고 읽기·쓰기를 한 단계로 만든다. 조리 진행도 품목이 아니라
+  주문을 잠근다. 포장 번호는 부분 유니크 제약
+  `UNIQUE(table) WHERE order_type='TAKEOUT' AND status IN ('PREPARING','READY')`으로 막고,
+  뷰는 문장으로 답한다. 주문 화면은 409의 `detail`만 꺼내 보여준다(이전에는 JSON 원문이 떴다).
+- TDD: `test_status.py` 12개와 `test_order_modes.py` 10개를 먼저 써서 12개 실패를 확인했다.
+- 검증: 전용 PG **234개(마이그레이션20+앱214), skip0 통과**, 실제 Chromium 8개 통과.
+  브라우저에서 105번 중복 거부 문구, 106번 정상 저장, 주방 취소 후 되살리기 409를 확인했다.
+- **검사 신뢰성:** 전이표를 빼면 3개가 실패한다. DB 제약을 빼고 뷰의 사전 확인만 남기면
+  **동시 요청 테스트에서 두 주문 모두 201**로 같은 번호를 가져갔다. 사전 확인만으로는 막지 못한다.
+- 정리: 합성 DB·로컬 서버·브라우저 스크립트는 저장소 밖에 두었고 컨테이너와 볼륨을 삭제했다.
+- 상세: [상태 전이와 포장 번호](ORDER_STATE.md).
+- **2026-09-20 PR #66 리뷰 반영:** 코드·DB 리뷰 에이전트 2개. HIGH 2건을 머지 전에 고쳤다.
+  (1) 같은 `request_id` 재전송이 포장 번호 충돌과 겹치면 자기 주문 대신 "다른 번호" 409를 내던 경로:
+  IntegrityError 뒤 요청 ID를 먼저 재조회하도록 순서를 바꿨고 동시성 회귀를 추가했다(RED 201/409 → GREEN 200/201).
+  (2) 0024가 기존 중복 활성 포장 주문에서 안전하게 멈추는(23505, 행 보존) 경로를 고정하는 마이그레이션
+  테스트 2개와 배포 전 점검 쿼리를 추가했다. MEDIUM: `sync_from_items`가 `change()`를 지나게 했다.
+  전용 PG: test_migration_paths 22개, test_order_modes·test_status·test_idempotency 통과.
+
+## 2026-09-18 — 6A 중복 요청 경계 (D-049)
+
+- 5단계 머지(#64) 뒤 이어서 진행했다. 브랜치 `phase-6a-idempotency`, 기준 develop `9b69545`.
+  결정 관문이던 D-007/D-008에서 실제로 필요한 값은 네 가지(요청 식별·ID 없는 POST·내용 충돌·
+  ID 보존)였고 모두 기술 판단이라 **에이전트가 정하고 D-049로 기록**했다. 사용자가 고른 값이 아니다.
+- **고친 것:** 저장을 눌렀는데 응답이 오지 않아 다시 누르면 주문이 두 개 생겼다. 분석 당시
+  같은 요청 16번에 주문 16개였다(BK-R012). 서버는 재전송과 다음 손님을 구분할 수단이 없었다.
+- 구현: 화면이 `request_id`를 만들고, 서버는 `OrderRequest`(키·역할·지문·주문)를 **주문과 같은
+  트랜잭션에** 쓴다. 재전송은 저장된 주문을 200으로 돌려주고, 같은 ID에 다른 내용·다른 계정이면
+  409다. ID 없는 POST는 400으로 거부한다. 만료는 두지 않았다(만료는 중복을 막지 못하고
+  생기는 시점만 바꾼다). 동시 제출은 유니크 인덱스가 막고, 진 쪽은 트랜잭션 전체가 롤백되어
+  번호도 낭비하지 않는다. 화면은 주문 내용이 바뀌면 ID를 버린다.
+- `crypto.randomUUID`는 보안 컨텍스트에서만 있어서 `getRandomValues` 대체 경로를 넣었다.
+- TDD: `orders/tests/test_idempotency.py` 18개와 Node `scripts/test_request_id.cjs` 7개를 먼저 썼다.
+  요청 ID 필수화로 기존 주문 생성 테스트 16개가 깨졌고, 계약 변경이므로 픽스처에 ID를 넣어 고쳤다.
+- 검증: 전용 PG **206개(마이그레이션20+앱186), skip0 통과**, Node 30개, 실제 Chromium 8개.
+  브라우저 검사는 응답을 0.7초 지연시켜 첫 응답 전에 두 번째 탭이 들어가게 했고, 두 요청이
+  같은 ID로 201·200을 받아 **같은 주문 하나**를 가리켰다. 주방에는 2개만 떴다.
+- **검사가 보지 못한 것:** 브라우저 검사는 `127.0.0.1`에서 돌았고 브라우저는 localhost를 보안
+  컨텍스트로 친다. 비보안 대체 경로는 브라우저에서 실행되지 않았고 Node 테스트로만 확인했다.
+- **부수적으로 확인한 별개 문제:** 진짜 비보안 컨텍스트를 보려고 LAN 주소로 열었더니 메뉴가
+  뜨지 않았다. `JWT_COOKIE_SECURE=True`라 refresh 쿠키가 평문 HTTP에서 저장되지 않아 로그인
+  루프가 된다. **배포 후보(4A3)는 평문 80을 공개하므로 그 구성에서는 브라우저 로그인이 불가능하다.**
+  4A3 검증이 curl이어서 드러나지 않았다. 코드는 바꾸지 않고 배포 후보 문서에 정정을 적었다.
+  12A1의 TLS는 선택이 아니라 동작 조건이다.
+- 리뷰 반영: 코드 리뷰 MEDIUM 1건(지문이 금액 타입·모드 대소문자를 정규화하지 않음)을
+  테스트로 재현한 뒤 고쳤다. 현재 화면은 항상 같은 형식으로 보내 잠재 결함이었지만, 다른
+  클라이언트의 정상 재전송이 409로 거부될 수 있었다. 보안 리뷰는 CRITICAL/HIGH 0건이고
+  MEDIUM(쓰기 경로 속도 제한 부재)은 기존 공백이라 문서에 남겼다. `PROTECT` 유지 이유와
+  미사용 `serve.html` 건도 문서에 적었다.
+- 최종 검증: PG **212개(마이그레이션20+앱192), skip0 통과**.
+- 정리: 합성 DB·로컬 서버·브라우저 스크립트는 저장소 밖에 두었고 컨테이너와 볼륨을 삭제했다.
+- 상세: [중복 요청 경계](IDEMPOTENCY.md).
+
+## 2026-09-18 — 5단계 주문 번호 계약과 행사일 등록 (D-047)
+
+- 사용자 결정: 주문 번호는 **해마다 1번부터**, 화면에는 **숫자만**, 그리고 “행사 날짜를 관리자
+  페이지에서 정하거나 미리 확정해두는 방식… 저기서 행사 날짜를 써두면 그 날짜로 카운트 되고
+  나머지는 dev로 빠지는 느낌”. 미등록 날짜는 **테스트로 처리**, 연습 주문은 **통계 제외·주방 표시**.
+  결제 규칙(D-048)도 같은 자리에서 확정했다(부족 결제 저장 거부·취소 매출 제외·거스름돈 저장).
+  두 결정을 DECISIONS.md에 D-047/D-048로 기록하고 D-004/D-005 대기 행을 갱신했다.
+  브랜치 `phase-5-order-numbering`, 기준 develop `16a94a6`.
+- **고친 것:** 시퀀스 `orders_floor_b1_seq`는 초기화가 없고, 연습 주문이 진짜 번호를 당겨 쓰고,
+  롤백해도 번호를 소비했다. 1년에 한 번 쓰는 서비스에서 두 번째가 실제 피해다.
+- 구현: `EventDay`(관리자 등록)와 `OrderNumberCounter`(계열·연도·층) 추가. 할당은 카운터 행을
+  `select_for_update`로 잠그고 주문 트랜잭션이 끝날 때까지 쥔다. 유니크 제약을
+  `(floor, number_series, EXTRACT(YEAR FROM order_date), order_no)`로 바꿨다(연도는 주문일에서 도출).
+  트랜잭션 밖 호출은 거부한다. 0022가 시퀀스를 제거하고 역방향에서 복원한다.
+  통계는 `REAL` 계열만 집계하고, 주방 화면은 연습 주문에 `연습` 배지를 붙인다.
+  **행사일 미등록 경고**를 주문·카운터·주방 화면에 넣었다. 등록을 잊는 것이 이 설계의 실패 모드다.
+- TDD: `orders/tests/test_order_numbering.py` 20개를 먼저 써서 실패를 확인했다. 대시보드
+  특성화 fixture는 매출을 다루므로 `REAL` 계열로 갱신했고, 마이그레이션 헤드 테스트는
+  새 계약(시퀀스 부재)에 맞춰 고치고 0022 역방향 테스트를 추가했다.
+- 검증: 전용 PG에서 **188개(마이그레이션20+앱168), skip0 통과**, Node 23개 통과,
+  실제 Chromium 12개 통과(배너 표시/미표시, 연습·행사 번호 공존, 주방 배지).
+- **검사 신뢰성:** 구현을 두 번 고의로 망가뜨렸다. `series_for`를 항상 `REAL`로 바꾸면 6개가
+  실패한다. 그런데 **카운터 락을 제거해도 처음에는 통과했다.** 유니크 제약이 충돌을 잡아
+  재시도로 번호가 갈렸기 때문이다. 충돌 복구 호출을 감시하고 카운터 행이 이미 있는 상태에서
+  경합시키도록 고친 뒤에야 실패했다. 결과만 보면 락 없는 구현도 옳아 보였다.
+- 리뷰 반영: 코드 리뷰가 HIGH 2건(둘 다 기존 데이터가 있는 DB에서의 마이그레이션 안전성),
+  MEDIUM 1건, LOW 3건을 냈고 보안 리뷰는 CRITICAL/HIGH 0건이었다.
+  0022에 **기존 번호 보유 주문의 `REAL` 분류**와 **같은 해 번호 충돌 사전 거부**를 넣고
+  각각 마이그레이션 경로 테스트로 고정했다(제거하면 2개 실패 / 원문 unique 오류로 깨짐을 확인).
+  `stats_menu_counts`는 오늘의 계열을 따르게 했고, `order_no`가 있으면 `order_date`를
+  요구하는 CheckConstraint를 추가했으며, 낡은 주석을 고쳤다.
+  보안 리뷰의 MEDIUM(관리자 화면 접근 정책 부재)은 코드 변경 없이 문서에 남겼다.
+  행사일 등록이 매출 집계 여부를 가르는 통제가 됐는데 `/admin/`에는 계정 발급·잠금·감사
+  정책이 없다. D-011 범위 또는 별도 결정으로 다룬다.
+- 최종 검증: PG 전체 **188개(마이그레이션20+앱168), skip0 통과**, check 문제0, drift 없음.
+- 정리: 합성 DB·로컬 서버·브라우저 스크립트는 저장소 밖에 두었고 컨테이너와 볼륨을 삭제했다.
+- 상세: [주문 번호 계약](ORDER_NUMBERING.md).
+
+## 2026-09-18 — 4B1 주문·카운터 화면의 안전한 렌더링
+
+- 사용자 지시: “이슈 닫고 머지된 브랜치 3개 지운 다음 4B1 진행하자”. 이슈 #39·#43·#47·#55·#57을
+  머지 근거와 함께 닫고, 머지된 브랜치 3개를 원격·로컬에서 삭제했다. 브랜치 `phase-4b1-content-security`,
+  기준 develop `03d4feb`.
+- **취약점 실증:** 수정 전 코드에 합성 메뉴 이름 `<img src=x onerror=...>`를 넣고 실제 Chromium으로
+  주문 화면을 열어 **스크립트 실행(`window.__xss===1`)과 `<img>` 삽입**을 확인했다.
+  정상 이름 `A&W <cola> "큰컵"`도 `<cola>`가 사라져 표시가 깨졌다. 보안 문제이자 표시 버그였다.
+- 구현: 공용 헬퍼 `orders/static/orders/ui/dom.js`(`window.BazaarDom`, 저장소의 auth.js와 같은
+  IIFE 방식)를 만들고 `order.html`·`b1_counter.html`을 텍스트 노드·DOM 속성·이벤트 위임으로 옮겼다.
+  인라인 `onclick` 5개를 제거했고 버튼은 `data-id`만 들고 이름·가격은 화면 보관 목록에서 읽는다.
+  `app.js`의 비우기도 DOM 제거로 바꿔 파서로 가는 쓰기를 남기지 않았다.
+  주방 화면은 원래 `escapeHtml`을 적용 중이라 범위에 넣지 않고 회귀로 고정했다.
+  미사용 `serve.html`은 고치지 않고 **다시 참조되면 실패하는 테스트**를 넣었다(삭제는 11단계).
+- TDD: `orders/tests/test_content_security.py` 9개와 Node `scripts/test_dom_helpers.cjs` 9개를
+  먼저 작성해 실패를 확인했다. Node 테스트는 가짜 DOM에 헬퍼를 올려 공격 문자열이 텍스트로만
+  들어가는지 본다. CI의 node 단계에 이 파일을 추가했다.
+- 검증: 전용 PG에서 전체 **163개(마이그레이션16+앱147), skip0 통과**, check 문제0, drift 없음.
+  실제 Chromium 12개 통과(390×844 주문, 1280×900 카운터). 공격 문자열 미실행·요소 미삽입·
+  literal 표시·버튼 동작·정상 이름 보존을 확인했다.
+- **검사 신뢰성 정정:** 수정 전 템플릿으로 되돌려 같은 검사를 돌렸을 때 처음에는 통과로 나왔다.
+  `--noreload` 서버가 템플릿을 캐시하고 있었기 때문이다. 서버를 재시작해 다시 비교했고 그때
+  5개가 실패하며 취약점이 재현됐다. 통과만 보고 인수하지 않는다.
+- 정리: 브라우저 검사 스크립트와 Playwright는 저장소 밖 작업 디렉터리에만 두었다. 합성 개발 DB·
+  로컬 서버는 종료·삭제했고 포트 사용이 없음을 확인했다.
+- 리뷰 보완: 독립 보안 리뷰가 머지 차단 없음으로 판정하며 둘을 지적해 반영했다.
+  (1) 헬퍼의 `attrs`가 `on*`이나 `javascript:` 주소를 그대로 설정할 수 있어 거부하도록 했다.
+  향후 호출자가 기억해야 하는 보장을 헬퍼 안으로 옮긴 것이다. (2) 인라인 핸들러 회귀의 정규식이
+  이벤트 이름 6개만 보고 있어 `\son[a-z]+\s*=`로 넓혔다. Node 회귀 2개와 Django 회귀 1개를 추가했고
+  재검증에서 전체 **164개(마이그레이션16+앱148), skip0 통과**. 소스 검사의 우회 가능성과
+  표 이름·요청사항의 왕복 미검증은 한계로 문서에 적었다.
+- 남은 것: 주방 화면 문자열 조립 제거(9·11), `serve.html` 삭제(11), CSP(12A1. 4B2는 외부 스크립트 제거만 했다).
+  BK-R011은 Repo-fixed(주문·카운터)이며 해결 상태는 운영 인수 전까지 Open이다.
+- 다음: 남은 단계는 대부분 D-004(주문번호)·D-005(결제 규칙) 등 사용자 결정이 선행이다.
+
+## 2026-09-18 — 4A3 배포 후보 구성과 프록시 뒤 클라이언트 주소 경계
+
+- 사용자 지시: “브랜치 지우고 4A3 진행하자 그리고 프록시 뒤 ip 뭉침은 이슈로 달아줘”.
+  PR60 머지 후 `phase-4a2-jwt-auth`를 원격·로컬에서 삭제했고, 프록시 위험을 [이슈 #61]로 등록했다.
+  브랜치 `phase-4a3-runtime-config`, 기준 develop `395fcba`, 시작 트리 깨끗.
+- 결정: D-006의 4A3 실행분을 D-046으로 확정했다(Compose 한 스택, 파일 비밀값,
+  내부 네트워크 전용 DB·TLS 생략, 단일 DB 역할). 단일 역할은 권장과 다른 선택이며
+  앱 장악 시 자기 테이블 변경·삭제가 가능하다는 잔여 위험을 결정과 문서에 적었다.
+- 구현: `<NAME>_FILE` 비밀값 읽기(동시 설정·읽기 실패 거부, 끝 줄바꿈 제거, 내용 미노출),
+  `Dockerfile`(비루트·빌드 시 collectstatic), `compose.prod.yaml`(프록시만 발행,
+  `internal: true` 네트워크, 고정 프록시 IP), `scripts/pg_prod_init.sql`(NOSUPERUSER·
+  NOCREATEDB/ROLE·PUBLIC 권한 회수), `scripts/nginx_prod.conf`.
+- **정정:** gunicorn `--forwarded-allow-ips`는 클라이언트 주소를 복원하지 않는다.
+  `REMOTE_ADDR`은 소켓 peer 그대로이며 그 옵션은 스킴 등 헤더 신뢰만 정한다.
+  후보 스택 로그에서 앱이 항상 프록시 IP를 본다는 것을 실제로 확인했다.
+  따라서 이슈 #61을 앱에서 닫았다: `orders/client_ip.py`가 `TRUSTED_PROXY_IPS`에 있는
+  peer일 때만 `X-Forwarded-For`를 오른쪽부터 읽고, 그 외에는 peer 주소를 쓴다.
+  프록시는 인바운드 헤더를 `$remote_addr`로 덮어쓴다.
+- TDD: 비밀값 파일 5건·배포 후보 노출 6건·클라이언트 주소 12건을 먼저 작성해 실패를 확인했다.
+  PyYAML이 없어 compose 검증이 조용히 건너뛰던 것을 발견해 `requirements-ci.txt`에 고정하고
+  skip을 제거했다.
+- 검증: 전용 PG(포트 55453)에서 `scripts/test_postgres.py` **147개(마이그레이션16+앱131),
+  skip0 통과**, check 문제0, drift 없음. 전용 Compose `bk4a3-candidate`로 실제 기동해
+  config·빌드·앱 역할 migration(0021)·프록시 경유 200·포트 미발행·컨테이너 내부 신뢰 경계·
+  프록시 경유 로그인 9회 200/10회 429를 확인했다. `check --deploy`는 HSTS·HTTPS 리다이렉트
+  경고 2건이 남으며 실제 TLS 종단이 정해지는 12A1에서 처리한다.
+- 정리: 후보 컨테이너·볼륨과 합성 비밀 파일을 제거했다. `secrets/`는 `.gitignore`에 넣었다.
+  호스트의 5432 포트는 이 저장소와 무관한 다른 컨테이너의 것이며 후보 스택은 발행하지 않는다.
+- 리뷰 보완: 독립 Python 리뷰가 `TRUSTED_PROXY_IPS`의 잘못된 항목이 요청 중 `ValueError`로
+  터져 로그인 전면 500이 되는 경로를 찾았다. 시작 시점 거부(항목을 지목하는 메시지)로 옮기고,
+  요청 경로에서는 해당 항목을 건너뛰도록 했다. 파싱 결과는 캐시한다. 회귀 6개를 추가했다
+  (잘못된 항목 4종의 시작 거부, 정상 3종 시작, 요청 중 미예외, IPv4-mapped IPv6 fail-closed).
+  재검증에서 전체 **152개(마이그레이션16+앱136), skip0 통과**.
+- 독립 보안 리뷰: 머지 차단 없음. 신뢰 경계는 단일 프록시·단일 홉 구성에서 건전하다고 판정.
+  지적 중 둘을 반영했다. (1) 대괄호 IPv6+포트 분기에 회귀가 없어 테스트를 추가했다.
+  (2) 비밀번호 파일이 비면 암호 없는 DB 역할이 생기던 것을 초기화 중단으로 바꿨다.
+  실제로 빈 파일로 부팅해 역할 0개와 중단 메시지를 확인했고, 중단 후 재시작하면 초기화가
+  다시 돌지 않는다는 점(볼륨 삭제 필요)도 문서에 적었다. 프록시 하드닝과 IPv4-mapped IPv6
+  정규화는 12A1로 넘겼다.
+- 남은 것: 실제 EC2·도메인·인증서·SG/IAM, 헬스/레디니스와 로그·메트릭, 백업·복원(12A2),
+  데이터 이전(12A3). BK-R043/044는 Open이다.
+- 다음: BLUEPRINT 순서의 4B1(안전한 DOM 렌더링) 또는 사용자가 지정하는 단계.
+
+## 2026-09-17 — 4A2 남은 인증 정책 확정(D-045)과 PR60 반영
+
+- 사용자 지시: “docs 하위 문서 읽고 다음으로 진행해야할 작업 진행하자”. 시작 브랜치 `phase-4a2-jwt-auth`,
+  HEAD `917fff1`, 작업 트리 깨끗, 열린 PR은 Draft PR60(CI 통과)뿐이었다.
+- 문서상 다음 작업은 PR60의 정책 관문 세 가지였다. 선택지와 사실(`menus`는 주문 화면만,
+  `tables`는 미사용 `serve.html`만 호출)을 제시하고 답을 받았다. [D-045](DECISIONS.md).
+  비밀번호 교체 시 전 기기 로그아웃(권장·현행), 5분 10회/5분 잠금(권장 5회와 다름),
+  메뉴·테이블 조회 인증된 세 계정(현행 유지, 권장과 다름).
+- 구현: 실패 횟수를 환경 변수에서 코드 상수 `LOGIN_MAX_FAILURES = 10`으로 옮기고 운영 필수 설정·
+  `.env.example`·테스트 프로필의 합성 값 5를 제거했다. 로그인 503은 계정 미설정일 때만 남는다.
+  이 이동은 에이전트 판단이며 D-045에 근거를 적었다. 회수·조회 정책은 코드 변경이 없다.
+- TDD: 부팅 probe가 환경 값(미설정·0·-1·비숫자·99999)과 무관하게 `[10, 300, 300]`으로 시작하는지,
+  HTTP에서 9회 실패는 200·10회째 429와 `Retry-After: 300`인지 먼저 작성해 실패 12건(예상 원인)을 확인했다.
+- 검증: 전용 Compose `bk4a2-policy-*`, localhost55452에서 `scripts/test_postgres.py`
+  **124개(마이그레이션16+앱108), skip0 통과**, check 문제0, migration drift 없음.
+  Node 클라이언트12개 통과, `git diff --check` 통과. 변경 Python의 Ruff는 기존
+  `settings_test_pg.py` E402 한 건만 남았다(PR60 HEAD에도 존재, 이번 변경 아님).
+- 문서: DECISIONS(D-045, D-002·D-003 해소, D-040/042/044 후속 표기), JWT_AUTHENTICATION,
+  README, SESSION_SETUP, BLUEPRINT 4A2, API_AUTHORIZATION·REQUIRED_SETTINGS 배너, RISK_REGISTER.
+- 남은 것: 운영 자격증명 공급·HTTPS·프록시 뒤 peer IP 묶임 검토(4A3/12A1). BK-R001/002/019는
+  운영 인수 전까지 Open. 배포·실제 자격증명 변경은 하지 않았다.
+- 리뷰(사용자 지시 “리뷰는 돌리자”): D-045 커밋 Python 리뷰는 경계(9회 200·10회 429)·테스트 격리·
+  잔여 환경 변수 참조·문서 일관성 모두 문제 없음. PR60 전체 보안 리뷰는 머지 차단 결함 없음.
+  JWT 알고리즘 고정·type 구분·회전 잠금·타이밍 균등화·401/403·CSRF·쿠키 범위·D-040 매트릭스를 확인했다.
+  지적 두 건(IP별 예산의 분산 추측, 프록시 뒤 IP 뭉침으로 인한 잠금)은 코드 결함이 아닌 운영 위험이라
+  JWT_AUTHENTICATION 남은 위험과 BLUEPRINT 12A1 인수 기준에 기록했다. 앱이 해시만 받아 강도 검사는 불가하다.
+- 다음: PR60 머지 후 BLUEPRINT 순서의 다음 독립 단계(4A3 또는 4B1 등)를 문서 관문 기준으로 고른다.
+
+## 2026-09-15 — 4A2 JWT 인증 구현 후보
+
+- 사용자 지시: PR59를 “머지했고 다음”. GitHub에서 PR59 MERGED와 develop
+  `609e69f`를 확인하고 `phase-4a2-jwt-auth`를 만들었다. 시작 작업 트리는 깨끗했다.
+- 구현: ID/비밀번호 로그인, PBKDF2 해시 환경 설정, PyJWT2.14.0 고정,
+  access15분/refresh절대12시간, 기기별 원자적 회전·로그아웃·401/403,
+  CSRF 보호, 레거시 PIN/세션 인가 제거. Migration0021은 인증 테이블 두 개만 추가한다.
+- API는 Bearer만 받는다. HTML 이동은 refresh를 검증만 하며 화면 역할/기기를 고정한다.
+  브라우저는 메모리에 access를 저장하며 갱신 후 역할/기기가 다르면 쓰기를 재전송하지 않는다.
+  모든 활성 화면의 fetch를 공통 클라이언트로 연결했다.
+- 독립 JS 리뷰가 계정 변경 후 다른 계정으로 쓰기 재전송과 세 탭 이상 회전 경합을 찾았다.
+  화면 세션 결속과 5초 동안 현재 토큰의 access 발급만 허용하는 방식으로 보완했다.
+  이때 refresh 회전/쿠키 쓰기는 생략하고 직전 토큰은409를 반환한다.
+- 독립 Python 리뷰의 API 캐시, 비정상 숫자 클레임, 사용 불가능한 PBKDF2 해시 지적을 수정했다.
+  비공개/no-store 응답, OverflowError 정규화, base64/길이·중복 JSON 키 검증을 추가했다.
+  후속 리뷰는 모두 통과했다. 예기치 않은 API 오류에서도 가드의 토큰 지역변수를 가린다.
+- 검증: JWT HTTP 경계의 기존 구현 실패를 먼저 확인했다. 새 migration이 생겨
+  fresh-install 테스트의 최종 head 기대를0021로 갱신했다. dashboard의 옛 세션 주입은
+  실제 JWT 로그인 helper로 바꾸고 계산 단언을 보존했다.
+  전용 PG 전체123개(마이그레이션16+앱107), skip0 통과; 이후 추가한 가드 오류보고
+  회귀를 포함한 HTTP11개도 통과했다. 최종 발견 수는124개다.
+  Django check 문제0, migration drift 없음, Node 클라이언트12개 통과, Ruff·diff check 통과.
+  CI에도 로컬 검증과 같은 Node24.7.0 및 클라이언트 테스트를 추가했다.
+- 브라우저: 합성 계정과 별도 PG DB로 390x844 주문 로그인/메뉴/4,300원 주문 저장,
+  1280x900 주방 로그인/홀·포장·전체 이동/준비 완료/POST 로그아웃/카운터 통계 응답을 확인했다.
+  다른 탭의 계정 변경 후 이전 주문 화면은 로그인으로 이동했고 주문이 중복 생성되지 않았다.
+  카운터의 과거 고정 날짜는 기존8C 범위로 남겼다. 테스트 프로필의 HTTP 검증이며
+  운영 HTTPS·프록시·외부 Realtime·실기기 인수를 뜻하지 않는다.
+- 합성 서버·DB와 소유 라벨을 확인한 전용 Compose 컨테이너·볼륨을 모두 정리했다.
+  Markdown 링크/펜스와 pip check도 통과했다.
+- 아직 미답: 비밀번호 교체 시 전 기기 회수, 실패 제한 수치, 메뉴·테이블 조회 역할.
+  구현된 회수·5분 제한은 검토 가능한 제안이며 승인으로 기록하지 않는다.
+  LOGIN_MAX_FAILURES는 운영에서 명시해야 하며 실제 자격증명은 공급하지 않았다.
+  정책 확인 전에는 구현 후보로 유지하고 머지·배포하지 않는다.
+- 다음: 정책 답변을 반영해 최종 PR을 인수한 뒤 4A2 운영/환경 관문을 확인한다.
+  [JWT 설정·서비스·복구 계약](JWT_AUTHENTICATION.md), [D-044](DECISIONS.md)를 따른다.
+
+## 2026-09-15 — 4A2 주방 공용 역할 단일화 (D-034)
+
+- 사용자 지시: “docs 문서 읽고 다음으로 작업해야 하는거 진행하자”. 기존 리뷰·PR·문제 없으면 머지 지시를 유지한다.
+- 브랜치: `phase-4a2-auth-session-lifetime`, 시작 HEAD `70fe186`, 기준 develop `536a863`.
+  시작 작업 트리는 깨끗했고 열린 PR은 없었다.
+- **인계 오류 정정:** D-034가 이미 “주방계정 1개로”를 accepted로 기록했는데,
+  직전 로그와 인수인계가 통합 여부를 다시 사용자 결정으로 올렸다. 새 승인이 필요한 사항이 아니었다.
+  실제 운영 id/password 역시 합성 값으로 하는 로컬 구현의 선행 조건이 아니다.
+- **구현:** 역할을 `ORDER`·`B1_COUNTER`·`KITCHEN`으로 통합했다. 주방 전체·홀·포장 URL과
+  `ALL`·`HALL`·`TAKEOUT`은 유지하고 모두 KITCHEN을 요구한다. 로그인 카드도 세 개다.
+  구 역할의 로그인과 기존 세션은 자동 승격 없이 거부한다. 현재 계정의 API 매트릭스는 유지했다.
+- **설정 전환:** 운영 허용 역할을 과거 공개 PIN 목록과 분리했다. 과거 공개 PIN 거부 근거는 보존하고
+  개발 기본값·예시·PG 합성 설정은 세 역할로 바꿨다. 기존 환경에서 `KITCHEN_HALL`·`KITCHEN_TAKEOUT`
+  항목을 제거하고 재시작해야 한다. 해당 기기는 KITCHEN으로 다시 로그인한다. 운영 적용은 하지 않았다.
+- **리뷰 보완:** 홀·포장 로그인 카드 제거가 필터 화면의 유일한 진입점을 없애는 문제를 독립 리뷰가 찾았다.
+  주방 화면에 전체·홀·포장 링크와 현재 선택 표시를 추가했다. 세 URL의 링크와 선택 상태를 회귀로 고정했다.
+- **검증:** 변경 전 로그인·운영 설정 기준 18개 통과. 새 계약은 기존 코드에서 예상된 단언 7개가 실패했다.
+  필터 링크 회귀도 보완 전 세 페이지에서 실패했다. 이후 CSS 선택자까지 세던 테스트의 문자열 집계를
+  HTML 속성과 활성 URL 검사로 정정했다. 최종 `.venv/bin/python scripts/test_postgres.py`에서
+  **97개(마이그레이션15+앱82), skip0**, `manage.py check` 문제0, 마이그레이션 변경 없음.
+  전용 Compose `bk4a2-20260915-unify`, localhost55439, 매 실행 UUID DB를 사용했다.
+- **브라우저:** 별도 합성 PG DB·숫자 PIN으로 1280×900 주방 로그인→전체/홀/포장 링크와 선택 상태,
+  POST 로그아웃, 390×844 주문 로그인→테이블7·4,300원 주문 저장, ORDER의 주방 접근 거부,
+  KITCHEN 재로그인→생성 주문 조회→준비 완료 후 대기 목록 제거를 확인했다.
+  실제 운영·외부 Realtime·실기기 인수를 뜻하지 않는다. 합성 서버·DB와 소유 라벨을 확인한
+  전용 Compose 컨테이너·볼륨은 검증 후 제거했다. Markdown 링크·코드 펜스와 `git diff --check`도 통과했다.
+- **독립 리뷰:** 문서 승인 근거 감사와 Python/보안 통합 리뷰를 수행했다. `origin/develop` 대비
+  전체 브랜치 리뷰에서 위 UI·테스트 지적 보완 후 차단 문제 없음. 변경 Python Ruff 통과.
+- **다음 범위:** D-035/042/043의 id/password·JWT 발급/갱신·기기별 토큰·401/403을 합성 계정으로 구현한다.
+  메뉴/테이블 조회 주체, 자격증명 교체·회수 절차, 반복 로그인 제한 수치가 남은 정책 항목이다.
+  현재는 PIN 세션이며 4A2 전체와 BK-R002/BK-R019 종료를 선언하지 않는다.
+
+## 2026-09-14 — 4A2 착수: 모듈 분할, POST 로그아웃, 자격증명 회수
+
+- 사용자 지시: "남은거중에 내가 꼭 결정해야하는건 이야기하고 그냥 처리할수 있는건 처리하자".
+  결정이 필요한 것을 먼저 제시하고, 결정에 막히지 않는 것만 진행했다.
+- **사용자에게 올린 결정 5개(모두 미답):** 계정 5개→3개 통합 여부(D-034 실행),
+  `menus`·`tables` 조회 주체(D-040 잔여), 반복 로그인 제한 수치,
+  자격증명 회수·교체 절차, 실제 id/password 값.
+- **에이전트가 정한 것 2개(D-043):** 리프레시 쿠키 `SameSite`=Strict,
+  리프레시 CSRF는 토큰으로 막고 `SameSite`는 2차 방어. 둘 다 운영 정책이 아니라 기술 판단이라
+  직접 정했다. **사용자가 고른 값이 아니므로 뒤집을 수 있다.** D-035의 "둘 중 하나" 문구를 개정했다.
+- **`auth.py`를 셋으로 나눴다**(`89281d4`). 역할 이름은 `orders/roles.py`, 인가 가드와
+  `csrf_failure`는 `orders/views/guards.py`, 로그인·로그아웃 흐름만 `orders/views/auth.py`다.
+  4A2가 JWT 발급·회전·기기 결속을 얹으면 한 파일이 400줄을 넘고, 단계3이 확정한 인가 매트릭스가
+  4A2가 다시 쓰는 자격증명 처리와 같은 파일에 남는다. 동작은 바꾸지 않았고 본문은 그대로 옮겼다.
+  `CSRF_FAILURE_VIEW` 점 표기 경로도 함께 옮겼다.
+- **GET 로그아웃을 닫았다**(`238560b`). `<img src=".../logout/">` 한 줄이면 외부 사이트에서
+  현장 화면을 로그아웃시킬 수 있었다. Django가 안전 메서드를 CSRF에서 면제하므로 막는 것이 없었다.
+  `@require_POST`로 바꾸고 링크를 걸던 템플릿 2개를 CSRF 토큰이 붙은 form 으로 교체했다.
+- **자격증명 회수가 기존 세션에 닿게 했다**(`238560b`). 가드가 세션의 역할을 **정적 표**에
+  물었고 그 표는 런타임에 바뀌지 않는다. 그래서 PIN 을 지워도 로그인 화면만 막혔고
+  이미 열려 있던 화면은 전부 그대로 접근됐다. 공용 계정에서는 그게 회수의 목적 전부다.
+  `orders.roles.provisioned_roles()`를 요청마다 읽도록 두 가드를 바꿨다.
+- **범위 경계:** 이것은 회수이지 교체가 아니다. PIN 값을 바꾸면 역할은 여전히 제공 중이므로
+  옛 PIN 으로 연 세션은 살아 있다. 그것까지 끊으려면 세션이 자격증명에서 파생된 값을 지녀야 하고,
+  그 방식은 아직 미결인 회수·교체 절차에 속한다. `provisioned_roles()` 문서에 적어 두었다.
+- **아직 안 한 것:** JWT 발급·리프레시·기기 결속은 시작하지 않았다. 계정 구조(결정 1)와
+  자격증명(결정 5)에 달려 있다. 401/403 분리(D-042)도 미뤘다. RFC 9110이 401에
+  `WWW-Authenticate`를 요구하는데 아직 받아들이는 스킴이 없어서, 지금 나누면
+  스킴 없는 401 을 내보내는 중간 상태가 된다. 토큰 흐름과 같이 한다.
+- **리뷰가 치명적 결함을 찾았다.** 회수 기능이 **운영에서 도달 불가능**했다.
+  4A1에서 내가 쓴 D-039 부팅 게이트가 `ROLE_PINS`에 역할 다섯 개를 전부 요구해서,
+  회수하려고 항목을 지우면 앱이 시작을 거부했다. 게다가 `ROLE_PINS`는 import 시점에 읽히므로
+  회수에는 재시작이 필수인데 그 재시작이 실패했다. 직접 부팅해서 재현하고 확인했다.
+  게이트를 "모르는 이름은 거부, 아는 이름의 부분 집합은 허용"으로 바꿨다.
+  오타 보호는 오히려 강해졌다. 빈 PIN 거부는 유지했다. 부팅 회귀를 추가했다.
+- **내 문서가 재시작을 감추고 있었다.** "요청마다 읽는다"가 재시작이 불필요하다는 뜻으로 읽혔다.
+  실제로 바뀌는 것은 재시작 필요 여부가 아니라 **재시작이 누구를 끊는가**다.
+  예전 수단인 `SECRET_KEY` 교체는 전원을 끊었고, 지금은 그 역할만 끊긴다. 문구를 고쳤다.
+- **커밋 메시지의 "템플릿 2개"가 부정확했다.** `serve.html`은 어떤 뷰도 렌더링하지 않는
+  고아 템플릿이다. 살아 있는 것은 `kitchen_supervisor.html` 하나다. 삭제는 하지 않았다.
+- 리뷰가 찾은 생존 변이 7개를 전부 막았다. 회수 대상이던 것: `ROLE_TO_URLNAME` 교집합,
+  키 정규화, 로그아웃의 `rotate_token`, 잘못된 역할의 리다이렉트 대상,
+  `_targets_the_api`의 리졸버(접두사 검사로 바꿔도 통과했다), 세션 역할 `.upper()`,
+  그리고 **템플릿의 로그아웃 form**(GET 링크로 되돌려도 전부 통과했다. 서버는 막고 있으니
+  버튼만 전부 405가 됐을 것이다). 교체가 세션을 끊지 않는다는 문서 주장에도 양성 대조를 붙였다.
+  `/orders/api/` 밖에 마운트한 API 뷰용 테스트 URLconf(`orders/tests/urls_outside_api.py`)를 추가했다.
+- 검증: 92개(15+77), 모두 PostgreSQL·skip0. 변이 누적 15개 전부 사망.
+  낡은 `CSRF_FAILURE_VIEW` 경로는 테스트 이전에 `manage.py check`가 잡았다.
+- **이슈 #55·#57 은 PR 이 머지됐는데도 열려 있다.** 닫으려 했으나 권한 분류기가 막았다.
+
+## 2026-09-14 — 4A2 설계 확정과 4A1 잔여 구현
+
+- 사용자 지시: "설계 결정을 지금 진행하면서 동시에 남은 부분 진행하자". 이슈 #57.
+- 먼저 사용자가 과거에 말해둔 것을 찾아 대조했다. D-035(2026-09-12)가 역할별 고정 id/pw와
+  JWT 방향을 담고 있었고 상세는 4A2로 미뤄져 있었다. 단계3이 그 선행 조건이었고 방금 끝났다.
+- **D-042로 네 가지를 확정했다.** 각각 선택지로 제시하고 답을 받았으며
+  네 가지 모두 사용자가 권장 표시된 선택지를 골랐다. 다른 문구는 덧붙이지 않았다.
+  리프레시 토큰은 `httpOnly` 쿠키, 다중 기기는 기기별 토큰 분리, 수명은 액세스15분·리프레시12시간,
+  거부는 401(미인증·만료)/403(역할 거부) 분리다.
+  저장 방식은 D-035에서 사용자가 "보안 스토리지?"라고 불확실하게 말한 것을 에이전트가
+  구체화한 것이라 적어 두었던 항목이다. 이번에 재확인받았다.
+  401/403은 D-036이 미결로 남긴 것이며 갱신 흐름이 생기는 시점이라 이제 의미가 있다.
+  **설계만 기록했다. 인증 코드는 건드리지 않았다.**
+- 4A1 잔여(D-039)를 구현했다. 운영에서 `SECRET_KEY`·`ALLOWED_HOSTS`·`CSRF_TRUSTED_ORIGINS`·
+  `ROLE_PINS`가 없거나 저장소 기본값이면 시작을 거부한다.
+  **미설정과 "저장소에 적힌 값 그대로"를 같은 실패로 다뤘다.** 존재만 보면 `.env.example`을
+  그대로 복사한 배포가 통과하는데, 그것이 정확히 막으려던 상황이다.
+- **`DEBUG`의 기본값을 없앴다.** D-039의 문장을 넘어선 판단이라 결정 기록에 그렇게 표시했다.
+  운영 여부를 `DEBUG`로 판정하는데 그 값이 기본 켜짐이면, 아무것도 설정하지 않은 배포가
+  검사에 아예 닿지 않고 개발 설정 그대로 뜬다. 거부가 장식이 된다.
+  **단계3에서 같은 종류의 실수를 이미 한 번 했다.** 매출 통계를 카운터 전용으로 막아 두고
+  같은 숫자가 나가는 주문 조회를 열어 둔 것이다. 막았다고 적혀 있는데 막히지 않는 상태다.
+  **`DEBUG` 줄이 없는 기존 `.env`를 쓰던 개발자는 한 줄을 추가해야 한다.**
+  이슈 #57의 인수 기준 "개발 모드는 영향 없음"이 이 범위에서 문자 그대로 충족되지 않는다.
+- 거부 메시지는 환경 변수 이름만 말하고 값은 넣지 않는다. 누락 항목은 한 번에 모두 보고한다.
+  **이 경로에서는 Django 오류 보고가 렌더되지 않는다.** 설정 import가 끝나지 않아
+  자격증명 필터도 활성이 아니다. 그래서 메시지 자체가 값과 로그 사이의 유일한 방벽이다.
+- `.env.example`은 이미 있어 새로 만들지 않고 확장했다. 항목마다 필수/생성/입력/선택을 표시하고
+  키 생성 명령을 넣었다. 4A2용 JWT 자리는 만들되 **필수로 걸지 않았다.**
+  읽는 코드가 없는데 필수로 하면 쓰이지도 않는 값 때문에 시작이 막힌다.
+- 회귀14개. 처음 9개를 썼는데 문서에는 **세어 보지 않고 10개라고 적었다.** 리뷰가 잡았다.
+  리뷰 반영으로 5개를 더해 14개가 됐다. 그중 13개는 새 인터프리터를 띄워 실제로 시작해 보고
+  결과를 읽는다. 나머지 하나는 예시 파일을 읽는 검사다.
+  이 프로세스에서 설정을 불러오면 이미 import된 모듈이 캐시돼 아무것도 증명하지 못한다.
+  정상 기동 대조군을 먼저 뒀다. 그것 없이는 거부가 검사 때문인지 탐침 오류인지 알 수 없다.
+  필수 항목은 하나씩 따로 비웠다. 묶어서 비우면 어느 것이 실제로 강제되는지 알 수 없다.
+- 기존 테스트 두 곳이 이 변경으로 깨졌다. `settings_test_pg`가 환경을 비우고 기본 설정을
+  별표 import 해서 `DEBUG` 명시가 필요했고, `test_database_config`의 탐침도 같은 이유로 실패했다.
+- **거부 경로가 하나에서 둘로 늘었다.** 같은 파일의 다른 테스트가 "오류가 났다"만 단언하는데,
+  이 변경 전에는 `settings.py`의 `ImproperlyConfigured`가 `DATABASE_URL` 한 곳뿐이라
+  그 단언이 충분했다. **이 변경이 두 번째 거부 경로를 만들어 그 단언을 불충분하게 만들었다.**
+  거부 사유가 `DATABASE_URL`인지 확인하도록 좁혔다. 기존 결함을 발견한 것이 아니라
+  내가 만든 위험을 같은 커밋에서 닫은 것이다.
+- 1차로 변이10개를 주입해 전부 사망을 확인했다. 리뷰 반영 후 12개를 더 확인했고
+  그중 1개는 생존한다. 길이 하한이 그 값을 독립적으로 잡기 때문이며 문서에 사유를 적었다.
+  전체80개(15+65) 통과, skip0. 소유 label 확인 후 정리했다.
+- 위험: **BK-R028·BK-R002 어느 쪽도 종료하지 않았다.** 저장소에서 기본값 대체를 막았을 뿐
+  운영 실제 값은 미확인이다. BK-R002의 PIN 시도 제한 부재와 공용 계정 성질은 D-042의 4A2 전환이 다룬다.
+  운영에서 `DEBUG=1`을 막는 것은 4A3의 `check --deploy` 범위다.
+
+## 2026-09-13 — 단계3 구현: API 역할 인가와 CSRF 경계
+
+- 사용자 지시: 단계3 구현 진행. 이슈 #55, 브랜치 `phase-3-api-authorization`.
+- 착수 전에 D-040과 실제 화면을 대조해 충돌을 찾았다. D-040은 주문 취소를 주방 카운터에
+  두었으나 취소 버튼은 주방 총괄 화면에만 있고 카운터 화면은 통계 전용이라 주문 목록조차 없다.
+  서버만 조이면 아무도 취소할 수 없게 되는 상태였다. 사실을 알리고 선택을 받았다.
+  사용자는 처음 "카운터 화면에 취소 UI까지"를 골랐다가 "취소랑 이런 부분은 주방에만 두고
+  카운터는 그대로 두자"로 바꿨다. D-040을 개정으로 표시했고, 그 결과 세 항목이 모두
+  현재 화면과 일치해 UI 변경 없이 서버만 조이는 작업이 됐다.
+- 구현: `require_api_roles()`를 추가해 API 거부를 JSON403으로 답한다. 화면은 리다이렉트하지만
+  API는 그럴 수 없다. 리다이렉트가 HTML 로그인 페이지로 도착하면 호출자에게는 권한 문제가
+  아니라 JSON 파싱 오류로 보인다. 세션 없음과 역할 불일치를 모두 403으로 답하고,
+  401/403 구분은 리프레시 흐름이 있는 4A2로 남겼다(D-036 미결).
+- **인가를 `cache_page` 바깥에 두었다.** 안쪽이면 인가된 호출자가 채운 캐시 본문이
+  그 뒤 누구에게나 제공된다. 메서드 검사보다도 먼저 실행되게 해서 미인증 호출자가
+  경로의 허용 메서드를 알아내지 못하게 했다.
+- 주체가 미확정인 엔드포인트5개는 **역할을 제한하지 않고 인증만 요구**했다.
+  D-040이 정하지 않은 것에 역할을 추측으로 넣으면 받지 않은 승인을 만드는 것이다.
+- CSRF: 쓰기3개의 `@csrf_exempt`를 제거했다. 프런트엔드는 이미 `X-CSRFToken`을 보내고 있었으나
+  토큰을 `csrftoken` 쿠키에서 읽으므로, 쓰기 기능이 있는 화면4개에 `@ensure_csrf_cookie`를 붙여
+  로그인과 첫 쓰기 사이에 쿠키가 사라져도 조용히 깨지지 않게 했다.
+- 교체 순서를 지켰다. 준비 단계의 `OPEN` 기대값이 실제로 실패하는지 먼저 확인했고(43개 단언)
+  그 다음 승인된 매트릭스로 바꿨다. 그 확인 없이는 통과하는 suite가 아무것도 증명하지 않는다.
+- 기존 여정은 깨지지 않았다. 인가 적용 직후 실패43개가 **전부 `test_permissions`**였고
+  baseline·dashboard는 그대로 통과했다. 그 회귀들이 이미 올바른 역할로 로그인하고 있었기 때문이다.
+- 공허하지 않음: 변이8개를 주입해 모두 실패로 전환되는 것을 확인하고 원복했다.
+  인가 제거, 역할 제한 완화, **인가를 cache 안쪽으로 이동**, GHOST 검사 제거,
+  거부를 리다이렉트로, `csrf_exempt` 복원, `ensure_csrf_cookie` 제거, 거부 본문에 역할 노출.
+  cache 순서와 쿠키 제거는 조용히 깨지는 종류라 특히 중요했다.
+- 검증: 전용 Compose에서 전체57개(15+42) 통과, skip0. 소유 label 확인 후 정리했다.
+  (리뷰 보강 후 59개(15+44)가 됐다. 아래 리뷰 항목 참조.)
+- **독립 리뷰 3개를 돌렸고 머지하지 않았다.** 보안·테스트·문서 역할로 나눠 병렬 실행했다.
+  보안과 테스트 리뷰가 **서로 독립적으로 같은 두 가지**를 지적했고 둘 다 직접 확인했다.
+  - **매출 기밀성이 달성되지 않았다.** `stats-dashboard`를 카운터로 제한했지만
+    `orders-collection` GET이 주문마다 `total_price`·`payment_method`·현금/식권 구성·거스름돈을
+    담아 인증된 전 계정에 준다. `order-detail`도 같다. 즉 제한한 숫자가 옆문으로 나간다.
+    D-040이 이 주체를 정하지 않아 좁히지 않았는데, 여기서는 "정하지 않음"이 중립이 아니라
+    이미 내린 제한을 무효로 만든다. **사용자 결정 전까지 열어 둔다.**
+  - **회귀가 역할 확대를 볼 수 없었다.** 테스트가 기대 허용 집합을 `KITCHEN_ROLES`·`COUNTER_ROLES`로
+    **코드에서 import**했다. 상수를 넓히면 기대값이 같이 움직여 통과한다.
+    변이 8개가 데코레이터 호출부만 건드렸기 때문에 이 종류를 못 봤다. 내 변이 설계의 결함이다.
+- 보강: 승인된 매트릭스를 테스트에 리터럴로 적고 상수는 따로 대조한다. 엔드포인트 표를
+  `orders/urls.py`의 API 경로 집합과 대조하고 개수도 고정한다(dict 리터럴은 중복 키를 조용히 버린다).
+  거부 본문 단언이 영문 코드만 찾던 것을 한국어 표시명과 정확 본문까지로 넓혔다.
+  `require_api_roles()`는 역할 이름을 받고도 집합이 비거나 모르는 이름이면 import 시점에 멈춘다.
+- 새 변이 5개(역할 상수 확대2종, 빈 집합, 키 중복, 한국어 노출)를 주입해 전부 사망을 확인했다.
+  전체59개(15+44) 통과, skip0. 소유 label 확인 후 정리했다.
+- 리뷰가 지적한 인증 측 약점은 **이 단계에서 고치지 않았다.** 세션 고정(`cycle_key()` 없음),
+  토큰 없는 쓰기가 CSRF middleware에서 HTML403으로 거부되는 점, 역할 회수가 기존 세션에 닿지 않는 점,
+  CSRF 가능한 GET 로그아웃이다. 모두 인증 코드 변경이라 4A2 승인 사안이다.
+  세션이 이제 9개 API의 유일한 인가 자격증명이므로 전보다 무겁다는 점은 기록했다.
+- 문서 리뷰가 찾은 낡은 문장을 고쳤다. D-003 색인 행이 개정 전 주체(취소=카운터)를 그대로 말했고,
+  D-036 실행 상태가 "아직 변경하지 않았다"였으며, PR #53 미머지 서술이 3곳 남아 있었다.
+  #53 머지 시각을 2026-09-13으로 적었는데 실제로는 **2026-09-12 12:33(KST)**다. 추론값을 넣은 실수다.
+  D-040에는 사용자가 붙인 "일단"과, `order-status` 전체로 읽은 것이 에이전트 판단이라는 점을 남겼다.
+- **2차 반영(사용자 결정).** 매출 노출과 인증 약점을 어디까지 손댈지 물었고 답을 받았다.
+  - **주문 조회를 주방·카운터로 제한**했다(D-040 2차 개정). 생성 POST는 전 계정 그대로다.
+    `orders-collection`이 메서드별로 주체가 다른 첫 엔드포인트라 `by_method`를 추가했다.
+    이 변경으로 baseline 회귀3개가 깨졌다. ORDER로 만든 주문을 ORDER로 읽어 검증했기 때문이다.
+    **권한을 되돌리지 않고 읽기 전용 helper가 주방 세션으로 읽도록 바꿨다.**
+    주문 화면은 생성만 하고 읽어오지 않으므로 이것은 검증 단계지 여정이 아니다.
+  - **세션 고정과 CSRF 거부 형식**을 닫았다(D-041). 로그인 시 `cycle_key()`를 부르고,
+    `CSRF_FAILURE_VIEW`로 API는 JSON·화면은 HTML로 거부한다. API 판정은 경로 접두사가 아니라
+    URLconf 해석으로 한다. 접두사는 라우트가 옮겨지면 조용히 틀려진다.
+  - 로그아웃 GET·역할 회수·PIN 시도 제한은 사용자 선택에 따라 4A2로 남겼다.
+- 새 변이5개(조회 주체 확대, GET 제한 제거, `cycle_key` 제거, `CSRF_FAILURE_VIEW` 제거,
+  화면까지 JSON)를 주입해 전부 사망을 확인했다. 누적 변이18개다.
+  전체63개(15+48) 통과, skip0. 소유 label 확인 후 정리했다.
+- **3차 리뷰.** 2차 반영으로 생긴 새 인가 코드를 다시 리뷰했고 여섯 가지가 더 나왔다.
+  가장 무거운 것은 `by_method`가 **메서드 이름을 검증하지 않은** 점이다. 오타 난 키는
+  영영 매칭되지 않아 그 메서드를 엔드포인트 기본값에 남기는데, 이 기능을 쓰는 유일한
+  엔드포인트에서 그 기본값은 "인증만"이다. 역할 오타는 이미 막아 두고 정작 접근을
+  **허용하는 쪽** 실수는 열어 뒀다. import 시점에 멈추게 했다.
+  HEAD를 GET의 주체로 인가하게 했다. `require_http_methods`가 오늘 405로 막지만
+  그 데코레이터는 가드의 안쪽이라 거기에 기대면 인가가 부수 효과가 된다.
+  `cycle_key()`를 `flush()`로 바꿨다. 전자는 내용을 새 키로 옮긴다.
+  `rotate_token()`을 더했다. 세션 키는 자격증명의 절반이고 Django의 `login()`도 둘을 같이 한다.
+  CSRF 실패 뷰의 API 판정을 모듈 이름 `endswith`에서 가드가 다는 표시로 바꿨다.
+- 새 변이7개를 주입해 전부 사망을 확인했다. 누적 변이25개. 전체66개(15+51) 통과, skip0.
+- **테스트 엄밀성 리뷰는 실행하지 못했다.** 세션 한도로 중단됐다. 보안·정확성 리뷰만 완료했다.
+  사용자에게 알리고 다시 돌릴지 물었고 **리뷰 없이 머지**를 선택했다.
+  따라서 새 테스트의 공허성 근거는 내 변이25개뿐이며 독립 검토는 받지 않았다.
+- 3차 리뷰가 집계 우회도 찾았다. `kitchen-menu-summary`의 메뉴별 미조리 수량과 `menus`의 단가를
+  합치면 카운터 전용인 `stats-menu-counts`의 메뉴별 금액이 재구성됐다. 금액을 담지 않는 둘이
+  합쳐서 금액이 된 경우다. 호출하는 화면이 없어 **사용자 결정으로 경로와 뷰를 지웠다.**
+  주체를 새로 정하는 대신 표면을 없앤 것이라 D-040에 추측을 더하지 않는다.
+  `test_baseline`이 이 집계를 교차 확인에 쓰고 있어 그 단언만 걷어냈다. 같은 수량을
+  `order-detail`과 DB에서 확인하는 단언이 남아 불변조건은 그대로다.
+  지운 경로를 가드 없는 뷰로 되살려 매트릭스가 잡는 것을 확인했다.
+- 위험: BK-R001의 세 항목이 저장소에서 닫혔다. **해결 상태는 Open이다.**
+  인증 방식을 바꾸지 않았고 브라우저 여정·401/403도 미검증이다.
+  인증 방식은 바꾸지 않았으므로 BK-R002 공용 PIN 약점은 그대로다.
+  브라우저 실제 여정과 401/403은 미검증이고 외부 노출·배포는 미실행이다.
+- 다음: 401/403 구분, 주문 생성·조회 주체, 주방 계정 단일화, 토큰 수명·회수는 4A2다.
+
 ## 2026-09-12 — D-034~039 확정과 배포 브랜치 main 정렬
 
 - 사용자에게 막힌 결정을 정리해 제시하고 답을 받았다. 확정한 것은 여섯 가지다.
@@ -985,3 +2289,69 @@ docs/modernization/prompts/02_REVIEW_BLUEPRINT.md에 작성된 프롬프트를
 - 검증: 로컬 문서 링크/Markdown 구조/미완성 표식 검사, `git diff --check`, 애플리케이션 경로 diff 검사. 문서 렌더링은 번들 Node의 `marked`를 사용했다.
 - 로컬 실행 기록과 Figma 검사 결과는 무시되는 `.venv/figma-redesign/`에만 저장했다. 기존 분석 문서 변경을 보존했고 앱 코드·운영 인프라·원격 push/merge를 변경하지 않았다.
 - 한계: 예시 데이터 기반의 편집 가능한 1차 디자인이며 실제 기능 구현이 아니다. 통계 API 오류, 모든 오류/빈 상태, 전체 관리자 하위 폼과 인라인 편집 동작은 별도 구현·검증 대상이다.
+
+### 2026-09-21 — 05안 Figma 댓글 반영
+
+- 브랜치: `phase-10d2-kitchen-client`. 이번 작업은 Figma와 문서만 변경했다.
+- 팀 댓글 8개와 관련 답글·모니터링 첨부 예시를 검토했다. 사용자에게 완료의 의미와 수정 범위를
+  확인했고, **완료 = 준비 완료 후 손님께 서빙 출발**, **수정 = 준비 수량·상태**로 확정했다.
+- [05안](https://www.figma.com/design/lrCdmOhZQfKiUIfz76tXvt?node-id=2135-907)의 메뉴를
+  수량 선택 후 담기로 변경하고, 결제 장바구니를 바로 표시했다. 식당·포장·전체 모니터링에
+  미완료 가로 목록과 전체 내역 세로 목록, 부분 준비·서빙 출발·취소 조회 상세를 반영했다.
+- #021 주문의 식당·전체 완료 전후 비교와 복귀 연결을 추가했다. 기존 주문 전체 취소 진입은
+  유지하되 메뉴·주문 수량·금액 수정 및 품목별 취소는 추가하지 않았다.
+- 검증: Figma 렌더링, 텍스트 넘침·최상위 프레임 겹침·섹션 밖 배치·누락 글꼴·끊어진 목적지
+  각 0건. 05안 프레임 51개, 텍스트 1,574개, 동작 113개. 다른 섹션과 사용자 별도 모바일
+  프레임은 ID·이름·위치·크기·텍스트 해시가 작업 전후 일치했다.
+- 문서: [UI_UX_REDESIGN.md](UI_UX_REDESIGN.md)에 댓글별 처리, 화면 링크, 확정 사항,
+  검증 수치와 구현 경계를 기록했다. `git diff --check`와 변경 문서 링크·표 구조를 검사했다.
+- 한계: 대표 화면 연결을 갖춘 편집 가능한 디자인이다. 실제 수량·금액 계산과 저장, 모든 행의
+  동작, Present 클릭·스크롤 E2E는 구현·검증한 범위가 아니다. 서버 상태 계약은 변경하지 않았다.
+- 다음 단계: 사용자 디자인 검토 후 해당 UI를 구현할 때 출발·복귀 상태, 준비 수량 처리와
+  행위자 기록·동시성 정책을 검증한다. 댓글 답글 게시·해결 처리, 앱 코드 수정, push/merge는 하지 않았다.
+
+### 2026-09-21 — UI-05A: 05안 채택·로그인/내 메뉴/휴대폰 주문·결제 구현
+
+- 사용자 지시: 05안을 UI로 채택하고 문서와 코드에 적용, 추가 수정은 이후 순차 반영.
+  D-062와 [UI_IMPLEMENTATION](UI_IMPLEMENTATION.md)에 채택 기준과 UI-05A→05B→05C 순서를 기록했다.
+- 로컬 브랜치: `ui/05-serving-foundation` (`phase-10d2-kitchen-client`의 HEAD에서 생성).
+  앞선 Figma 작업의 UI_UX_REDESIGN/WORKLOG 변경을 보존했다. commit/push/merge/배포는 하지 않았다.
+- 구현: 공통 opt-in 스타일, 이름+행사 비밀번호 로그인, 권한별 내 메뉴, 한 열 메뉴·선택 수량/담기,
+  고정 결제 진입, 테이블 아래 펼친 장바구니와 결제 대화상자. 주문 controller/state를 외부 JS로 분리했다.
+  다른 화면의 스타일/주방 SSE/상태 API와 DB 스키마는 변경하지 않았다.
+- 보존: 서버 가격·결제 규칙/번호/연습 배지, JWT 자동 갱신·계정/세션 결속, CSRF, 안전한 DOM.
+  닫기 후 초안 유지, 실패 후 동일 요청 ID 재시도, 저장 중 편집/중복 제출 방어를 검증했다.
+- 독립 리뷰: 일반 텍스트 서버 오류가 사라지는 문제, 현금+식권 연속 입력의 초점 유실을 수정했다.
+  실제 Django 400은 텍스트 본문에도 `text/html`을 사용하므로 MIME만으로 오류를 버리지 않도록 했다.
+  성공 상태라도 JSON/주문 ID가 없으면 초안을 보존해 같은 ID로 확인하도록 했다.
+- 검증 완료:
+  - PostgreSQL 전용 `scripts/test_postgres.py`: **마이그레이션 26 + 애플리케이션 533 통과**,
+    system check 정상, `makemigrations --check --dry-run` 변경 없음. 첫 실행에서 인라인 JS를
+    전제로 한 기존 문자열 검사 1건이 실패해 외부 controller 연결 검사와 실제 JS 동작 검사로 대체했다.
+  - CI와 같은 Node 명령: **67 통과**(기존 인증·DOM·요청 ID·주방 스케줄러 + 새 주문 상태 4·controller 8).
+    controller 테스트는 통신 실패, 불명확한 200, 일반 텍스트/JSON 거절, 재시도/연타/초기화/입력 초점을 검사한다.
+  - 실제 앱 브라우저: 390×844, 320×568, 390×460. 합성 메뉴 10개, 홀2+포장1 혼합 15,000원,
+    홀 현금 5,000원, 포장101 식권 5,000원 주문을 저장했다. 식권 초과분의 현금 거스름돈은 0원.
+  - 수량 선택만으로 담기지 않음, 결제 닫기/재진입 때 테이블·금액·장바구니 유지, 등록되지 않은
+    테이블의 구체적 오류, Escape/닫기 후 초점 복귀, 마지막 항목 삭제 후 저장 비활성화를 확인했다.
+  - 좁은 화면 가로 넘침 없음, 낮은 화면에서도 고정 저장 버튼이 화면 안에 있음. 메뉴/장바구니의
+    HTML 형태 이름이 텍스트로 표시되고 `img` 노드는 0개. 서빙 전용 계정에는 주문·서빙만,
+    4권한 계정에는 허용 업무 5개(전체 모니터링 포함)가 표시된다. 로그아웃 후 로그인으로 복귀했다.
+- 격리 환경: Compose 프로젝트 `bk-ui05-0921`, loopback55461의 폐기용 PG15. 검증 마커·소유권을
+  확인하고 UUID DB를 만들어 썼으며 운영/개발 DB는 사용하지 않았다. 실행 로그는 무시되는 `.venv/ui05-preview/`.
+  검증 후 임시 서버·브라우저 탭·viewport 설정과 해당 Compose 컨테이너/볼륨을 정리했다.
+- 문서: README, BLUEPRINT, DECISIONS, SESSION_SETUP, UI_UX_REDESIGN과 새 UI_IMPLEMENTATION을 갱신했다.
+  새 JS 테스트를 CI에 추가했다. 변경 문서의 로컬 링크와 `git diff --check`를 검사했다.
+- 남은 범위: UI-05B 모니터링의 준비 수량/명시적 서빙 출발과 READY 자동 전이 정합성,
+  UI-05C 누적·통계/공통 메뉴 확대. 실기기 소프트 키보드·음성 스크린리더는 미검증이다.
+  UI-05A의 로컬 완료를 05안 전체/단계11/BK-R023/운영 인수 완료로 해석하지 않는다.
+
+### 2026-09-21 — UI-05A PR 제출
+
+- 사용자 후속 지시 “pr 올리자”로 `ui/05-serving-foundation`의 commit·push·PR 생성을 승인받았다.
+  대상은 `develop`이며 merge·배포는 하지 않는다.
+- 원격 확인: PR #80은 `develop`에 머지됐고 최신 `origin/develop`은 `1efb223`이다.
+  작업 브랜치의 구현 전 HEAD와 최신 develop의 tree가 같아 이전 검증 결과를 그대로 사용한다.
+- 포함 범위: 05안 채택/댓글 기록, 로그인·내 메뉴·서빙 UI, 관련 테스트와 CI, 인수 문서.
+  PostgreSQL 26+533 및 Node 67 통과, 실제 휴대폰 viewport 검증은 위 UI-05A 기록을 따른다.
+- 게시 전 `git diff --check`와 변경 범위·검증 로그를 확인했다. 임시 실행 파일과 합성 DB는 포함하지 않는다.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import ExtractYear
 
 
 class FloorChoices(models.TextChoices):
@@ -22,6 +23,14 @@ class OrderStatus(models.TextChoices):
     PREPARING = "PREPARING", "준비중"
     READY     = "READY", "완료"
     CANCELLED = "CANCELLED", "취소"
+
+
+class NumberSeries(models.TextChoices):
+    # D-047: an order belongs to the event or to a rehearsal, and the two count
+    # separately. PRACTICE is the default so a row that never went through
+    # allocation cannot pass for an event order.
+    REAL = "REAL", "행사"
+    PRACTICE = "PRACTICE", "연습"
 
 
 class OrderSource(models.TextChoices):
@@ -79,9 +88,13 @@ class Order(models.Model):
     status = models.CharField(max_length=10, choices=OrderStatus.choices, default=OrderStatus.PREPARING)
     source = models.CharField(max_length=12, choices=OrderSource.choices, default=OrderSource.ORDER)
 
-    # 번호: 층별·일자별 증가
+    # 번호: 계열(행사/연습)·연도별 증가 (D-047)
     order_no = models.PositiveIntegerField(null=True, blank=True, db_index=True)
     order_date = models.DateField(null=True, blank=True, db_index=True)
+    number_series = models.CharField(
+        max_length=8, choices=NumberSeries.choices,
+        default=NumberSeries.PRACTICE, db_index=True,
+    )
 
     # 지하 매장만 테이블 사용
     table = models.ForeignKey(Table, null=True, blank=True, on_delete=models.PROTECT, related_name="orders")
@@ -92,29 +105,56 @@ class Order(models.Model):
     received_amount = models.PositiveIntegerField(null=True, blank=True)
     received_cash_amount = models.PositiveIntegerField(null=True, blank=True)
     received_ticket_amount = models.PositiveIntegerField(null=True, blank=True)
+    # 7A (D-048): decided by the server at creation and kept. NULL on rows
+    # older than 0026; the API computes those the old way.
+    change_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name="거스름돈")
 
     # 공통
     total_price = models.PositiveIntegerField(default=0)
     note = models.CharField(max_length=200, blank=True, default="")
 
+    # D-051: who took the order. Null for orders written before accounts
+    # existed; PROTECT so an author with orders is deactivated, not deleted.
+    created_by = models.ForeignKey(
+        "orders.Account", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="created_orders", verbose_name="주문자",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Explicit serving departure only; historical READY rows stay unknown.
+    departed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
-            # 테이블 규칙: 모든 지하 주문은 테이블(테이블 번호·포장 슬롯)을 가져야 함
+            # 테이블 규칙: 홀 주문은 테이블이 있어야 한다. 포장 주문은 교환권
+            # 방식이라(D-069) 테이블도 번호표도 없고, 주문 번호가 교환권이다.
+            # 이전 번호표 점유 규칙(D-050, uq_active_takeout_slot)은 0031에서 뺐다.
             models.CheckConstraint(
                 name="orders_table_rule",
                 check=Q(
                     Q(order_type=OrderType.DINE_IN, floor=FloorChoices.B1, table__isnull=False)
-                    | Q(order_type=OrderType.TAKEOUT, floor=FloorChoices.B1, table__isnull=False)
+                    | Q(order_type=OrderType.TAKEOUT, floor=FloorChoices.B1)
                 ),
             ),
-            # 층+일자+번호 유니크(번호가 있을 때만)
+            # 층+계열+연도+번호 유니크(번호가 있을 때만). D-047로 초기화 주기가
+            # 날짜에서 연도로 바뀌었으므로 고유 범위도 연도다. 연도는 주문일에서
+            # 끌어내 별도 컬럼과 어긋날 여지를 남기지 않는다.
             models.UniqueConstraint(
-                fields=["floor", "order_date", "order_no"],
+                "floor",
+                "number_series",
+                ExtractYear("order_date"),
+                "order_no",
                 condition=Q(order_no__isnull=False),
-                name="uq_floor_date_no",
+                name="uq_floor_series_year_no",
+            ),
+            # The uniqueness above is scoped by the year of order_date, and
+            # EXTRACT(YEAR FROM NULL) is NULL, so a number without a date would
+            # slip past it entirely. Allocation always writes both together;
+            # this stops a manual or admin write from breaking that quietly.
+            models.CheckConstraint(
+                name="orders_number_needs_date",
+                condition=Q(order_no__isnull=True) | Q(order_date__isnull=False),
             ),
         ]
         indexes = [

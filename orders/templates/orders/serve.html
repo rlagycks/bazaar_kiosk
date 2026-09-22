@@ -12,7 +12,9 @@
 <div class="screen active">
   <div class="header">
     <h2>서빙 모드</h2>
-    <a class="btn btn-secondary" href="{% url 'orders:logout' %}">로그아웃</a>
+    <form method="post" action="{% url 'orders:logout' %}" class="logout-form">{% csrf_token %}
+      <button class="btn btn-secondary" type="submit">로그아웃</button>
+    </form>
   </div>
 
   <div class="content">

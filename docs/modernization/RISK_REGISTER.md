@@ -1,5 +1,25 @@
 # Bazaar Kiosk 위험 등록부
 
+**2026-09-20 4A4 구현:** 개인 계정·권한 4종·포장/식당 서버 경계·행위자 기록을 로컬 구현했다
+([ACCOUNTS.md](ACCOUNTS.md)). BK-R001의 저장소 쪽 매트릭스는 권한 4종으로 재작성됐고, 이름 사칭 한계는
+같은 문서에 기록했다. 운영 인수 전까지 해결 상태는 Open이다.
+
+**2026-09-19 D-051:** 주체 모델이 역할별 공용 계정 3개에서 개인 계정(이름 + 행사 공용 비밀번호)과
+권한 4종으로 바뀐다. 구현은 [4A4](BLUEPRINT.md#phase-4a4)다.
+위험 개수는 44개 그대로다. 행사 비밀번호를 아는 사람이 등록된 다른 이름으로 로그인할 수 있는
+한계(행위자 기록은 신원 증명이 아니다)는 BK-R002/BK-R019 아래에서 4A4가 문서화한다.
+포장/식당 분류의 서버 경계는 BK-R001 범위에 추가된다. 아래 “공용 계정은 개인별 행위 식별을
+제공하지 않는다”는 서술은 D-051 이전 기록이다.
+
+**2026-09-15 현재:** JWT 로컬 구현으로 PIN/legacy 세션의 API 인가는 제거됐다.
+기기별 만료·회전·회수, 401/403, CSRF와 여러 탭의 계정 변경 경계를 검증했다.
+BK-R001/002/019의 아래 PIN 상태는 이전 관찰이며 현재 증거는
+[JWT 구현](JWT_AUTHENTICATION.md)과 [작업 기록](WORKLOG.md)을 따른다.
+회수·반복 로그인 제한·조회 주체 정책은 2026-09-17 D-045로 확정·반영했다.
+실제 운영 인수(자격증명 공급·HTTPS·프록시)가 남아 위험 해결 상태는 Open을 유지한다.
+2026-09-18 4A3으로 BK-R043/044의 저장소 쪽 구성(파일 비밀값, 프록시만 노출, DB 권한 축소,
+클라이언트 주소 경계)을 만들었다. [배포 후보](DEPLOYMENT_CANDIDATE.md). 운영 대상 검증은 12A1이다. 배포나 운영 자격증명 변경은 하지 않았다.
+
 D-031/032 후속(2026-09-09): 외부 인터넷 접속 허용과 역할별 공용 계정 인증이 확정됐다.
 이는 완화가 아니라 **노출 상향**이다. 분석 당시 "외부접속 여부 미확인"을 전제로 서술한
 BK-R002·BK-R028·BK-R044의 노출 조건이 가설에서 계획된 전제로 바뀌었다.
@@ -12,7 +32,7 @@ BK-R004/021의 CI 기반 증거는 보강됐지만 원본/운영 지원 관문�
 
 최종 검증: 2026-09-12 · 기준 HEAD: `2d5bb78`(분석) · 사용자 위험 수용 없음
 44개 모두 종료되지 않았다. BK-R005는 운영 확인 대기, BK-R016은 실행성 수정 후2B 이후 인수 대기,
-BK-R028은 오류 보고 경로만 수정하고 운영 시작 규칙·기본값은 미정이다.
+BK-R028은 오류 보고 경로와 시작 거부를 수정했으나 운영 실제 값은 미확인이다.
 
 총44개(Critical1/High30/Medium13). BK-R035~040은 SSE, BK-R041~044는 Compose DB·인프라
 이전의 선행 조건·설계·운영 위험이다. 신규 구성의 장애를 재현했다고 판정하지 않는다.
@@ -25,7 +45,8 @@ D-018/020의 사용자 방향도 위험 수용이나 해결이 아니다.
 빈/NULL/0/양수40/재적용/이미적용/동명sequence/실패 원자성을 실제 PG에서 확인했고,
 수정 전 SQL이 여전히22003으로 실패함도 같은 suite에 고정했다. 다만 운영 DB의 실제 적용 기록·
 sequence 상태와 운영 적용 리허설은 미확인이므로 종료로 처리하지 않는다.
-BK-R017과0019 정책은 그대로 Open이며 BK-R003의 일일 번호 미초기화도 남아 있다.
+BK-R017과0019 정책은 그대로 Open이다. BK-R003의 번호 미초기화는 2026-09-18 D-047로 계약을 정하고
+저장소에서 고쳤다(행사일 등록·연 단위 초기화·연습 계열 분리, [구현](ORDER_NUMBERING.md)). 운영 인수는 남아 있다.
 근거는 [적용 기록](MIGRATION_REPAIR_REVIEW.md)에 있다.
 
 2A 후속: 정상 특성화8개와 환경 격리1개가 추가되었다. 가격/atomic 변이를 검출했지만
@@ -39,7 +60,8 @@ PG에서 검증했다. SQLite 결과는 최초4개 회귀의 과거 검증이다
 4A1 후속(PR46,2026-09-09 머지, develop `7455787`): BK-R028의 Django 설정 PIN·POST 자격증명 필드·
 주석 지정 지역변수를 가리고 회귀6개를 추가했다.
 임의 예외/로그 문자열, querystring, 운영 시작 정책은 남는다. [검증 범위](SENSITIVE_ERRORS.md).
-Repo-fixed는 오류 보고 경로에 한정한 표시이며 이 행의 종료 증거인 env 누락 시작 실패는 미구현이다.
+Repo-fixed는 이 기록 시점(2026-09-09)에 오류 보고 경로에 한정한 표시였고 env 누락 시작 실패는 미구현이었다.
+2026-09-14에 구현했다(아래 4A1 잔여).
 전체 위험은 Open이다.
 
 단계3 준비(2026-09-11): BK-R001의 현재 권한 표면을 전수 측정해 회귀로 고정했다.
@@ -54,16 +76,81 @@ D-034~039 후속(2026-09-12): 인증·배포·데이터 전제가 확정됐다. 
   운영 DB에 데이터가 발견되면 이 전제는 무효다.
 - D-036이 익명 차단을 확정하고 CSRF 면제 제거를 준비 범위로 정했다. 거부 응답 형식은 미결이다.
   D-040이 취소·조리 진행·매출 조회의 허용 주체를 확정했고 생성·조회 엔드포인트는 미정이다.
-  구현은 별도 승인 후이며 BK-R001은 Critical·Open 그대로다.
+  이 기록 시점에는 구현이 별도 승인 대기였다. 구현은 2026-09-13에 이뤄졌다(아래 단계3 후속).
 - D-035의 쿠키 리프레시 토큰은 refresh 엔드포인트에 CSRF 표면을 더하므로 BK-R001의 CSRF 항목은
   인증 전환 후에도 유효하다. 기존 `@csrf_exempt` 제거는 이와 독립적으로 필요하다.
   공용 계정 다중 기기 경합은 BK-R019(세션 회수)와 함께 4A2에서 다룬다.
-- D-039로 BK-R028의 종료 증거 중 `env누락 실패(미구현)` 항목이 구현 가능해졌다. 아직 미구현이다.
+- D-039로 BK-R028의 종료 증거 중 `env누락 실패` 항목이 구현 가능해졌다. 2026-09-14에 구현했다(아래 4A1 잔여).
 - D-038로 배포 대상이 EC2로 확정됐다. BK-R043/R044의 운영 대상 검증 조건이 구체화될 뿐
   검증 자체는 수행하지 않았다.
 - D-038 조사에서 `origin/main`이 빈 DB에서 실패하는 수정 전 `0020`을 담고 있음을 확인했다.
-  **정렬 PR #53은 아직 머지되지 않았으므로 현재 `origin/main` 배포는 BK-R005를 그대로 재현한다.**
-  D-038이 main을 배포 브랜치로 지정했으므로 #53 머지 전 배포를 금지한다.
+  당시 정렬 PR #53이 머지되지 않아 `origin/main` 배포는 BK-R005를 그대로 재현하는 상태였다.
+  D-038이 main을 배포 브랜치로 지정했으므로 #53 머지 전 배포를 금지했다.
+  **#53은 2026-09-12 12:33(KST)에 머지됐다**(`9896958`). 일반 머지 커밋이며 main의 트리는 develop과 동일하다.
+  이로써 이 노출 경로는 사라졌다. BK-R005 자체의 해결 상태는 운영 DB 확인이 남아 Open이다.
+
+단계3 후속(2026-09-13): BK-R001의 API 인가와 CSRF 경계를 저장소에서 수정하고 회귀17개로 고정했다.
+익명은 전 구간 차단, `order-status`·`order-item-progress`는 주방, 매출 통계 조회는 주방 카운터,
+주문 조회는 주방·카운터, 주문 생성은 인증된 전 계정이다.
+[구현과 증거](API_AUTHORIZATION.md). 인증 방식은 바꾸지 않았으므로 공용 PIN 약점(BK-R002)은 그대로다.
+브라우저 실제 여정과 401/403 구분은 미검증이며 외부 노출·배포는 미실행이다.
+
+**세 항목이 저장소에서 닫혔다.**
+- 익명 접근 차단: 수정됨. 전 API에서 403이다.
+- 변경 API의 CSRF 면제: 수정됨. 쓰기3개가 토큰을 요구한다.
+- 매출 기밀성: 수정됨. **다만 두 번의 리뷰를 거쳐서다.**
+  1차 구현은 닫지 못했다. `stats-dashboard`를 카운터로 제한했으나 같은 숫자가
+  `orders-collection` GET과 `order-detail`로 나갔다. `_serialize_order`가 주문마다
+  `total_price`·`payment_method`·현금/식권 구성·거스름돈을 담는데 두 엔드포인트가
+  인증만 요구했기 때문이다. 독립 리뷰가 찾았고 D-040 2차 개정으로 조회를 주방·카운터로 좁혔다.
+  **주체 미정이 중립인 경우와 이미 내린 제한을 무효로 만드는 경우는 다르다**는 것이 교훈이다.
+  3차 리뷰가 같은 종류를 하나 더 찾았다. `kitchen-menu-summary`(인증만)의 메뉴별 미조리 수량과
+  `menus`(인증만)의 단가를 합치면 카운터 전용인 `stats-menu-counts`의 메뉴별 금액이 재구성됐다.
+  이 엔드포인트는 호출하는 화면이 없었고, 사용자 결정으로 **경로와 뷰를 제거해** 닫았다.
+  주체를 새로 정하는 대신 표면을 없앤 것이라 D-040에 추측을 더하지 않는다.
+
+D-041로 세션 고정(로그인 시 `cycle_key()`)과 CSRF 거부의 JSON 응답도 함께 닫았다.
+세션이 이제 9개 API의 유일한 인가 자격증명이라 전보다 무겁기 때문이다.
+**남은 인증 측 약점은 4A2다.** 역할 회수가 기존 세션에 닿지 않는 점(유효성 검사가
+`ROLE_TO_URLNAME`을 보고 `settings.ROLE_PINS`를 보지 않는다), CSRF 가능한 GET 로그아웃,
+PIN 시도 제한 부재와 저장소의 기본 PIN(BK-R002), 404 응답이 HTML인 점이다.
+**앞의 둘은 2026-09-15에 4A2 착수분으로 고쳤다**(아래 항목). PIN 시도 제한과 404 형식은 남아 있다.
+
+4A1 잔여(2026-09-14): 운영 필수 설정 누락·저장소 기본값 시작을 거부한다.
+`SECRET_KEY`·`ALLOWED_HOSTS`·`CSRF_TRUSTED_ORIGINS`·`ROLE_PINS`가 대상이며
+미설정과 "저장소에 적힌 값 그대로"를 같은 실패로 다룬다. 존재 여부만 보면
+`.env.example`을 복사한 배포가 통과하기 때문이다. 거부 메시지는 변수 이름만 말하고 값은 넣지 않는다.
+`DEBUG`는 기본값을 없애 명시를 요구한다. 기본이 켜짐이면 아무것도 설정하지 않은 배포가
+검사에 닿지 않아 거부가 장식이 된다. [구현과 증거](REQUIRED_SETTINGS.md). 회귀14개·변이22개(1개 생존, 사유는 문서 참조).
+**BK-R028·BK-R002 어느 쪽도 종료하지 않는다.** 운영 실제 값은 미확인이고,
+BK-R002의 PIN 시도 제한 부재와 공용 계정 성질은 D-042의 4A2 전환이 다룬다.
+운영에서 `DEBUG=1`을 막는 것은 4A3의 `check --deploy` 범위다.
+
+4A2 설계 확정(2026-09-14, D-042): 구현이 아니라 설계다. **어느 위험도 종료하지 않는다.**
+`httpOnly` 쿠키 리프레시 토큰, 기기별 토큰 분리, 액세스15분·리프레시12시간,
+401/403 분리를 확정했다. D-036이 미결로 남긴 거부 응답 형식이 여기서 답해졌다.
+인증 코드·스키마·계정·자격증명은 변경하지 않았다.
+
+4A2 착수분(2026-09-15): **BK-R019의 두 항목을 저장소에서 고쳤다. 위험은 종료되지 않는다.**
+`ROLE_PINS`·`SECRET_KEY` 같은 운영 실제 값과 인증 방식 자체가 그대로이기 때문이다.
+
+- **GET 로그아웃을 닫았다.** `<img src=".../logout/">` 한 줄로 외부 사이트에서 현장 화면을
+  로그아웃시킬 수 있었다. Django가 안전 메서드를 CSRF에서 면제하므로 막는 것이 없었다.
+  `@require_POST`로 바꾸고 링크를 걸던 템플릿을 CSRF 토큰이 붙은 form 으로 교체했다.
+- **역할 회수가 기존 세션에 닿게 했다.** 가드가 정적 표를 보던 것을
+  `orders.roles.provisioned_roles()`로 바꿨다. **재시작은 여전히 필요하다.**
+  `ROLE_PINS`는 import 시점에 읽히므로 실행 중에는 바뀌지 않는다. 바뀐 것은
+  재시작이 **누구를** 끊는가다. 예전 유일한 수단인 `SECRET_KEY` 교체는 전원을 끊었고
+  지금은 해당 역할만 끊긴다.
+- **회수가 운영에서 도달 불가능했던 것을 함께 고쳤다.** D-039 부팅 게이트가 `ROLE_PINS`에
+  역할 다섯 개를 전부 요구해서, 회수하려고 항목을 지우면 앱이 시작을 거부했다. 즉
+  회수에 필요한 그 재시작이 실패했다. 독립 리뷰가 찾았고 실제 부팅으로 재현했다.
+  규칙을 "모르는 이름은 거부, 아는 이름의 부분 집합은 허용"으로 바꿨다(D-039 구현 개정).
+- **범위 경계: 회수이지 교체가 아니다.** PIN 값만 바꾸면 역할은 여전히 제공 중이므로
+  옛 PIN 으로 연 세션은 살아 있다. BK-R019 인수 기준의 "PIN 회수·**교체** 후 기존 세션 거부"
+  중 교체 절반은 **미구현**이다. 그 방식은 미결인 자격증명 회수·교체 절차에 속한다.
+- 인증 방식은 바꾸지 않았다. 여전히 공용 PIN 세션이며 D-035/D-042의 JWT 전환은 남아 있다.
+  검증: 92개(15+77)·변이15개 전부 사망. [구현과 증거](API_AUTHORIZATION.md).
 
 각 행은 하나의 안정적인 위험 ID다. 심각도 순위(1이 가장 높음), 심각도, 증거 상태,
 선행 결정/위험, 담당 역할, **주 담당 블루프린트 단계**를 독립 열로 두었다.
@@ -78,49 +165,49 @@ Reproduced는 기재된 로컬 조건의 재현이며 해결 상태가 아니다
 
 | 순위 | ID / 발견 | 심각도 | 증거 상태 | 해결 상태 | 선행 결정·의존성 | 담당 역할 | 주 단계 | 종료에 필요한 증거 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | [BK-R001 — API 역할 인가 부재와 변경 API CSRF 면제](ANALYSIS_REPORT.md#bk-r001) | Critical | Reproduced | Open | D-003; 단계 2 | 보안 담당 | 3 | 모든 역할/익명/만료 세션, CSRF 없음·오류·유효, GET/POST/PATCH/HEAD 경계 |
+| 1 | [BK-R001 — API 역할 인가 부재와 변경 API CSRF 면제](ANALYSIS_REPORT.md#bk-r001) | Critical | Repo-fixed | Open (운영 인수 대기) | D-036,D-040,D-041; 단계 2 | 보안 담당 | 3 | 모든 역할/익명/만료 세션, CSRF 없음·오류·유효, GET/POST/PATCH/HEAD 경계. **브라우저 여정·401/403 미검증. 인증 방식 미변경(BK-R002)** |
 | 2 | [BK-R005 — 빈 PostgreSQL에서 0020 마이그레이션 중단](ANALYSIS_REPORT.md#bk-r005) | High | Repo-fixed | Open (운영 확인 대기) | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | PG 빈 DB 전체 체인, null/빈 번호, 기존 양수번호 DB, 이미0020 적용 경로·롤백 |
 | 2 | [BK-R017 — 과거 스키마 축소와 신규 제약의 데이터 호환성 미검증](ANALYSIS_REPORT.md#bk-r017) | High | Reproduced | Open | D-006,D-008,D-017 | 데이터·운영 담당 | 1 | 0018 시점 F1/BOOTH/포장null fixture→0019, 정제복사본 dry-run·백업복원·구앱 호환 |
 | 2 | [BK-R004 — 동작 테스트 0개와 실행을 강제하지 않는 CI](ANALYSIS_REPORT.md#bk-r004) | High | Reproduced | Open | D-006,D-008; 단계 1 | 테스트 담당 | 2B | 2A 로컬 특성화·가격/atomic 변이 검출 완료; PG CI 및 회귀 감지 강제 필요 |
-| 2 | [BK-R002 — 공개된 기본 역할 PIN·개발 설정으로 시작 가능](ANALYSIS_REPORT.md#bk-r002) | High | Code-supported | Open (D-031 외부 접속으로 노출 상향) | D-002 잔여분,D-006,D-035,D-039; 단계 3 | 보안·운영 담당 | 4A | 설정 누락 시작 실패(D-039 확정·미구현), 잘못된 자격증명 반복, 공개 프록시/HTTPS 설정. D-035 계정 전환 후 기본 자격증명 재점검 |
-| 2 | [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | Repo-fixed (오류 보고 경로만) | Open (4A1/운영 인수 대기; D-031 외부 접속으로 노출 상향) | D-002,D-006; 단계 3 | 보안·운영 담당 | 4A | 합성 자격증명으로500 HTML/비HTML(text/plain)·로그에 값이 없는지, **env누락 실패(미구현)** |
+| 2 | [BK-R002 — 공개된 기본 역할 PIN·개발 설정으로 시작 가능](ANALYSIS_REPORT.md#bk-r002) | High | Repo-fixed (기본값 시작만) | Open (인증 방식 미변경; D-031 외부 접속으로 노출 상향) | D-002 잔여분,D-006,D-035,D-039,D-042; 단계 3 | 보안·운영 담당 | 4A | 설정 누락·기본값 시작 실패(구현됨). **PIN 시도 제한 부재·공용 계정 성질은 4A2 D-042 전환 대기.** 공개 프록시/HTTPS 설정 |
+| 2 | [BK-R028 — DEBUG 오류 페이지가 환경에서 설정한 역할 PIN도 노출](ANALYSIS_REPORT.md#bk-r028) | High | Repo-fixed (오류 보고 경로·시작 거부) | Open (운영 인수 대기; D-031 외부 접속으로 노출 상향) | D-002,D-006,D-039; 단계 3 | 보안·운영 담당 | 4A | 합성 자격증명으로500 HTML/비HTML(text/plain)·로그에 값이 없는지, env누락 실패. **운영 실제 값·운영 `DEBUG=1` 차단(4A3)은 미확인** |
 | 2 | [BK-R043 — Compose 환경·secret·DB TLS 계약과 현재 settings의 불일치](ANALYSIS_REPORT.md#bk-r043) | High | Code-supported | Open | D-006,D-020,D-021; BK-R002/022; 단계 2,3 | 설정·보안·인프라 담당 | 4A | URL 누락/빈 값·_FILE만·실제 secret 읽기·잘못된 DB·기본 SSL/명시 TLS/CA·재시작 후 동일 DB와 앱 권한 확인 |
 | 2 | [BK-R044 — 자체 DB의 공인 포트·권한·비밀 전달 경계 구성 누락 가능성](ANALYSIS_REPORT.md#bk-r044) | High | Hypothesis | Open (D-031로 전제 확정, 검증 필수) | D-002,D-003,D-006,D-020,D-021; BK-R001/002/028; 단계 3 | 보안·인프라 담당 | 4A | 외부 DB/ASGI 차단·신뢰 헤더 위조·앱 DDL/superuser 거부·이미지/config/log secret 검사·IAM/SSM/DB 권한 회수·기존 DB 비밀번호 교체 |
-| 2 | [BK-R011 — 저장 문자열이 실행 가능한 HTML·인라인 핸들러에 보간](ANALYSIS_REPORT.md#bk-r011) | High | Code-supported | Open | 단계 2,3 | 프런트·보안 담당 | 4B | 메뉴/테이블/메모의 HTML·따옴표·백슬래시·유니코드 payload 브라우저 검증 |
-| 2 | [BK-R018 — Supabase 익명 구독의 RLS·이벤트 노출 경계 미확인](ANALYSIS_REPORT.md#bk-r018) | High | Production-dependent | Open | D-010; 단계 3 | 보안·운영 담당 | 4B | 전환 전 외부 권한 검증, D-018 전환 후 외부 요청/키0·외부 노출 정리·자체 SSE 인가 |
-| 2 | [BK-R003 — PostgreSQL 날짜별 번호 계약 차이 및 충돌 재시도 실패](ANALYSIS_REPORT.md#bk-r003) | High | Reproduced | Open | D-004,D-006; 단계 1,2 | 데이터 담당 | 5 | PG 자정/충돌/재시도/실패·동시 생성; 기존 번호·날짜 데이터와 호환 |
-| 2 | [BK-R012 — 재전송·중복 제출에 멱등성 경계 없음](ANALYSIS_REPORT.md#bk-r012) | High | Reproduced | Open | D-007,D-008; 단계 5 | 주문 담당 | 6 | 더블탭/timeout후 재전송/병렬동일키/다른payload/키만료 |
-| 2 | [BK-R013 — 취소에서 활성으로 전환 가능·상태 명령 간 경합](ANALYSIS_REPORT.md#bk-r013) | High | Reproduced | Open | D-015,D-003; 단계 5 | 주문 담당 | 6 | 취소후 progress/직접상태/관리자, 취소와 완료 경합, stale absolute progress |
-| 2 | [BK-R007 — 레거시 결제 분할 합계와 상세 응답 불일치](ANALYSIS_REPORT.md#bk-r007) | High | Reproduced | Open | D-005,D-008,D-012; 단계 6 | 재무·데이터 담당 | 7 | 0017 이전 CASH/TICKET 행과 0017 이후 혼합 결제·분할 누락 행, 원본/분할/보고 합계 대조·되돌림 |
-| 2 | [BK-R008 — 관리자 항목 수정으로 저장 합계와 품목 합계 이탈](ANALYSIS_REPORT.md#bk-r008) | High | Reproduced | Open | D-011,D-005; 단계 6 | 재무·백엔드 담당 | 7 | 실제 관리자 form POST 추가·수정·삭제·상태, 가격 스냅샷/합계/번호 |
-| 2 | [BK-R014 — 부족 결제·소수 입력을 정상 주문으로 승인](ANALYSIS_REPORT.md#bk-r014) | High | Reproduced | Open | D-005,D-012; 단계 6 | 재무 담당 | 7 | 0/부족/초과/음수/float/bool/오버플로/복합 필드/메뉴 가격 변경 |
-| 2 | [BK-R030 — 수납·거스름돈·취소 환불·순매출 계약 미확정](ANALYSIS_REPORT.md#bk-r030) | High | Code-supported | Open | D-005,D-012; 단계 6 | 재무·제품 담당 | 7 | 초과현금·과다식권·혼합거스름·취소전후·부분환불·레거시미분류 |
-| 2 | [BK-R031 — 과거 삭제·재추가 필드와 카테고리의 복구 원천 미확인](ANALYSIS_REPORT.md#bk-r031) | High | Production-dependent | Open | D-008,D-012,D-017; 단계 1 | 데이터·재무 담당 | 7 | 정제된과거버전fixture·행수/금액대조·백업복원·정방향완화 |
-| 2 | [BK-R006 — 통계 기간이 2025-10-18로 고정](ANALYSIS_REPORT.md#bk-r006) | High | Reproduced | Open | D-013; BK-R016 | 조회·보고 담당 | 8 | 무기간/하루/범위/잘못된 날짜/자정/양 끝 경계 |
-| 2 | [BK-R009 — 최신 80개 이후 오래된 주방 대기 작업 누락](ANALYSIS_REPORT.md#bk-r009) | High | Reproduced | Open | D-003,D-010,D-014; 단계 3,6 | 조회 담당 | 8 | 혼합·단일모드 81/200초과 backlog의 초기/폴링/재접속 |
-| 2 | [BK-R010 — 프로세스별 테이블 객체 캐시가 비활성화를 무시](ANALYSIS_REPORT.md#bk-r010) | High | Reproduced | Open | D-014; 단계 3,6 | 조회 담당 | 8 | 관리자 수정 전/후·다중 워커·TTL·삭제/비활성 재조회 |
+| 2 | [BK-R011 — 저장 문자열이 실행 가능한 HTML·인라인 핸들러에 보간](ANALYSIS_REPORT.md#bk-r011) | High | **Repo-fixed (주문·카운터)** | Open (운영 인수 대기) | 단계 2,3 | 프런트·보안 담당 | 4B | 2026-09-18 브라우저에서 수정 전 실행 재현·수정 후 차단 확인([증거](CONTENT_SECURITY.md)). 주방 화면 문자열 조립과 CSP는 9·11·4B2에 남음 |
+| 2 | [BK-R018 — Supabase 익명 구독의 RLS·이벤트 노출 경계 미확인](ANALYSIS_REPORT.md#bk-r018) | High | Production-dependent | 부분 완화 (4B2, D-056: 브라우저 연결·키 제거. 외부 publication·RLS·키 회수는 미실행) | D-010; 단계 3 | 보안·운영 담당 | 4B | 전환 전 외부 권한 검증, D-018 전환 후 외부 요청/키0·외부 노출 정리·자체 SSE 인가 |
+| 2 | [BK-R003 — PostgreSQL 날짜별 번호 계약 차이 및 충돌 재시도 실패](ANALYSIS_REPORT.md#bk-r003) | High | Repo-fixed (D-047, 2026-09-18) | Open (운영 인수 대기) | D-004,D-006; 단계 1,2 | 데이터 담당 | 5 | PG 자정/충돌/재시도/실패·동시 생성; 기존 번호·날짜 데이터와 호환 |
+| 2 | [BK-R012 — 재전송·중복 제출에 멱등성 경계 없음](ANALYSIS_REPORT.md#bk-r012) | High | Repo-fixed (D-049, 2026-09-18) | Open (운영 인수 대기) | D-007,D-008; 단계 5 | 주문 담당 | 6 | 더블탭/timeout후 재전송/병렬동일키/다른payload/키만료 |
+| 2 | [BK-R013 — 취소에서 활성으로 전환 가능·상태 명령 간 경합](ANALYSIS_REPORT.md#bk-r013) | High | Repo-fixed (D-050, 2026-09-18) | Open (운영 인수 대기) | D-015,D-003; 단계 5 | 주문 담당 | 6 | 취소후 progress/직접상태/관리자, 취소와 완료 경합, stale absolute progress. **4B2(D-056)가 폴링을 없애 이 stale 창이 5초에서 무한이 됐다. 10D 선행 필수** |
+| 2 | [BK-R007 — 레거시 결제 분할 합계와 상세 응답 불일치](ANALYSIS_REPORT.md#bk-r007) | High | Reproduced | 저장소 해결(7C, 2026-09-20; [LEGACY_AMOUNTS.md](LEGACY_AMOUNTS.md)) | D-005,D-008,D-012; 단계 6 | 재무·데이터 담당 | 7 | 0017 이전 CASH/TICKET 행과 0017 이후 혼합 결제·분할 누락 행, 원본/분할/보고 합계 대조·되돌림 |
+| 2 | [BK-R008 — 관리자 항목 수정으로 저장 합계와 품목 합계 이탈](ANALYSIS_REPORT.md#bk-r008) | High | Reproduced | 저장소 해결(7B, 2026-09-20; [ADMIN_EDITS.md](ADMIN_EDITS.md)) | D-011,D-005; 단계 6 | 재무·백엔드 담당 | 7 | 실제 관리자 form POST 추가·수정·삭제·상태, 가격 스냅샷/합계/번호 |
+| 2 | [BK-R014 — 부족 결제·소수 입력을 정상 주문으로 승인](ANALYSIS_REPORT.md#bk-r014) | High | Reproduced | 저장소 해결(7A, 2026-09-20; [PAYMENTS.md](PAYMENTS.md)) | D-005,D-012; 단계 6 | 재무 담당 | 7 | 0/부족/초과/음수/float/bool/오버플로/복합 필드/메뉴 가격 변경 |
+| 2 | [BK-R030 — 수납·거스름돈·취소 환불·순매출 계약 미확정](ANALYSIS_REPORT.md#bk-r030) | High | Code-supported | 부분 해결(7A: 거스름돈 저장·부족 거부; 환불 기록·취소 집계는 Open) | D-005,D-012; 단계 6 | 재무·제품 담당 | 7 | 초과현금·과다식권·혼합거스름·취소전후·부분환불·레거시미분류 |
+| 2 | [BK-R031 — 과거 삭제·재추가 필드와 카테고리의 복구 원천 미확인](ANALYSIS_REPORT.md#bk-r031) | High | Production-dependent | 부분 해결(7C: 점검 명령으로 탐지. 복구 원천은 백업뿐, Open) | D-008,D-012,D-017; 단계 1 | 데이터·재무 담당 | 7 | 정제된과거버전fixture·행수/금액대조·백업복원·정방향완화 |
+| 2 | [BK-R006 — 통계 기간이 2025-10-18로 고정](ANALYSIS_REPORT.md#bk-r006) | High | Reproduced | 저장소 해결(8C, 2026-09-20; [REPORTING.md](REPORTING.md)) | D-013; BK-R016 | 조회·보고 담당 | 8 | 무기간/하루/범위/잘못된 날짜/자정/양 끝 경계 |
+| 2 | [BK-R009 — 최신 80개 이후 오래된 주방 대기 작업 누락](ANALYSIS_REPORT.md#bk-r009) | High | Reproduced | 완화 (8B, D-055: 오래된 순 전부·총계 표시) | D-003,D-010,D-014; 단계 3,6 | 조회 담당 | 8 | 혼합·단일모드 81/200초과 backlog의 초기/폴링/재접속 |
+| 2 | [BK-R010 — 프로세스별 테이블 객체 캐시가 비활성화를 무시](ANALYSIS_REPORT.md#bk-r010) | High | Reproduced | 해소 (8B, D-055: 캐시 제거) | D-014; 단계 3,6 | 조회 담당 | 8 | 관리자 수정 전/후·다중 워커·TTL·삭제/비활성 재조회 |
 | 2 | [BK-R016 — 통계 aggregate alias 충돌로 SQLite·PG 모두 500](ANALYSIS_REPORT.md#bk-r016) | High | Repo-fixed | Open (2B 이후 인수 대기) | BK-R004; D-013,D-012 | 조회·보고 담당 | 8 | 빈DB/한행/동명메뉴/기간/취소/레거시 데이터의 endpoint200와 정확한 합계 |
-| 2 | [BK-R020 — Realtime 연결 상실 후 폴링 복귀·재동기화 부재](ANALYSIS_REPORT.md#bk-r020) | High | Code-supported | Open | D-010,D-007; 단계 4B,8,9 | 실시간 담당 | 10 | SUBSCRIBED이후 CLOSED/ERROR/TIMEOUT, duplicate/out-of-order/drop, 느린응답·재접속 |
-| 2 | [BK-R033 — 주방 목록·단건 응답 순서 역전 방어 부족](ANALYSIS_REPORT.md#bk-r033) | High | Code-supported | Open | D-010; 단계 8,9 | 실시간 담당 | 10 | 완료단건뒤stale목록,진행2뒤0응답,삭제뒤늦은응답·중복ID이벤트 |
-| 2 | [BK-R035 — 자체 SSE 실행에 필요한 비동기 경로·워커 조건 미확립](ANALYSIS_REPORT.md#bk-r035) | High | Code-supported | Open | D-006,D-018,D-019; BK-R001/019 | 실시간·운영 담당 | 10 | 실제 ASGI HTTP 스트림·일반 API 병행, 동기 middleware 적응/스레드·워커 수·disconnect/reload 정리 |
-| 2 | [BK-R036 — SSE 변경 감지의 writer 누락·커밋 후 유실 가능성](ANALYSIS_REPORT.md#bk-r036) | High | Hypothesis | Open | D-008,D-011,D-018,D-019; 단계 5,6,7 | 데이터·실시간 통합 담당 | 10 | 생성/상태/항목/관리자/bulk/update/삭제/메뉴·테이블, rollback·커밋 직후 kill·다른 워커 구독·revision 행 누락 |
-| 2 | [BK-R037 — SSE cursor와 snapshot 불일치로 최신 상태 복구 실패 가능성](ANALYSIS_REPORT.md#bk-r037) | High | Hypothesis | Open | D-010,D-019; BK-R009/033; 단계 8,9 | 조회·실시간 통합 담당 | 10 | 구독 등록 중 변경, snapshot 중 커밋, ID10/11 역전, HTTP 실패 후 재접속, 늦은 응답·81/201건·DB 복원 |
-| 2 | [BK-R038 — 장기 SSE의 세션 회수·범위 정보 노출 경계 누락 가능성](ANALYSIS_REPORT.md#bk-r038) | High | Hypothesis | Open | D-002,D-003,D-010,D-019; BK-R001/019; 단계 3,4A | 보안·실시간 담당 | 10 | 익명/오역할·scope 위조·다른 역할 cursor·다중탭 역할 변경·로그아웃/만료/PIN 회수 중 열린 연결·인증 저장소 장애 |
+| 2 | [BK-R020 — Realtime 연결 상실 후 폴링 복귀·재동기화 부재](ANALYSIS_REPORT.md#bk-r020) | High | Code-supported | 대부분 완화 (10D2, D-061: 스케줄러 하나가 CONNECTING/CLOSED/`unverified`/침묵/숨김을 각각 다르게 다루고, 스트림이 "open + `hub_ok` + 완전한 snapshot + 마지막 읽기 성공"이 아니면 5초 후퇴 폴링한다. 실제 headless Chrome에서 서버 SIGKILL 뒤 154ms에 폴링 전환, 복구 3.1초 뒤 새로고침 없이 실시간, 회수 뒤 0.5초에 로그인 이동. 변이 3종을 테스트가 잡는다. **남은 것: 실제 프록시 경유(12A), 다중 워커, 모바일 실기기, 요청 제한(12A1)**) | D-010,D-007; 단계 4B,8,9 | 실시간 담당 | 10 | SUBSCRIBED이후 CLOSED/ERROR/TIMEOUT, duplicate/out-of-order/drop, 느린응답·재접속 |
+| 2 | [BK-R033 — 주방 목록·단건 응답 순서 역전 방어 부족](ANALYSIS_REPORT.md#bk-r033) | High | Code-supported | 완화 (10D2, D-061: 목록 읽기와 단건 읽기라는 두 경로를 snapshot 하나로 줄였고 쓰기 응답은 그리지 않는다 — 늦은 목록이 덮을 최신 단건이 없다. 읽기는 한 번에 하나라 같은 epoch 안에서는 역전이 없고, 일시정지가 epoch을 올려 그 전 응답을 버린다(테스트가 재현, epoch 검사를 빼면 실패). 쓰기 전에 나간 읽기는 적용된 뒤 쓰기가 요청한 읽기로 수렴한다(테스트, PR #80). **남은 것: 렌더링 문자열 조립은 11**) | D-010; 단계 8,9 | 실시간 담당 | 10 | 완료단건뒤stale목록,진행2뒤0응답,삭제뒤늦은응답·중복ID이벤트 |
+| 2 | [BK-R035 — 자체 SSE 실행에 필요한 비동기 경로·워커 조건 미확립](ANALYSIS_REPORT.md#bk-r035) | High | Reproduced | 완화 (10A, D-057: 실제 uvicorn+nginx에서 프레임 간격 501~504ms·스트림 48개 병행 시 일반 API 중앙값 19~22ms·probe의 DB 연결 1(유휴 기준선)·끊김 시 스레드 57→9와 FD 111→63·정지 10.7초 측정, `scripts/stream_smoke.py`로 재현. 동기 WhiteNoise 미들웨어 제거와 시스템 검사로 재발 차단. **스트림 1개=요청당 스레드 1개(원인은 `request_started` 동기 리시버, 구조적)**, probe의 DB 연결 1은 이 뷰의 성질이라 10D1로 넘어가지 않음, 브라우저 경로는 열림) | D-006,D-018,D-019; BK-R001/019 | 실시간·운영 담당 | 10 | 실제 ASGI HTTP 스트림·일반 API 병행, 동기 middleware 적응/스레드·워커 수·disconnect/reload 정리 |
+| 2 | [BK-R036 — SSE 변경 감지의 writer 누락·커밋 후 유실 가능성](ANALYSIS_REPORT.md#bk-r036) | High | Reproduced | 완화 (10B, D-058: 영속 카운터 행을 모든 화면 가시 writer가 커밋 전 잠그고 올린다. writer 전수 조사로 시그널 0개·뷰 안의 조리 진행·주문 행을 쓰지 않는 EventDay를 찾아 전부 포함했고, 목록을 test_writer_coverage.py에 분류와 함께 고정해 새 writer는 분류 전까지 테스트가 실패한다. 커밋 역전·롤백·다른 연결·워커 재시작·교착 역순을 테스트로 재현. **화면이 아직 이 숫자를 읽지 않는 것**은 10C/10D1) | D-008,D-011,D-018,D-019; 단계 5,6,7 | 데이터·실시간 통합 담당 | 10 | 생성/상태/항목/관리자/bulk/update/삭제/메뉴·테이블, rollback·커밋 직후 kill·다른 워커 구독·revision 행 누락 |
+| 2 | [BK-R037 — SSE cursor와 snapshot 불일치로 최신 상태 복구 실패 가능성](ANALYSIS_REPORT.md#bk-r037) | High | Reproduced | 부분 완화 (10C, D-059: snapshot이 REPEATABLE READ 트랜잭션 하나라 표시와 데이터가 한 시점이다. 읽는 도중의 커밋을 barrier로 실제로 끼워 넣어 재현했고 — 격리를 빼면 이 테스트가 실패한다 — 잘린 목록은 complete=false로 완전함을 주장하지 않는다. 버전에 generation과 권한 scope를 묶어 복원된 DB와 옛 scope 커서를 거부하며, 복원 카운터가 화면이 쥔 값에 다시 도달하는 충돌까지 테스트가 잡는다(generation을 빼면 실패). 중첩 호출은 읽기 순서 덕에 안전한 방향으로만 깨지고 그 순서도 테스트가 지킨다. **남은 것: 실제 DB 복원(12A3).** 구독 등록 경합은 10D1이, 응답 역전·화면 전체 복구는 10D2가 닫았다(epoch 폐기 + 실제 브라우저에서 서버 재시작 뒤 전체 복구) | D-010,D-019; BK-R009/033; 단계 8,9 | 조회·실시간 통합 담당 | 10 | 구독 등록 중 변경, snapshot 중 커밋, ID10/11 역전, HTTP 실패 후 재접속, 늦은 응답·81/201건·DB 복원 |
+| 2 | [BK-R038 — 장기 SSE의 세션 회수·범위 정보 노출 경계 누락 가능성](ANALYSIS_REPORT.md#bk-r038) | High | Reproduced | 부분 완화 (10D1, D-060: 모든 이벤트 전에 기기·계정을 묶음으로 재인가하므로 회수·비활성·권한 변경이 다음 이벤트에서 반영된다. 재인가를 건너뛰게 만들면 회귀 테스트가 실패한다. 인가 저장소를 못 읽으면 이벤트 0건으로 닫히는 쪽 실패. 범위 노출은 허브가 scope별로 실제 가시 데이터를 비교해 거부하며(깨운 비율 100%→67%), D-059가 거부한 쓰기 잠금 분할과 무관하다. **남은 것: 실제 프록시 경유·다중 워커 전달(12A).** 탭 정책은 10D2가 닫았다 — 보이는 탭만 스트림을 쥐고, 회수 뒤 stale 탭은 `resume`으로 되살아나지 않는다 | D-002,D-003,D-010,D-019; BK-R001/019; 단계 3,4A | 보안·실시간 담당 | 10 | 익명/오역할·scope 위조·다른 역할 cursor·다중탭 역할 변경·로그아웃/만료/PIN 회수 중 열린 연결·인증 저장소 장애 |
 | 2 | [BK-R022 — 배포·상태확인·복원·롤백 증거와 운영 계측 부재](ANALYSIS_REPORT.md#bk-r022) | High | Code-supported | Open | D-006,D-008,D-016; 단계 4A,5,6,7,10,11 | 운영 담당 | 12A | 정제 복사본 복원시간·schema/oldapp rehearsal·PG불가/잘못된 env·release smoke |
 | 2 | [BK-R041 — 자체 DB 저장소·백업·단일 호스트 복구 경계 미확정](ANALYSIS_REPORT.md#bk-r041) | High | Production-dependent | Open | D-006,D-007,D-016,D-020,D-021,D-022; BK-R022/039 | DB·인프라 운영 담당 | 12A | 컨테이너 재생성/재부팅·mount 누락 거부·새 호스트 restore·행/금액/번호와 시간 대조·disk full·백업/키 장애·행사망 단절 |
 | 2 | [BK-R042 — DB 이전의 객체 누락·쓰기 분기·신규 주문 rollback 유실 가능성](ANALYSIS_REPORT.md#bk-r042) | High | Production-dependent | Open | D-004,D-008,D-016,D-017,D-020,D-022; BK-R003/005/012/017/031/037; 단계 1,5,6,7,10 | 데이터 이전 통합 담당 | 12A | 원본/대상 객체·행·합계·PK/FK/sequence 대조, migration 두 경로, 관리자/SQL 포함 쓰기 동결·old stream·새 쓰기 후 역이전/정방향 복구 |
 | 3 | [BK-R021 — 재현되지 않는 의존성 범위와 지원 종료 버전 허용](ANALYSIS_REPORT.md#bk-r021) | Medium | Code-supported | Open | D-006 | 빌드·운영 담당 | 2 | 빈환경 재현·pip check·지원버전/보안패치 확인·PG CI |
-| 3 | [BK-R019 — 역할 로그인 세션 교체·만료 정책 부재와 GET 로그아웃](ANALYSIS_REPORT.md#bk-r019) | Medium | Code-supported | Open | D-002,D-003 | 보안 담당 | 4A | 로그인 전후 session id, PIN 회수·교체 후 기존 세션 거부, 역할변경·만료·공유기기·logout method |
-| 3 | [BK-R029 — 가변 CDN 스크립트와 콘텐츠 보안 정책 검증 부재](ANALYSIS_REPORT.md#bk-r029) | Medium | Code-supported | Open | D-010; BK-R011 | 보안·프런트 담당 | 4B | D-018 외부 CDN/SDK·키 제거, 자체 SSE/폴링만으로 주방 여정·CSP |
+| 3 | [BK-R019 — 역할 로그인 세션 교체·만료 정책 부재와 GET 로그아웃](ANALYSIS_REPORT.md#bk-r019) | Medium | Repo-fixed (GET 로그아웃·역할 회수만) | Open (교체 미구현; 인증 방식 미변경; 운영 인수 미확인) | D-002,D-003,D-035,D-042 | 보안 담당 | 4A | 로그인 전후 session id(구현됨), **PIN 회수** 후 기존 세션 거부(구현됨·재시작 필요), **PIN 교체** 후 거부(미구현), logout method(구현됨), 역할변경·만료·공유기기는 4A2 JWT 대기 |
+| 3 | [BK-R029 — 가변 CDN 스크립트와 콘텐츠 보안 정책 검증 부재](ANALYSIS_REPORT.md#bk-r029) | Medium | Code-supported | 부분 해결 (4B2, D-056: 외부 CDN/SDK 제거. **CSP는 미적용, 12A1 대기**) | D-010; BK-R011 | 보안·프런트 담당 | 4B | D-018 외부 CDN/SDK·키 제거, 자체 SSE/폴링만으로 주방 여정·CSP |
 | 3 | [BK-R027 — 테이블 슬롯·항목 mode·포장 flag 의미 불명확](ANALYSIS_REPORT.md#bk-r027) | Medium | Code-supported | Open | D-014,D-008; 단계 5 | 제품·주문 담당 | 6 | 101~120/일반테이블 경계·혼합항목·flag조합 |
-| 3 | [BK-R026 — order_date와 created_at·자정 주방 집계 경계 불일치](ANALYSIS_REPORT.md#bk-r026) | Medium | Code-supported | Open | D-004,D-013; 단계 5 | 조회·도메인 담당 | 8 | Seoul23:59:59→00:00,할당지연,전일대기,같은시각다른날짜 보고 |
-| 3 | [BK-R034 — 현재 메뉴명으로 과거 주문 표시·동명 메뉴 합산](ANALYSIS_REPORT.md#bk-r034) | Medium | Code-supported | Open | D-008,D-012; 단계 7 | 조회·재무 담당 | 8 | 동명서로다른ID·이름변경·가격변경·레거시집계·취소 |
-| 3 | [BK-R015 — JSON 입력 타입·테이블 분기 불일치가 500으로 노출](ANALYSIS_REPORT.md#bk-r015) | Medium | Reproduced | Open | D-014,D-008; 단계 6,7 | API 담당 | 9 | 누락/null/list/dict/정수/문자열/UTF8/메서드별 오류 계약 |
-| 3 | [BK-R024 — API 뷰에 전송·쿼리·금액·명령이 집중](ANALYSIS_REPORT.md#bk-r024) | Medium | Code-supported | Open | D-008; 단계 8 | 백엔드 담당 | 9 | 현재/목표 응답 schema·예외 분류·쿼리수 회귀·관리자 writer 매핑 |
+| 3 | [BK-R026 — order_date와 created_at·자정 주방 집계 경계 불일치](ANALYSIS_REPORT.md#bk-r026) | Medium | Code-supported | 부분 해결(8C: 보고는 order_date 기준·서울 시간별. 주방 화면 경계는 Open) | D-004,D-013; 단계 5 | 조회·도메인 담당 | 8 | Seoul23:59:59→00:00,할당지연,전일대기,같은시각다른날짜 보고 |
+| 3 | [BK-R034 — 현재 메뉴명으로 과거 주문 표시·동명 메뉴 합산](ANALYSIS_REPORT.md#bk-r034) | Medium | Code-supported | 부분 해결(8C: 메뉴 ID로 집계. 이름 스냅샷은 D-008로 Open) | D-008,D-012; 단계 7 | 조회·재무 담당 | 8 | 동명서로다른ID·이름변경·가격변경·레거시집계·취소 |
+| 3 | [BK-R015 — JSON 입력 타입·테이블 분기 불일치가 500으로 노출](ANALYSIS_REPORT.md#bk-r015) | Medium | Reproduced | 해소 (9: 적대적 입력 500 36건 -> 0건. PR #75 리뷰가 찾은 `items[].mode`·`source`·깊은 중첩 JSON 3경로 포함) | D-014,D-008; 단계 6,7 | API 담당 | 9 | 누락/null/list/dict/정수/문자열/UTF8/메서드별 오류 계약 |
+| 3 | [BK-R024 — API 뷰에 전송·쿼리·금액·명령이 집중](ANALYSIS_REPORT.md#bk-r024) | Medium | Code-supported | 부분 해결 (9: 검증·직렬화·조회 분리. 명령 추출은 10B와 함께) | D-008; 단계 8 | 백엔드 담당 | 9 | 현재/목표 응답 schema·예외 분류·쿼리수 회귀·관리자 writer 매핑 |
 | 3 | [BK-R032 — 이벤트 단건 조회·전체 보드 렌더의 부하 상한 미측정](ANALYSIS_REPORT.md#bk-r032) | Medium | Hypothesis | Open | D-007,D-006,D-010; 단계 8,9 | 성능 담당 | 10 | 화면1/5/20,적체20/80/201,항목1/5/20,이벤트폭주·워커1/4 |
 | 3 | [BK-R040 — SSE revision 잠금 경합과 조회·버퍼 부하 증가 가능성](ANALYSIS_REPORT.md#bk-r040) | Medium | Hypothesis | Open | D-006,D-007,D-019; BK-R032/035/036 | 데이터·성능 담당 | 10 | 생성과 진행/관리자 잠금 역순, 워커1/4·화면1/5/20·폭주·느린 소비자에서 lock/SQL/FD/RSS/p95/복구 지연 |
 | 3 | [BK-R023 — 인라인 UI·실패 복구·접근성·미사용 화면의 유지보수 위험](ANALYSIS_REPORT.md#bk-r023) | Medium | Code-supported | Open | D-007,D-009; 단계 4B,8,9 | 프런트 담당 | 11 | 대상기기 viewport·키보드/터치/스크린리더·네트워크실패·기존 URL호환 |
-| 3 | [BK-R039 — SSE 프록시 buffering·timeout·브라우저 연결 제약 미확인](ANALYSIS_REPORT.md#bk-r039) | Medium | Production-dependent | Open | D-006,D-007,D-010; BK-R035; 단계 10 | 운영·프런트 담당 | 12A | 실제 프록시 경유 프레임 flush·idle·reload, HTTP/1·HTTP/2/여러 탭·BFCache·백그라운드 복귀·fallback |
+| 3 | [BK-R039 — SSE 프록시 buffering·timeout·브라우저 연결 제약 미확인](ANALYSIS_REPORT.md#bk-r039) | Medium | Production-dependent | 일부 완화 (10A: 로컬 nginx에서 buffering off·idle 1h 확인. 브라우저·HTTP/2·여러 탭·BFCache는 12A1) | D-006,D-007,D-010; BK-R035; 단계 10 | 운영·프런트 담당 | 12A | 실제 프록시 경유 프레임 flush·idle·reload, HTTP/1·HTTP/2/여러 탭·BFCache·백그라운드 복귀·fallback |
 | 3 | [BK-R025 — 동일 트리와 고유 이력을 혼동한 Git 정리 위험](ANALYSIS_REPORT.md#bk-r025) | Medium | Reproduced | Open | D-001; 별도 원격 승인 | 저장소 관리자 | G | refs/trees/left-right/branch diff/내용검사·체크포인트 AGENTS 존재 |
 
 
@@ -131,7 +218,7 @@ BK-R003/005는 PG15.18로 재현해 가설을 해소했다. BK-R003은 최초 �
 정밀화했다(정상16건 번호고유·실패후 부모0행). BK-R006/007은 helper/aggregate 계층에서 재현했고
 당시 정상 dashboard 응답은 BK-R016에 막혔다.8A에서 별칭 오류를 수정해 합성 DB 응답을 복구했다. BK-R008/009/010도 제한된 로컬 fixture 재현으로
 격상했다. BK-R002는 기본값 존재와 운영 사용을 분리하여 High로 분류하고 DEBUG의 재정의된
-PIN 노출을 BK-R028로 별도 등록했다. BK-R011은 브라우저 실행 미재현 상태를 유지한다.
+PIN 노출을 BK-R028로 별도 등록했다. BK-R011의 브라우저 실행은 2026-09-18에 재현·차단했다([증거](CONTENT_SECURITY.md)).
 
 ## 단계 간 경계
 

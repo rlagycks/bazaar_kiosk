@@ -35,12 +35,19 @@ class SettingsIsolationTests(SimpleTestCase):
                 assert settings.DATABASES['default']['USER'] == 'bk_test_runner'
                 assert settings.DATABASES['default']['PASSWORD'] == 'synthetic-local-runner-only'
                 assert settings.SECRET_KEY == 'synthetic-local-tests-only-not-a-deployment-secret-key'
-                assert settings.ROLE_PINS['ORDER'] == 'test-order'
-                assert set(settings.ROLE_PINS.values()).isdisjoint({'synthetic-deployment-pin'})
+                from django.contrib.auth.hashers import check_password
+                assert check_password('test-event-password', settings.EVENT_PASSWORD_HASH)
+                assert 'synthetic-deployment' not in settings.EVENT_PASSWORD_HASH
+                assert settings.JWT_SIGNING_KEY != 'synthetic-deployment-jwt-key'
+                assert settings.JWT_COOKIE_SECURE is False
+                assert settings.LOGIN_MAX_FAILURES == 10
                 assert settings.DEBUG is False
                 assert settings.ALLOWED_HOSTS == ['testserver', 'localhost', '127.0.0.1']
                 assert settings.CSRF_TRUSTED_ORIGINS == []
-                assert settings.SUPABASE_URL == settings.SUPABASE_ANON_KEY == ''
+                # 4B2 removed these settings; the probe proves they cannot
+                # come back through the environment.
+                assert not hasattr(settings, 'SUPABASE_URL')
+                assert not hasattr(settings, 'SUPABASE_ANON_KEY')
                 assert settings.CACHES['default']['BACKEND'].endswith('.LocMemCache')
                 assert settings.STORAGES['default']['BACKEND'].endswith('.InMemoryStorage')
                 call_command('check', verbosity=0)
@@ -54,7 +61,9 @@ class SettingsIsolationTests(SimpleTestCase):
             "DATABASE_URL": "invalid://synthetic-deployment-db.invalid/db",
             "DATABASE_URL_FILE": "/must-not-read-deployment-secret",
             "SECRET_KEY": "synthetic-deployment-secret",
-            "ROLE_PINS": "ORDER:synthetic-deployment-pin",
+            "EVENT_PASSWORD_HASH": "invalid synthetic-deployment-hash",
+            "JWT_SIGNING_KEY": "synthetic-deployment-jwt-key",
+            "LOGIN_MAX_FAILURES": "99999",
             "DEBUG": "1",
             "ALLOWED_HOSTS": "deployment.invalid",
             "CSRF_TRUSTED_ORIGINS": "https://deployment.invalid",

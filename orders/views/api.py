@@ -1,117 +1,51 @@
 from __future__ import annotations
-import json
-from typing import Any, Dict, List
+import logging
+from typing import List
 
 from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest, Http404
 from django.views.decorators.http import require_http_methods
-from django.views.decorators.csrf import csrf_exempt  # 개발 편의. 운영 전 제거 권장.
-from django.views.decorators.cache import cache_page
-from django.db import transaction
-from django.db.models import Sum, F, IntegerField, Count, Max
-from django.db.models.functions import TruncHour
+from django.db import IntegrityError, transaction
+from django.db.models import Sum, F, IntegerField
 from django.utils import timezone
-from functools import lru_cache
-from datetime import datetime
 
 from orders.models import (
-    FloorChoices, PaymentMethod, OrderType, OrderStatus, OrderSource,
+    FloorChoices, OrderType, OrderStatus, OrderSource,
     Table, MenuItem, Order, OrderItem,
 )
-from orders.services import allocate_floor_order_no
+from orders.services import allocate_floor_order_no, series_for, idempotency
+from orders.services import status as status_service
+from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, SERVING_PERMISSIONS, STATS_PERMISSIONS
+from orders.services import audit, payments, queues, reporting, revisions, scope, snapshots
+from orders.views import selectors, serializers, validators
+from orders.views.guards import require_api_permissions
+
+# The repository's first logger. There is no `LOGGING` configuration yet, so
+# this reaches stderr through the root handler, which under uvicorn is the
+# same stream everything else uses. Wiring logging properly is 12A1's
+# observability item; one warning that nobody has to configure is worth more
+# here than a signal that waits for it.
+logger = logging.getLogger(__name__)
 
 
-# ---------- 공용 ----------
-def _parse_json(request: HttpRequest) -> Dict[str, Any]:
-    try:
-        return json.loads(request.body.decode("utf-8") or "{}")
-    except json.JSONDecodeError:
-        raise ValueError("JSON 파싱 실패")
 
 
-def _serialize_order(o: Order) -> Dict[str, Any]:
-    cash_amount = o.received_cash_amount
-    ticket_amount = o.received_ticket_amount
-    if cash_amount is None:
-        cash_amount = o.received_amount if o.payment_method == PaymentMethod.CASH else 0
-    if ticket_amount is None:
-        ticket_amount = o.received_amount if o.payment_method == PaymentMethod.TICKET else 0
-    total_received = (cash_amount or 0) + (ticket_amount or 0)
-    due_after_ticket = max(0, (o.total_price or 0) - (ticket_amount or 0))
-    change_amount = max(0, (cash_amount or 0) - due_after_ticket)
-    return {
-        "id": o.id,
-        "floor": o.floor,
-        "order_type": o.order_type,
-        "status": o.status,
-        "order_no": o.order_no,
-        "order_date": o.order_date.isoformat() if o.order_date else None,
-        "table": ({"id": o.table_id, "number": o.table.number, "name": o.table.name} if o.table_id else None),
-        "is_takeout": o.is_takeout,
-        "payment_method": o.payment_method,
-        "received_amount": o.received_amount,
-        "received_cash_amount": cash_amount or 0,
-        "received_ticket_amount": ticket_amount or 0,
-        "total_price": o.total_price,
-        "note": o.note,
-        "change_amount": change_amount,
-        "created_at": timezone.localtime(o.created_at).isoformat(),
-        "items": [
-            {
-                "id": i.id,
-                "menu_item": {"id": i.menu_item_id, "name": i.menu_item.name, "price": i.unit_price},
-                "menu_item_name": i.menu_item.name,
-                "qty": i.qty,
-                "unit_price": i.unit_price,
-                "line_total": i.qty * (i.unit_price or 0),
-                "service_mode": i.service_mode,
-                "prepared_qty": i.prepared_qty,
-                "remaining_qty": i.remaining_qty,
-                "is_prepared": i.is_prepared,
-            }
-            for i in o.items.all()
-        ],
-    }
-
-
-def _order_base_queryset():
-    return (
-        Order.objects.select_related("table")
-        .prefetch_related("items", "items__menu_item")
-    )
-
-
-def _parse_date(date_str: str | None) -> datetime | None:
-    if not date_str:
-        return None
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError:
-        return None
-
-
-def _date_limits(request: HttpRequest):
-    start = _parse_date(request.GET.get("start_date"))
-    end = _parse_date(request.GET.get("end_date"))
-    start_date = start.date() if start else None
-    end_date = end.date() if end else None
-    return start_date, end_date
-
-
-def _filtered_orders(request: HttpRequest):
-    qs = Order.objects.filter(
-        status__in=[OrderStatus.PREPARING, OrderStatus.READY],
-        order_date=datetime(2025, 10, 18).date(),
-    )
-    return qs, datetime(2025, 10, 18).date(), datetime(2025, 10, 18).date()
-
-
-@lru_cache(maxsize=128)
 def _get_table_by_number(number: int) -> Table:
+    """The table as it stands right now (8B, BK-R010).
+
+    This lookup is order creation's only check that the table is still in
+    service, so it cannot be memoised. A process-level cache made the answer
+    depend on which worker took the POST and on whether that worker had seen
+    the table before it was switched off. It is one indexed row.
+    """
     return Table.objects.get(number=number, is_active=True)
 
 
 # ---------- 메뉴/테이블 ----------
-@cache_page(60)
+# 8B: no response cache here. Django's default backend is per-process
+# memory, so `cache_page` gave each worker its own stale window and two
+# screens could show different rows at the same moment. This is a handful of
+# indexed rows on page load (BK-R010).
+@require_api_permissions()
 @require_http_methods(["GET"])
 def tables_list(request: HttpRequest):
     qs = Table.objects.filter(is_active=True).order_by("sort_index", "number")
@@ -119,7 +53,7 @@ def tables_list(request: HttpRequest):
     return JsonResponse({"items": items})
 
 
-@cache_page(60)
+@require_api_permissions()
 @require_http_methods(["GET"])
 def menus_list(request: HttpRequest):
     scope = (request.GET.get("scope") or "").upper()
@@ -143,7 +77,9 @@ def menus_list(request: HttpRequest):
 
 
 # ---------- 주문 목록/생성 ----------
-@csrf_exempt
+# D-051 judgement 5 (settled 2026-09-20): creating an order is the serving
+# screen's job, so POST is SERVING only. Reading exposes money: monitors and STATS.
+@require_api_permissions(by_method={"GET": ORDER_READ_PERMISSIONS, "POST": SERVING_PERMISSIONS})
 @require_http_methods(["GET", "POST"])
 def orders_collection(request: HttpRequest):
     if request.method == "GET":
@@ -151,35 +87,60 @@ def orders_collection(request: HttpRequest):
         status = (request.GET.get("status") or "").upper()
         types_raw = request.GET.get("types") or ""
         types = [t.strip().upper() for t in types_raw.split(",") if t.strip()]
-        try:
-            limit = int(request.GET.get("limit") or 50)
-        except ValueError:
-            limit = 50
-        limit = max(1, min(limit, 200))
 
-        qs = _order_base_queryset().order_by("-created_at", "-id")
         if floor and floor != FloorChoices.B1:
             return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
-        if floor == FloorChoices.B1:
-            qs = qs.filter(floor=floor)
-        if status in (OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.CANCELLED):
-            qs = qs.filter(status=status)
-        if types:
-            qs = qs.filter(order_type__in=types)
+        # D-051: the scope narrowing happens inside, before any filter and
+        # before any cut, so a long queue in one classification can never
+        # displace another monitor's orders.
+        qs = selectors.visible_orders(
+            request.auth_permissions, floor=floor, status=status, types=types)
 
-        data = [_serialize_order(o) for o in qs[:limit]]
-        return JsonResponse({"results": data, "count": len(data)})
+        # 8B (D-055): work still to do is a queue, everything else is a page.
+        # `mode` says which contract answered, so a caller whose `limit` was
+        # ignored can see that from the response (PR #73 code review).
+        if status == OrderStatus.PREPARING:
+            page, mode = queues.waiting(qs), queues.QUEUE
+        else:
+            page, mode = queues.looking_back(qs, request.GET.get("limit")), queues.PAGE
+        data = [serializers.order(o) for o in page.orders]
+        return JsonResponse({
+            "results": data,
+            "count": len(data),
+            "total": page.total,
+            "has_more": page.has_more,
+            "mode": mode,
+        })
 
     # POST
     try:
-        p = _parse_json(request)
-    except ValueError as e:
-        return HttpResponseBadRequest(str(e))
+        p = validators.body(request)
+    except validators.InvalidInput as exc:
+        return HttpResponseBadRequest(str(exc))
 
-    floor = (p.get("floor") or FloorChoices.B1).upper()
-    order_type = (p.get("order_type") or "").upper()
+    # 6A: identify the attempt before anything else. A replay is answered with
+    # the order that attempt already created, even if the menu has changed
+    # since -- the caller is asking what happened, not asking again.
+    try:
+        request_key = idempotency.clean_key(p.get("request_id"))
+    except idempotency.RequestIdError as exc:
+        return HttpResponseBadRequest(str(exc))
+    request_digest = idempotency.fingerprint(p)
+    actor = request.auth_account
+    acting_role = str(actor.id)
+    replayed = _replay_if_known(request_key, acting_role, request_digest)
+    if replayed is not None:
+        return replayed
+
+    # 9 (BK-R015): a field of the wrong type is the caller's mistake, and
+    # used to end the request on `.upper()` with a 500.
+    try:
+        floor = validators.upper(p, "floor", default=FloorChoices.B1)
+        order_type = validators.upper(p, "order_type")
+        note = validators.text(p, "note")
+    except validators.InvalidInput as exc:
+        return HttpResponseBadRequest(str(exc))
     items = p.get("items") or []                      # [{menu_item_id, qty}, ...]
-    note = (p.get("note") or "").strip()
 
     if floor != FloorChoices.B1:
         return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
@@ -188,16 +149,19 @@ def orders_collection(request: HttpRequest):
 
     # 지하 주문서 확장 필드
     is_takeout = bool(p.get("is_takeout", order_type == OrderType.TAKEOUT))
-    payment_method = (p.get("payment_method") or PaymentMethod.CASH).upper()
-    received_amount = p.get("received_amount", None)
-    received_cash_amount = p.get("received_cash_amount", None)
-    received_ticket_amount = p.get("received_ticket_amount", None)
-    if payment_method not in (PaymentMethod.CASH, PaymentMethod.TICKET, PaymentMethod.CASH_TICKET):
-        return HttpResponseBadRequest("payment_method 값이 유효하지 않습니다.")
+    # 7A: every figure is checked by the payment service; nothing is int()-ed here.
+    try:
+        payment = payments.read_payment(p)
+    except payments.AmountError as exc:
+        return HttpResponseBadRequest(str(exc))
+    payment_method = payment.method
 
     # 테이블 (지하 매장 전용 규칙)
     table = None
-    table_number_raw = (p.get("table_number") or "").strip()
+    try:
+        table_number_raw = validators.text(p, "table_number")
+    except validators.InvalidInput as exc:
+        return HttpResponseBadRequest(str(exc))
     if order_type == OrderType.DINE_IN and not is_takeout:
         if not table_number_raw:
             return HttpResponseBadRequest("매장 주문은 테이블 번호가 필요합니다(포장 제외).")
@@ -205,65 +169,11 @@ def orders_collection(request: HttpRequest):
             table = _get_table_by_number(int(table_number_raw))
         except Exception:
             return HttpResponseBadRequest("유효한 테이블 번호가 아닙니다.")
-    elif order_type == OrderType.TAKEOUT:
-        if not table_number_raw:
-            return HttpResponseBadRequest("포장 주문은 101~120 번호를 입력해야 합니다.")
-        try:
-            table_no = int(table_number_raw)
-        except ValueError:
-            return HttpResponseBadRequest("포장 주문 번호는 숫자여야 합니다.")
-        if not (101 <= table_no <= 120):
-            return HttpResponseBadRequest("포장 주문 번호는 101~120 범위여야 합니다.")
-        try:
-            table = _get_table_by_number(table_no)
-        except Table.DoesNotExist:
-            return HttpResponseBadRequest("등록되지 않은 포장 번호입니다.")
+    # D-069: a takeout-only order is a voucher. The customer exchanges it at
+    # the counter, nobody is looked for by number, so it holds no table --
+    # whatever the screen sent in `table_number` is not a claim on anything.
 
-    def _to_int(value):
-        if value in (None, ""):
-            return None
-        if isinstance(value, str):
-            value = value.strip().replace(",", "")
-            if value == "":
-                return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            raise ValueError
-
-    try:
-        if payment_method == PaymentMethod.CASH:
-            cash_value = _to_int(received_amount) or 0
-            ticket_value = 0
-        elif payment_method == PaymentMethod.TICKET:
-            cash_value = 0
-            ticket_value = _to_int(received_amount) or 0
-        else:
-            cash_value = _to_int(received_cash_amount)
-            ticket_value = _to_int(received_ticket_amount)
-            if cash_value is None or ticket_value is None:
-                cash_value = None
-                ticket_value = None
-                if isinstance(received_amount, str) and "+" in received_amount:
-                    parts = [part.strip() for part in received_amount.split("+") if part.strip()]
-                    if len(parts) == 2:
-                        try:
-                            cash_value = _to_int(parts[0])
-                            ticket_value = _to_int(parts[1])
-                        except ValueError:
-                            cash_value = None
-                            ticket_value = None
-                if cash_value is None or ticket_value is None:
-                    raise ValueError
-    except ValueError:
-        return HttpResponseBadRequest("금액 입력이 올바르지 않습니다.")
-
-    cash_value = int(cash_value or 0)
-    ticket_value = int(ticket_value or 0)
-    if payment_method == PaymentMethod.CASH_TICKET and (cash_value <= 0 or ticket_value <= 0):
-        return HttpResponseBadRequest("현금과 티켓 금액을 모두 입력하세요.")
-
-    total_received = cash_value + ticket_value
+    cash_value, ticket_value = payment.cash, payment.ticket
 
     # 아이템 파싱/검증
     if not isinstance(items, list) or not items:
@@ -271,14 +181,23 @@ def orders_collection(request: HttpRequest):
     parsed: List[tuple[int, int, str]] = []
     id_list: List[int] = []
     for row in items:
-        try:
-            mid = int(row.get("menu_item_id"))
-            qty = int(row.get("qty"))
-        except Exception:
+        if not isinstance(row, dict):
             return HttpResponseBadRequest("menu_item_id/qty 형식 오류")
-        if qty < 1:
-            return HttpResponseBadRequest("qty는 1 이상")
-        mode = (row.get("mode") or row.get("service_mode") or order_type).upper()
+        try:
+            mid = payments.parse_amount(row.get("menu_item_id"), "메뉴")
+            qty = payments.parse_qty(row.get("qty"))
+        except payments.AmountError as exc:
+            return HttpResponseBadRequest(str(exc))
+        if mid is None:
+            return HttpResponseBadRequest("menu_item_id/qty 형식 오류")
+        # 9 (PR #75 code review): these two reached `.upper()` unguarded, so
+        # `"mode": 5` in one item ended the whole request in a 500.
+        try:
+            mode = (validators.text(row, "mode", strip=False)
+                    or validators.text(row, "service_mode", strip=False)
+                    or order_type).upper()
+        except validators.InvalidInput as exc:
+            return HttpResponseBadRequest(str(exc))
         if mode not in (OrderType.DINE_IN, OrderType.TAKEOUT):
             return HttpResponseBadRequest("mode/service_mode 값이 유효하지 않습니다.")
         parsed.append((mid, qty, mode))
@@ -294,109 +213,196 @@ def orders_collection(request: HttpRequest):
         if not m.visible_kitchen:
             return HttpResponseBadRequest("주방 메뉴만 선택 가능합니다.")
 
-    source_raw = (p.get("source") or OrderSource.COUNTER).upper()
+    try:
+        source_raw = validators.upper(p, "source", default=OrderSource.COUNTER)
+    except validators.InvalidInput as exc:
+        return HttpResponseBadRequest(str(exc))
     if source_raw not in OrderSource.values:
         source_raw = OrderSource.COUNTER
 
-    with transaction.atomic():
-        order = Order.objects.create(
-            floor=floor,
-            order_type=order_type,
-            status=OrderStatus.PREPARING,
-            source=source_raw,
-            table=table,
-            is_takeout=is_takeout,
-            payment_method=payment_method,
-            received_amount=total_received or None,
-            received_cash_amount=cash_value or None,
-            received_ticket_amount=ticket_value or None,
-            note=note[:200],
-        )
-        item_objects = [
-            OrderItem(
-                order=order,
-                menu_item=mi_map[mid],
-                qty=qty,
-                unit_price=mi_map[mid].price,
-                service_mode=mode,
+    # 7A (D-048): the total is the server's price snapshot; a short payment
+    # is refused before anything is written, and the change is decided here.
+    try:
+        total_price = payments.order_total((mi_map[mid].price, qty) for mid, qty, _ in parsed)
+        settlement = payments.settle(payment, total_price)
+    except (payments.AmountError, payments.PaymentRefused) as exc:
+        return HttpResponseBadRequest(str(exc))
+
+    try:
+        with transaction.atomic():
+            order = Order.objects.create(
+                floor=floor,
+                order_type=order_type,
+                status=OrderStatus.PREPARING,
+                source=source_raw,
+                table=table,
+                is_takeout=is_takeout,
+                payment_method=payment_method,
+                # 7C (D-054): a number in every money field, zero included.
+                # A NULL here used to mean "unknown", which is what made old
+                # rows need interpreting; a new order knows what it took.
+                received_amount=settlement.received,
+                received_cash_amount=cash_value,
+                received_ticket_amount=ticket_value,
+                change_amount=settlement.change,
+                total_price=total_price,
+                note=note[:200],
+                created_by=actor,
             )
-            for mid, qty, mode in parsed
-        ]
-        OrderItem.objects.bulk_create(item_objects, batch_size=len(item_objects) or 1)
+            item_objects = [
+                OrderItem(
+                    order=order,
+                    menu_item=mi_map[mid],
+                    qty=qty,
+                    unit_price=mi_map[mid].price,
+                    service_mode=mode,
+                )
+                for mid, qty, mode in parsed
+            ]
+            OrderItem.objects.bulk_create(item_objects, batch_size=len(item_objects) or 1)
 
-        total_price = sum(
-            (mi_map[mid].price or 0) * qty for mid, qty, _ in parsed
-        )
-        Order.objects.filter(pk=order.pk).update(total_price=total_price)
-        order.total_price = total_price
+            allocate_floor_order_no(order)  # 계열·연도별 번호 부여 (D-047)
+            audit.record_created(order, actor)
 
-        allocate_floor_order_no(order)  # 층별 일자 카운터 부여
+            created_items = list(
+                OrderItem.objects.select_related("menu_item")
+                .filter(order=order)
+                .order_by("id")
+            )
 
-        created_items = list(
-            OrderItem.objects.select_related("menu_item")
-            .filter(order=order)
-            .order_by("id")
-        )
+            # Last, and inside the same transaction: if another request already
+            # claimed this id, the unique index refuses here and everything above
+            # -- order, items, the allocated number -- rolls back with it.
+            idempotency.remember(
+                request_key, role=acting_role, digest=request_digest, order=order
+            )
+
+            # 10B: last, so the board's marker is taken after every lock this
+            # transaction needs and released the moment it commits. A screen
+            # comparing markers now learns there is a new order without being
+            # told what it is (D-019).
+            revisions.mark()
+    except IntegrityError as exc:
+        if not idempotency.is_key_conflict(exc):
+            raise
+        # The same attempt raced its own first arrival: the winner committed
+        # while we waited on its insert, so its record is readable now and is
+        # the answer. This request created nothing (2026-09-20 code review).
+        replayed = _replay_if_known(request_key, acting_role, request_digest)
+        if replayed is not None:
+            return replayed
+        raise  # pragma: no cover - a key conflict whose row is gone
 
     order._prefetched_objects_cache = {"items": created_items}
-    return JsonResponse(_serialize_order(order), status=201)
+    return JsonResponse(serializers.order(order), status=201)
+
+
+def _replay_if_known(key: str, role: str, digest: str):
+    """The answer for an id that has been seen, or None if it has not."""
+    record = idempotency.find(key)
+    if record is None:
+        return None
+    if not idempotency.matches(record, role=role, digest=digest):
+        # Deliberately says nothing about the stored order: the caller either
+        # changed the order under a used id, or collided with another screen.
+        return JsonResponse(
+            {
+                "detail": "같은 request_id로 다른 주문이 이미 저장돼 있습니다. "
+                "새 주문이라면 화면을 새로고침한 뒤 다시 저장해 주세요."
+            },
+            status=409,
+        )
+    order = (
+        Order.objects.select_related("table")
+        .prefetch_related("items__menu_item")
+        .get(pk=record.order_id)
+    )
+    return JsonResponse(serializers.order(order), status=200)
 
 
 # ---------- 상태 변경 ----------
-@csrf_exempt
+@require_api_permissions(*MONITOR_PERMISSIONS)
 @require_http_methods(["PATCH"])
 def order_status(request: HttpRequest, order_id: int):
     try:
-        payload = _parse_json(request)
-    except ValueError as e:
-        return HttpResponseBadRequest(str(e))
-    new_status = (payload.get("status") or "").upper()
+        payload = validators.body(request)
+    except validators.InvalidInput as exc:
+        return HttpResponseBadRequest(str(exc))
+    raw_status = payload.get("status")
+    new_status = raw_status.upper() if isinstance(raw_status, str) else ""
     if new_status not in (OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.CANCELLED):
+        # A value that is not a status at all is malformed input. A status the
+        # order may not take is a conflict, answered below with 409.
         return HttpResponseBadRequest("status는 PREPARING/READY/CANCELLED만 허용됩니다.")
 
     try:
-        order = _order_base_queryset().get(id=order_id)
+        # 6B: lock, decide and write as one step (D-050). Reading first and
+        # saving afterwards is how a cancel used to be overwritten.
+        with transaction.atomic():
+            order = status_service.locked(order_id)
+            # D-051: the lock is taken first so the classification read here
+            # cannot change under the decision.
+            if not scope.may_change(order, request.auth_permissions):
+                return JsonResponse({"detail": "권한이 없습니다."}, status=403)
+            previous = order.status
+            if status_service.change(order, new_status):
+                audit.record_status(order, request.auth_account, previous=previous)
+                # Asking for the status the order already has wrote nothing,
+                # so nothing on a screen is stale and the marker stays put.
+                revisions.mark()
     except Order.DoesNotExist:
         raise Http404("주문이 존재하지 않습니다.")
-
-    order.status = new_status
-
-    order.save(update_fields=["status", "updated_at"])
+    except status_service.TransitionRefused as refused:
+        return JsonResponse(
+            {"detail": refused.detail, "id": order_id, "status": refused.current},
+            status=409,
+        )
 
     return JsonResponse({"id": order.id, "status": order.status}, status=200)
 
 
-def _sync_order_status_from_items(order: Order) -> None:
-    if order.status == OrderStatus.CANCELLED:
-        return
-    remaining_exists = order.items.filter(prepared_qty__lt=F("qty")).exists()
-    desired = OrderStatus.PREPARING if remaining_exists else OrderStatus.READY
-    if order.status != desired:
-        order.status = desired
-        order.save(update_fields=["status", "updated_at"])
-
-
-@csrf_exempt
+@require_api_permissions(*MONITOR_PERMISSIONS)
 @require_http_methods(["PATCH"])
 def order_item_progress(request: HttpRequest, item_id: int):
     try:
-        payload = _parse_json(request)
-    except ValueError as e:
-        return HttpResponseBadRequest(str(e))
+        payload = validators.body(request)
+    except validators.InvalidInput as exc:
+        return HttpResponseBadRequest(str(exc))
 
     prepared_qty = payload.get("prepared_qty", None)
     done_flag = payload.get("done", None)
 
     try:
         with transaction.atomic():
+            # Always the order first, then the item. Both rows are locked --
+            # the status decision below belongs to the order, and a cancel
+            # arriving in parallel must not slip between this check and the
+            # write -- and taking them in one fixed order everywhere is what
+            # keeps two requests on the same order from deadlocking each other
+            # (2026-09-18 security review).
+            order_id = (
+                OrderItem.objects.filter(id=item_id)
+                .values_list("order_id", flat=True)
+                .first()
+            )
+            if order_id is None:
+                raise OrderItem.DoesNotExist
+            order = status_service.locked(order_id)
+            if not scope.may_change(order, request.auth_permissions):
+                return JsonResponse({"detail": "권한이 없습니다."}, status=403)
             item = (
                 OrderItem.objects.select_related("order", "menu_item")
                 .select_for_update()
                 .get(id=item_id)
             )
-            order = item.order
-            if order.status == OrderStatus.CANCELLED:
-                return HttpResponseBadRequest("취소된 주문입니다.")
+            if status_service.is_closed(order):
+                # 409, like every other refusal that is about the order's
+                # state rather than the request's shape (D-050).
+                return JsonResponse(
+                    {"detail": "취소된 주문은 조리 상태를 바꿀 수 없습니다.",
+                     "id": order.id, "status": order.status},
+                    status=409,
+                )
 
             if prepared_qty is None:
                 if done_flag is None:
@@ -411,12 +417,36 @@ def order_item_progress(request: HttpRequest, item_id: int):
             if prepared_qty < 0 or prepared_qty > item.qty:
                 return HttpResponseBadRequest("prepared_qty 범위 오류")
 
-            if prepared_qty != item.prepared_qty:
+            changed = prepared_qty != item.prepared_qty
+            if changed:
                 item.prepared_qty = prepared_qty
                 item.save(update_fields=["prepared_qty"])
+                audit.record_progress(order, item, request.auth_account)
 
-            # 상태 동기화
-            _sync_order_status_from_items(order)
+            # UI-05B: incomplete quantities reopen READY; preparation alone is not departure.
+            previous = order.status
+            status_service.sync_from_items(order)
+            if order.status != previous:
+                audit.record_status(order, request.auth_account, previous=previous)
+            elif changed:
+                # The monitor token must distinguish a quantity round trip
+                # even while PREPARING. This shares the item write's lock
+                # and transaction; an unchanged quantity stays a no-op.
+                order.save(update_fields=["updated_at"])
+            # 10B: the write most easily missed, in both directions. It is
+            # saved here rather than in a service, and *either* half can move
+            # without the other.
+            #
+            # An earlier version asked only `if changed`, and that was wrong.
+            # `sync_from_items` writes the order row whenever the quantities
+            # imply a different status, including when this request changed no
+            # quantity at all: an order manually set READY while an item is
+            # still outstanding drops back to PREPARING the moment anyone
+            # re-taps a finished item. The order row committed and no screen
+            # was told -- with polling gone (4B2), permanently (PR #77 review,
+            # reproduced against PostgreSQL).
+            if changed or order.status != previous:
+                revisions.mark()
             order.refresh_from_db()
     except OrderItem.DoesNotExist:
         raise Http404("주문 품목이 존재하지 않습니다.")
@@ -424,7 +454,57 @@ def order_item_progress(request: HttpRequest, item_id: int):
     return JsonResponse({"id": order.id}, status=200)
 
 
+# ---------- 10C: the kitchen board's snapshot ----------
+@require_api_permissions(*ORDER_READ_PERMISSIONS)
+@require_http_methods(["GET"])
+def snapshot_waiting(request: HttpRequest):
+    """Everything still to cook, and the version it belongs to.
+
+    The answer to "has anything changed since the version I am showing?".
+    A caller that sends the version it holds and gets `unchanged` back has
+    cost the server one row read -- four round trips with BEGIN, the
+    isolation level and COMMIT around it, plus a connection, since
+    `CONN_MAX_AGE` is 0. A caller whose version has moved on -- or whose
+    permissions have -- gets the whole list and a new version.
+
+    Deliberately not paginated by the caller. The queue is a work list, not a
+    page (8B, D-055): a screen asking for one screenful must not thereby stop
+    being told what is outstanding. When the server's own bound cuts it,
+    `complete` says so, and a version on an incomplete list is not a claim
+    that the screen holds everything.
+    """
+    taken = snapshots.waiting(
+        request.auth_permissions, since=request.GET.get("since") or None
+    )
+    if not taken.isolated:
+        # Unreachable today: no deployment setting wraps a request in a
+        # transaction, and `test_required_settings.py` pins that against the
+        # real settings module. If it ever becomes reachable the answer is
+        # still safe -- the read order means at most one extra refetch -- but
+        # it is no longer the one-instant contract this endpoint documents,
+        # and that should not be something only a code reader can discover.
+        logger.warning(
+            "snapshot served without its own isolation level: the version and "
+            "the orders beside it are not guaranteed to be one instant"
+        )
+    return JsonResponse({
+        "version": taken.version,
+        "unchanged": taken.unchanged,
+        # "absent" | "accepted" | "rejected" -- a screen that sent a version
+        # and sees "rejected" learns its version was minted under a different
+        # database lineage or different permissions, and that the list beside
+        # this is the whole answer rather than a difference.
+        "cursor": taken.cursor,
+        "orders": [serializers.order(o) for o in taken.orders],
+        "count": len(taken.orders),
+        "total": taken.total,
+        "has_more": taken.has_more,
+        "complete": taken.complete,
+    }, status=200)
+
+
 # ---------- 간이 통계(카운터용) ----------
+@require_api_permissions(*STATS_PERMISSIONS)
 @require_http_methods(["GET"])
 def stats_menu_counts(request: HttpRequest):
     floor = (request.GET.get("floor") or FloorChoices.B1).upper()
@@ -432,11 +512,16 @@ def stats_menu_counts(request: HttpRequest):
         return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
 
     today = timezone.localdate()
+    # D-047: this is the counter's running tally for today, not a sales report,
+    # so it follows today's own series. On an event day it counts event orders;
+    # during a rehearsal it counts the rehearsal. It never mixes the two, and
+    # the sales figures (stats_dashboard) stay event-only either way.
     qs = (
         OrderItem.objects.filter(
             order__floor=floor,
             order__status__in=[OrderStatus.PREPARING, OrderStatus.READY],
             order__order_date=today,
+            order__number_series=series_for(today),
         )
         .values("menu_item__name")
         .annotate(
@@ -453,142 +538,26 @@ def stats_menu_counts(request: HttpRequest):
     return JsonResponse({"items": data}, status=200)
 
 
-@require_http_methods(["GET"])
-def kitchen_menu_summary(request: HttpRequest):
-    floor = (request.GET.get("floor") or FloorChoices.B1).upper()
-    if floor != FloorChoices.B1:
-        return HttpResponseBadRequest("floor 파라미터는 B1만 허용됩니다.")
-
-    today = timezone.localdate()
-    qs = OrderItem.objects.filter(
-        order__status=OrderStatus.PREPARING,
-        order__floor=floor,
-        order__order_date=today,
-    ).values("menu_item_id", "menu_item__name")
-
-    qs = qs.annotate(
-        pending=Sum(F("qty") - F("prepared_qty"), output_field=IntegerField()),
-    ).filter(pending__gt=0).order_by("-pending", "menu_item__name")
-
-    data = [
-        {"menu_item_id": r["menu_item_id"], "name": r["menu_item__name"], "pending": r["pending"]}
-        for r in qs
-    ]
-    return JsonResponse({"items": data}, status=200)
-
-
+@require_api_permissions(*ORDER_READ_PERMISSIONS)
 @require_http_methods(["GET"])
 def order_detail(request: HttpRequest, order_id: int):
     try:
-        order = _order_base_queryset().get(id=order_id)
+        order = selectors.base().get(id=order_id)
     except Order.DoesNotExist:
         raise Http404("주문이 존재하지 않습니다.")
-    return JsonResponse(_serialize_order(order), status=200)
+    if not scope.may_read(order, request.auth_permissions):
+        return JsonResponse({"detail": "권한이 없습니다."}, status=403)
+    return JsonResponse(serializers.order(order), status=200)
 
 
+@require_api_permissions(*STATS_PERMISSIONS)
 @require_http_methods(["GET"])
 def stats_dashboard(request: HttpRequest):
-    orders_qs, start_date, end_date = _filtered_orders(request)
-    floor = (request.GET.get("floor") or "").upper()
-    if floor:
-        if floor not in FloorChoices.values:
-            return HttpResponseBadRequest("유효하지 않은 floor 값입니다.")
-        orders_qs = orders_qs.filter(floor=floor)
-
-    items_filters = {
-        "order__status__in": [OrderStatus.PREPARING, OrderStatus.READY],
-    }
-    if start_date:
-        items_filters["order__order_date__gte"] = start_date
-    if end_date:
-        items_filters["order__order_date__lte"] = end_date
-    if floor:
-        items_filters["order__floor"] = floor
-
-    totals = orders_qs.aggregate(
-        total_revenue=Sum("total_price"),
-        cash_total=Sum("received_cash_amount"),
-        ticket_total=Sum("received_ticket_amount"),
-        order_count=Count("id"),
-    )
-    total_orders = totals.get("order_count") or 0
-    total_revenue = totals.get("total_revenue") or 0
-    cash_total = totals.get("cash_total") or 0
-    ticket_total = totals.get("ticket_total") or 0
-
-    items_qs = OrderItem.objects.filter(**items_filters)
-    item_totals = items_qs.aggregate(
-        item_count=Sum("qty"),
-        item_revenue=Sum(F("qty") * F("unit_price"), output_field=IntegerField()),
-    )
-    total_items = item_totals.get("item_count") or 0
-
-    menu_breakdown = list(
-        items_qs.values("menu_item__name")
-        .annotate(
-            qty_sum=Sum("qty"),
-            amount=Sum(F("qty") * F("unit_price"), output_field=IntegerField()),
-        )
-        .order_by("-qty_sum", "menu_item__name")
-    )
-
-    hourly = list(
-        orders_qs.annotate(hour=TruncHour("created_at"))
-        .values("hour")
-        .annotate(
-            orders=Count("id"),
-            revenue=Sum("total_price"),
-        )
-        .order_by("hour")
-    )
-    current_tz = timezone.get_current_timezone()
-    for row in hourly:
-        hour = row["hour"]
-        if hour:
-            if timezone.is_naive(hour):
-                hour = timezone.make_aware(hour, timezone.utc)
-            hour_local = hour.astimezone(current_tz)
-            row["hour_label"] = hour_local.strftime("%H:%M")
-        else:
-            row["hour_label"] = ""
-        row["orders"] = row["orders"] or 0
-        row["revenue"] = row["revenue"] or 0
-
-    total_payment = cash_total + ticket_total
-    payment_breakdown = {
-        "cash": cash_total,
-        "ticket": ticket_total,
-        "cash_ratio": float(cash_total) / total_payment if total_payment else 0.0,
-        "ticket_ratio": float(ticket_total) / total_payment if total_payment else 0.0,
-    }
-
-    response = {
-        "period": {
-            "start_date": start_date.isoformat() if start_date else None,
-            "end_date": end_date.isoformat() if end_date else None,
-            "floor": floor or None,
-        },
-        "summary": {
-            "orders": total_orders,
-            "items": total_items,
-            "revenue": total_revenue,
-        },
-        "payment": payment_breakdown,
-        "menu": [
-            {
-                "name": row["menu_item__name"],
-                "qty": row["qty_sum"],
-                "amount": row["amount"] or 0,
-            }
-            for row in menu_breakdown
-        ],
-        "hourly": [
-            {
-                "hour": row["hour_label"],
-                "orders": row["orders"],
-                "revenue": row["revenue"],
-            }
-            for row in hourly
-        ],
-    }
-    return JsonResponse(response, status=200)
+    """The sales report (8C, D-053). The period contract and every figure's
+    meaning live in services/reporting.py; this only answers HTTP."""
+    try:
+        period = reporting.resolve_period(request.GET)
+        floor = reporting.clean_floor(request.GET.get("floor"))
+    except reporting.PeriodError as exc:
+        return HttpResponseBadRequest(str(exc))
+    return JsonResponse(reporting.dashboard(period, floor), status=200)

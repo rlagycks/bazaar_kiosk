@@ -7,22 +7,19 @@ newly approved contracts. D-012/013 and BK-R034 remain separate work.
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from orders.models import MenuItem, Order, OrderItem, Table
+from orders.models import MenuItem, NumberSeries, Order, OrderItem, Table
+from orders.tests.auth_support import AUTH_SETTINGS, login_client
 
 
+@override_settings(**AUTH_SETTINGS)
 class DashboardExecutionTests(TestCase):
     period = date(2025, 10, 18)
 
     def setUp(self):
-        # Use the existing counter role without locking anonymous API access in
-        # as a supported contract. This setup does not prove authorization;
-        # the endpoint does not check the session yet (phase 3).
-        session = self.client.session
-        session["role"] = "B1_COUNTER"
-        session.save()
+        login_client(self.client, "B1_COUNTER")
         self.table = Table.objects.create(number=7)
 
     def make_order(self, lines, *, status="PREPARING", order_date=None):
@@ -31,6 +28,9 @@ class DashboardExecutionTests(TestCase):
         order = Order.objects.create(
             table=self.table, floor="B1", order_type="DINE_IN",
             order_date=order_date, status=status,
+            # D-047: sales figures are the event series. Practice orders have
+            # their own coverage in test_order_numbering.
+            number_series=NumberSeries.REAL,
             total_price=total, payment_method="CASH",
             received_amount=total, received_cash_amount=total,
             received_ticket_amount=0,
@@ -45,15 +45,24 @@ class DashboardExecutionTests(TestCase):
         return order
 
     def dashboard(self):
-        response = self.client.get(reverse("orders:stats-dashboard"), {"floor": "B1"})
+        # 8C (D-053): the period is asked for explicitly; the default is the
+        # latest event day and is covered in test_reporting_dates.
+        response = self.client.get(reverse("orders:stats-dashboard"), {
+            "floor": "B1", "start_date": self.period.isoformat(), "end_date": self.period.isoformat(),
+        })
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(set(data), {"period", "summary", "payment", "menu", "hourly"})
-        # Temporary characterization: update with the approved reporting policy
-        # in phase 8C, rather than treating the hardcoded date as a target rule.
         self.assertEqual(data["period"], {
             "start_date": "2025-10-18", "end_date": "2025-10-18", "floor": "B1",
+            "basis": "explicit", "label": "",
         })
+        # These tests predate 8C and check the arithmetic; the counts 8C added
+        # are asserted where they matter (test_reporting).
+        data["summary"] = {k: v for k, v in data["summary"].items() if k in ("orders", "items", "revenue")}
+        data["payment"] = {k: v for k, v in data["payment"].items()
+                           if k in ("cash", "ticket", "cash_ratio", "ticket_ratio")}
+        data["menu"] = [{k: v for k, v in row.items() if k != "menu_item_id"} for row in data["menu"]]
         return data
 
     def test_empty_dashboard_returns_zero_totals_and_empty_groups(self):
@@ -74,7 +83,7 @@ class DashboardExecutionTests(TestCase):
         self.assertEqual(data["payment"], {
             "cash": 5100, "ticket": 0, "cash_ratio": 1.0, "ticket_ratio": 0.0,
         })
-        self.assertEqual(data["hourly"], [{"hour": "12:00", "orders": 1, "revenue": 5100}])
+        self.assertEqual(data["hourly"], [{"date": "2025-10-18", "hour": "12:00", "orders": 1, "revenue": 5100}])
 
     def test_multiple_rows_sum_each_line_before_grouping_and_preserve_qty_key(self):
         meal = MenuItem.objects.create(name="Meal", price=4300)
@@ -87,7 +96,7 @@ class DashboardExecutionTests(TestCase):
             {"name": "Side", "qty": 4, "amount": 6800},
             {"name": "Meal", "qty": 3, "amount": 13600},
         ])
-        self.assertEqual(data["hourly"], [{"hour": "12:00", "orders": 2, "revenue": 20400}])
+        self.assertEqual(data["hourly"], [{"date": "2025-10-18", "hour": "12:00", "orders": 2, "revenue": 20400}])
 
     def test_cancelled_and_outside_current_period_rows_do_not_enter_totals(self):
         menu = MenuItem.objects.create(name="Meal", price=1000)
@@ -98,7 +107,7 @@ class DashboardExecutionTests(TestCase):
         self.assertEqual(data["summary"], {"orders": 1, "items": 2, "revenue": 2000})
         self.assertEqual(data["menu"], [{"name": "Meal", "qty": 2, "amount": 2000}])
         self.assertEqual(data["payment"]["cash"], 2000)
-        self.assertEqual(data["hourly"], [{"hour": "12:00", "orders": 1, "revenue": 2000}])
+        self.assertEqual(data["hourly"], [{"date": "2025-10-18", "hour": "12:00", "orders": 1, "revenue": 2000}])
 
     def test_menu_orders_by_total_qty_then_name_for_ties(self):
         # Insertion, name ASC/DESC, and quantity order must all differ.
