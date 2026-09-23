@@ -39,6 +39,14 @@ sudo certbot certonly --webroot -w "$BK_CERTBOT_WEBROOT" -d "$BK_DOMAIN" \
 
 bk_say "switching the proxy to https"
 "$BK_ROOT/scripts/deploy/render_nginx.sh"
-"${BK_COMPOSE[@]}" exec -T proxy nginx -t
-"${BK_COMPOSE[@]}" exec -T proxy nginx -s reload
-bk_say "done; https://$BK_DOMAIN/ is served by the proxy container"
+# The https configuration proxies to the app service, which nginx resolves when
+# it loads. On a first installation there is no app yet, so the bootstrap proxy
+# is stopped and deploy.sh starts the whole stack with the new configuration.
+if [ -n "$("${BK_COMPOSE[@]}" ps -q --status running app)" ]; then
+    "${BK_COMPOSE[@]}" exec -T proxy nginx -t
+    "${BK_COMPOSE[@]}" exec -T proxy nginx -s reload
+    bk_say "done; https://$BK_DOMAIN/ is served by the proxy container"
+else
+    "${BK_COMPOSE[@]}" stop proxy
+    bk_say "certificate in place; the app is not running yet -- run scripts/deploy/deploy.sh"
+fi
