@@ -3,6 +3,29 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-23 — 12A1 첫 배포: https://moau.store (ssh 수동, CD 꺼짐)
+
+- 사용자 제공·결정: 도메인 `moau.store`(A → 새 EIP `43.201.151.63`, 80/443 전체 개방), 22번은 운영자 주소만, 인증서
+  연락처 `hyochan0220@gmail.com`, 행사 공용 비밀번호 지정(평문은 기록하지 않음), 행사일 2026-10-09, 첫 배포는 ssh로,
+  다음 배포부터 CD(OIDC + IAM 역할 방식 희망).
+- 호스트: 새 인스턴스(이전 IP와 호스트 키 다름). 관리 키 세션 안에서 `/etc/ssh/ssh_host_ed25519_key.pub` 지문
+  `SHA256:RWb7FqFY…73co`로 확인. t4g.small, AL2023, 8 GB.
+- 순서: 브랜치 push → GitHub `production` 변수 `BK_DOMAIN` → `server_setup.sh` → clone → 비밀값 5개를 메모리에서 생성해
+  GitHub 환경 비밀과 호스트(`install_config.sh`)에 같은 값으로 등록(행사 비밀번호 해시는 Django `check_password`로 확인
+  뒤 등록, 출력·파일 없음) → staging 인증서 → 실제 인증서 → `deploy.sh --yes phase-12a1-deploy-prep`.
+- 실제 호스트에서 드러나 고친 것(커밋 3개): (1) AL2023 buildx 0.12로는 `compose build` 불가 → buildx 0.37.1 체크섬
+  고정 설치 (2) 첫 설치에서 `issue_cert.sh`가 app 없이 https 설정을 reload하다 `host not found in upstream "app"` →
+  app이 없으면 프록시를 멈추고 `deploy.sh`에 맡김 (3) 비밀값 파일 0600이 컨테이너 사용자(app 10001, postgres 70)에게
+  안 읽혀 `SECRET_KEY_FILE ... Permission denied` → 파일 0444, 디렉터리 0700(이전 `make_secrets.sh`도 같은 결함,
+  Docker Desktop이 권한을 무시해 로컬에서 안 보였다).
+- 결과(외부 확인): http → 301 https, https 200, 인증서 Let's Encrypt(YE2) `CN=moau.store` 만료 2026-12-22,
+  HSTS 300, `X-Frame-Options: DENY`, nosniff, csrftoken Secure, `/admin/` 302, 정적 파일 200. migration 0001–0031 적용.
+  배포 뒤 여유 디스크 4976 MB.
+- 남은 일: 관리자 계정(`createsuperuser`, 대화형)과 행사일 2026-10-09 등록(관리자 화면이 유일한 스위치 — 등록 안 하면
+  모든 주문이 연습 번호), 운영자 계정 등록, `production` 환경 보호 규칙(브랜치 main·승인자) 미설정, 저장소 수준의
+  옛 비밀 `DATABASE_URL`·`SECRET_KEY`(2025-09, 어떤 워크플로도 참조 안 함) 정리, CD를 OIDC+SSM으로 전환,
+  EC2 부하 측정(D-067), 실기기 확인(V-BROWSER), PR #92 병합과 develop → main 릴리스(현재 운영은 브랜치 배포).
+
 ## 2026-09-23 — 12A1: 비밀값을 GitHub에서 주입(D-071), Amazon Linux 2023 대응, 8 GB 디스크 가드
 
 - 사용자 제공: EC2 t4g.small, EIP `43.203.101.122`, 관리 키 `segwang_youth.pem`, SSH 개방. 사용자 결정: 모든 비밀값을

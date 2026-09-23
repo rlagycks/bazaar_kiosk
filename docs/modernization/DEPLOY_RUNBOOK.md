@@ -1,7 +1,9 @@
 # 12A1 — 배포 런북(준비 단계)
 
-상태: 저장소 쪽 준비 완료, 호스트 생성됨(2026-09-23, EC2 t4g.small·Amazon Linux 2023·EIP `43.203.101.122`).
-**서버 세팅·GitHub 비밀값 등록·배포 실행은 아직 하지 않았다(각각 별도 승인).** 대상 형태는 AWS EC2 한 대,
+상태: **첫 배포 완료(2026-09-23, `https://moau.store`)** — EC2 t4g.small·Amazon Linux 2023·EIP `43.201.151.63`,
+브랜치 `phase-12a1-deploy-prep`(`d665f4e`)를 운영자 PC에서 ssh로 배포. CD(`BK_DEPLOY_ENABLED`)는 꺼져 있다:
+22번이 운영자 주소로만 열려 있어 GitHub 러너가 접속할 수 없다. 다음 배포부터의 CD는 OIDC + IAM 역할 + SSM으로
+바꿀 예정(미구현). 대상 형태는 AWS EC2 한 대,
 도메인, HTTPS, nginx. 구성의 근거는 [배포 후보(4A3)](DEPLOYMENT_CANDIDATE.md)와 D-046·D-070·D-071이다.
 
 ## 구성 요약
@@ -34,7 +36,7 @@ ALB/CloudFront를 앞에 두는 선택은 하지 않았다. 두려면 프록시�
 - EC2, **Amazon Linux 2023**(aarch64), 사용자 `ec2-user`. 현재 t4g.small(2 vCPU, 2 GB). 크기의 합격은 실측 뒤
   정한다(10E 로컬 수치로 EC2 용량을 단정하지 않는다, D-067). 12A1 인수 때 같은 부하 도구로 측정한다.
 - Elastic IP 하나, Route 53(또는 도메인 등록처)에 `BK_DOMAIN` A 레코드.
-- 보안 그룹 인바운드: 80/tcp·443/tcp는 전체. 22/tcp는 **결정 필요**: GitHub 러너는 주소가 고정되지 않아서
+- 보안 그룹 인바운드: 80/tcp·443/tcp는 전체. 22/tcp는 **운영자 주소만(2026-09-23 사용자 결정)**. 참고로 선택지는: GitHub 러너는 주소가 고정되지 않아서
   운영자 주소로만 열면 CD가 접속하지 못한다. (a) 전체에 열고 키 인증만(단순, 행사용 단기 호스트에 현실적)
   (b) 운영자 주소만 열고 CD 대신 호스트에서 수동 배포 (c) SSM 등으로 전환(워크플로·IAM 변경). 그 외 포트 없음.
   DB·앱 포트는 호스트에 발행되지 않으므로 열 것이 없다.
@@ -53,7 +55,7 @@ ALB/CloudFront를 앞에 두는 선택은 하지 않았다. 두려면 프록시�
 | 종류 | 이름 | 값 |
 | --- | --- | --- |
 | 저장소 변수 | `BK_DEPLOY_ENABLED` | `true`면 동작. job 수준 `if`는 환경 변수를 못 보므로 **저장소 변수**여야 한다 |
-| 환경 비밀 | `BK_DEPLOY_HOST` | `43.203.101.122` |
+| 환경 비밀 | `BK_DEPLOY_HOST` | `43.201.151.63` |
 | 환경 비밀 | `BK_DEPLOY_USER` | `ec2-user` |
 | 환경 비밀 | `BK_DEPLOY_SSH_KEY` | 배포 전용 ed25519 개인키(`init_github_secrets.sh --deploy-key`). **EC2 관리 키(.pem)를 넣지 않는다** |
 | 환경 비밀 | `BK_DEPLOY_KNOWN_HOSTS` | 호스트 키 줄. 관리 키로 접속한 세션에서 확인한 `/etc/ssh/ssh_host_*_key.pub`와 대조한 값 |
