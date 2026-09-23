@@ -3,8 +3,8 @@
 #
 #   sudo bash scripts/deploy/server_setup.sh [deploy-user]     default: ec2-user
 #
-# Installs Docker (the distribution's engine + buildx, and the compose v2
-# plugin from its release, checksum-pinned), git, certbot and envsubst,
+# Installs Docker (the distribution's engine; the compose v2 and buildx
+# plugins from their releases, checksum-pinned), git, certbot and envsubst,
 # enables certbot's renewal timer, creates the certbot webroot the proxy
 # mounts, and installs the renewal hook that reloads the proxy after each
 # certificate renewal. Idempotent: safe to run again. It does not touch the
@@ -25,26 +25,40 @@ id "$deploy_user" >/dev/null 2>&1 || { echo "no such user: $deploy_user" >&2; ex
 
 dnf install -y -q docker git gettext certbot
 
-# Compose v2 is not packaged for AL2023. The release binary is pinned by
-# version and sha256; bump both together.
+# Compose v2 is not packaged for AL2023, and the packaged buildx (0.12) is
+# older than compose's minimum (0.17: "compose build requires buildx 0.17.0 or
+# later"). Both come from their releases, pinned by version and sha256; bump
+# version and checksum together. /usr/local/lib/docker/cli-plugins is searched
+# before the package's /usr/libexec/docker/cli-plugins.
 COMPOSE_VERSION=v5.5.1
+BUILDX_VERSION=v0.37.1
 case "$(uname -m)" in
-    aarch64) compose_arch=aarch64
-             COMPOSE_SHA256=732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7 ;;
-    *) echo "no pinned compose checksum for $(uname -m); add one next to COMPOSE_VERSION" >&2; exit 1 ;;
+    aarch64)
+        compose_asset="docker-compose-linux-aarch64"
+        COMPOSE_SHA256=732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7
+        buildx_asset="buildx-${BUILDX_VERSION}.linux-arm64"
+        BUILDX_SHA256=e5cc9fe3bbff5cbc91230981f7860e06076110730a2db997082652199042a1f2 ;;
+    *) echo "no pinned plugin checksums for $(uname -m); add them next to the versions" >&2; exit 1 ;;
 esac
 plugin_dir=/usr/local/lib/docker/cli-plugins
-plugin="$plugin_dir/docker-compose"
-if ! { [ -x "$plugin" ] && echo "$COMPOSE_SHA256  $plugin" | sha256sum -c --status; }; then
-    mkdir -p "$plugin_dir"
+mkdir -p "$plugin_dir"
+
+install_plugin() {  # destination, url, sha256
+    if [ -x "$1" ] && echo "$3  $1" | sha256sum -c --status; then
+        return 0
+    fi
+    local tmp
     tmp="$(mktemp)"
-    curl -fsSL -o "$tmp" \
-        "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-${compose_arch}"
-    echo "$COMPOSE_SHA256  $tmp" | sha256sum -c --status \
-        || { rm -f "$tmp"; echo "docker compose download failed its checksum" >&2; exit 1; }
-    install -m 755 "$tmp" "$plugin"
+    curl -fsSL -o "$tmp" "$2"
+    echo "$3  $tmp" | sha256sum -c --status \
+        || { rm -f "$tmp"; echo "download failed its checksum: $2" >&2; exit 1; }
+    install -m 755 "$tmp" "$1"
     rm -f "$tmp"
-fi
+}
+install_plugin "$plugin_dir/docker-compose" \
+    "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/${compose_asset}" "$COMPOSE_SHA256"
+install_plugin "$plugin_dir/docker-buildx" \
+    "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/${buildx_asset}" "$BUILDX_SHA256"
 
 systemctl enable --now docker
 usermod -aG docker "$deploy_user"
