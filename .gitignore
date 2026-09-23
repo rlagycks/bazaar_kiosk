@@ -3,9 +3,13 @@
 .env.*
 # 예시 파일은 커밋
 !.env.example
+!.env.prod.example
 
 # 배포 후보(compose.prod.yaml)가 마운트하는 비밀값 파일. 절대 커밋하지 않습니다.
 /secrets/
+# 12A1: 호스트별로 렌더링한 프록시 설정과 배포 기록. 템플릿은 scripts/nginx_tls/에 커밋한다.
+/tls/
+/deploy.log
 
 # === Python 기본 ===
 __pycache__/
@@ -91,3 +95,4 @@ __pycache__/
 *.py[cod]
 .venv/
 *.sqlite3
+/.config-incoming.*/

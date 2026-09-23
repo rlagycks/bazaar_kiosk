@@ -1,0 +1,25 @@
+# 12A1 -- port 80. Rendered by scripts/deploy/render_nginx.sh; only
+# ${BK_DOMAIN} is substituted, every other "$" is nginx's own.
+#
+# Two jobs: answer the ACME http-01 challenge for certbot (webroot mode, the
+# directory is a read-only mount of the host path certbot writes to) and send
+# everything else to https. In bootstrap mode (no certificate yet) this is the
+# only file rendered, so the proxy can come up and certbot can succeed.
+
+server_tokens off;
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name ${BK_DOMAIN};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://${BK_DOMAIN}$request_uri;
+    }
+}

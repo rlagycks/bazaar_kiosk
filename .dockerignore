@@ -1,0 +1,42 @@
+# 12A1: what `docker build` may send to the daemon. The Dockerfile copies only
+# requirements.txt, manage.py, bazaar_kiosk/ and orders/, so nothing here ever
+# reached an image; this keeps the *context* small and keeps the deployment
+# host's secrets/ and .env out of it altogether.
+.git
+.github
+.venv
+venv
+__pycache__
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.DS_Store
+
+# never part of a build, whatever the Dockerfile says
+secrets/
+.env
+.env.*
+!.env.example
+tls/
+deploy.log
+*.log
+staticfiles/
+db.sqlite3
+*.sqlite3
+
+# not needed inside the image
+docs/
+# the proxy stage copies three nginx files out of scripts/; nothing else
+scripts/*
+!scripts/nginx_prod.conf
+!scripts/nginx_proxy_headers.conf
+!scripts/nginx_static_headers.conf
+compose.*.yaml
+Dockerfile
+README.md
+AGENTS.md
+requirements-ci.txt
+orders/tests/
+.config-incoming.*

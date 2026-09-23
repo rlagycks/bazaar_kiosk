@@ -6,6 +6,66 @@
 주는 선택 사항은 이 파일에 기록합니다. 대체된 항목도 보존하고 이를 대신한
 결정을 연결하세요.
 
+### D-072 — CD는 GitHub OIDC로 IAM 역할을 받아 SSM Run Command로 배포 (D-070의 ssh 경로 대체)
+
+- 날짜: 2026-09-23. 상태: accepted (AWS 설정은 사용자 몫, 미완).
+- 사용자 근거: 22번을 운영자 주소로만 열기로 함("ssh 내 ip만 열어둘거야"), "다음 배포부터는 cd에서 진행할 거라 …
+  iam 롤 설정해서", "이제 CD를 OIDC IAM 롤 방식으로 설정하자".
+- 결정: `deploy.yml`은 ssh하지 않는다. OIDC로 `bazaar-kiosk-github-deploy` 역할을 받아(장기 키 없음, 신뢰 조건
+  `sub = repo:rlagycks/bazaar_kiosk:environment:production`), 설정 묶음을 SSM Parameter Store SecureString
+  `/bazaar-kiosk/production/deploy-payload`로 올리고, SSM Run Command로 호스트에서 `ssm_deploy.sh`를 `ec2-user`로
+  실행한다. 호스트는 인스턴스 역할로 파라미터를 읽고 즉시 삭제한 뒤 `install_config.sh` → `deploy.sh`. 워크플로가
+  끝에 다시 삭제한다. 비밀값의 원본은 여전히 GitHub(D-071).
+- 대안과 이유: 값을 SSM 명령 인자로 넘기면 명령 기록에 평문으로 남는다 → 파라미터 전달. 호스트 공개키로 직접
+  암호화해 인자로 넘기는 방법은 자체 암호화 코드가 늘어나 채택하지 않았다. Parameter Store를 원본으로 삼는 방법은
+  D-071(원본은 GitHub)과 충돌한다.
+- 권한 범위: 배포 역할은 이 인스턴스·`AWS-RunShellScript`에 대한 `SendCommand`, 결과 조회, 그 파라미터 하나의
+  쓰기·삭제만. 인스턴스 역할은 `AmazonSSMManagedInstanceCore` + 그 파라미터 읽기·삭제만.
+- 남은 위험: SSM 에이전트가 root로 명령을 받으므로 배포 역할을 가진 쪽은 호스트 root와 같다(ssh 배포 키가
+  `ec2-user`+sudo였던 것과 실질적으로 같은 수준). 그래서 `production` 환경의 배포 브랜치를 `main`으로 제한하는 것이
+  역할 경계의 일부다. 파라미터는 배포 동안 수 초~수 분 AWS에 암호화되어 머문다.
+- 기록: [DEPLOY_RUNBOOK](DEPLOY_RUNBOOK.md) "CD 경로".
+
+### D-071 — 설정·비밀값의 원본은 GitHub `production` 환경, CD가 매 배포에 주입 (D-046 비밀 생성 위치 개정)
+
+- 날짜: 2026-09-23. 상태: accepted.
+- 사용자 근거: "다 깃 액션에서 주입하는 게 낫지 않나? 직접 넣는 것보다 조금이라도 리스크 있는 건 저거로 해서 cd
+  돌면서 주입하는 게 나아 보이는데 그냥 그 첫 시크릿 생성도 액션에서 시크릿 전체를 관리하는 게 낫지 않나?";
+  제안한 구성에 "응 그렇게 진행하자". 디스크는 "b안으로 가자"(8 GB 유지 + 정리 로직).
+- 결정: 앱 비밀값 5개(`SECRET_KEY`·`JWT_SIGNING_KEY`·`EVENT_PASSWORD_HASH`·DB 비밀번호 2개)와 `.env`의 원본을 GitHub
+  `production` 환경에 둔다. `deploy.yml`이 매 실행마다 값을 ssh 표준입력으로 보내고, 워크플로 자신의 커밋에 있는
+  `install_config.sh`가 호스트에서 검증한 뒤 바뀐 파일만 `secrets/`·`.env`에 쓴다. 앱이 비밀값을 받는 방식(`_FILE`,
+  D-046)은 그대로다. 호스트에서 비밀값을 만들던 `make_secrets.sh`는 운영자 PC의 `init_github_secrets.sh`로 바뀌었다
+  (생성 즉시 `gh secret set`으로 등록, 출력·파일 없음).
+- 근거(에이전트 분석): SSH로 배포하는 CD는 배포 키를 GitHub에 둘 수밖에 없고, 그 키로 호스트의 `secrets/`를 읽을 수
+  있으므로 앱 비밀값을 GitHub에 두어도 노출 범위가 실질적으로 늘지 않는다. 얻는 것: 호스트 재구성 시 재배포만으로
+  복원, 교체가 GitHub에서 끝남, 서버에서 사람이 비밀값을 다루는 단계 제거.
+- 같이 정한 것: DB 비밀번호는 볼륨 초기화 때만 적용되므로, GitHub 값이 호스트 `secrets/`의 값과 다르면(볼륨 유무와
+  무관 — docker 라벨에 기대지 않기 위해) 아무것도 쓰지 않고 실패한다(교체는 `ALTER ROLE` 선행 절차, 런북). `database_url`은 호스트에서 조립한다. `.env` 값은 호스트명·
+  오리진·숫자 문자만 허용한다(compose 보간 방지). 호스트는 Amazon Linux 2023(`ec2-user`), 루트 8 GB 유지 — `deploy.sh`가
+  빌드 전 여유 2.5 GB를 요구하고 배포 뒤 안 쓰는 이미지·빌드 캐시를 정리한다.
+- 남은 위험: GitHub 비밀값은 다시 읽을 수 없어 사람용 백업이 아니다. `production` 환경의 브랜치 제한·필수 승인자는
+  GitHub 설정으로 걸어야 하며 저장소 코드로 강제되지 않는다. 22번 포트 개방 범위는 미결정(런북).
+- 기록: [DEPLOY_RUNBOOK](DEPLOY_RUNBOOK.md).
+
+### D-070 — TLS 종단은 compose의 proxy 컨테이너(호스트 nginx·ALB 없음), 배포는 호스트 스크립트 + 수동 CD
+
+- 날짜: 2026-09-23. 상태: proposed (사용자 방향: "aws에 올릴 거고 도메인 연결해서 https로 들어갈 거야, nginx 사용하려고";
+  "cd도 스크립트 준비만 해두자, 아직 올리진 말고").
+- 결정: 4A3의 `proxy` 컨테이너가 Let's Encrypt 인증서를 들고 80/443을 직접 발행한다(`compose.tls.yaml`). 호스트 nginx나
+  ALB를 앞에 두지 않는다. 이유: 프록시는 `X-Forwarded-For`를 자기 peer로 덮어쓰므로(4A3), 앞에 홉이 하나 더 있으면 앱이
+  보는 클라이언트 주소가 전부 그 홉이 되어 로그인 실패 제한이 한 버킷으로 뭉친다(이슈 #61). `TRUSTED_PROXY_IPS`는
+  `10.89.0.10` 그대로. 인증서는 호스트 certbot(webroot)이 발급·갱신하고 프록시가 읽기 전용으로 마운트한다.
+- 같이 정한 것: HSTS·HTTPS 리다이렉트·`server_tokens off`·로그인/관리자 `limit_req`는 Django가 아니라 프록시가 맡는다
+  (`check --deploy` W004/W008은 그대로 둔다). HSTS는 300 s로 시작해 안정 뒤 1년으로 올린다. 배포는 호스트의
+  `scripts/deploy/deploy.sh`(빌드 → check·migrate → up → 로그인 페이지 200 확인)이며, GitHub Actions `deploy.yml`은
+  `main`에 PR이 병합될 때 실행되고(수동 실행은 되돌리기용) 저장소 변수 `BK_DEPLOY_ENABLED`로 잠근다.
+  **`main`이 배포 브랜치, `develop`이 통합 브랜치다**(사용자 지시: "main을 배포로 돌리고 저기에 PR 머지되는 걸
+  트리거로 CD"). 릴리스는 `develop → main` PR이다. migration은 컨테이너 시작이 아니라 배포 스크립트가 적용한다.
+- 하지 않은 것: 실제 호스트·DNS·SG 생성과 배포 실행(별도 승인), readiness 엔드포인트, CSP, 백업(12A2).
+- 바꾸려면: ALB/CloudFront를 두는 경우 프록시의 전달 헤더 처리와 신뢰 대역을 함께 바꿔야 하므로 이 결정을 개정한다.
+- 기록: [DEPLOY_RUNBOOK](DEPLOY_RUNBOOK.md), 이슈 #91.
+
 ### D-069 — 포장은 교환권: 번호표 필수·점유 규칙(D-050 포장 부분) 폐기
 
 - 날짜: 2026-09-23. 상태: accepted (사용자 설명: "포장이 교환권을 주고 교환하는 곳에 가서 음식과 바꿔 가는
