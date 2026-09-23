@@ -3,6 +3,17 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-23 — CD를 OIDC + IAM 역할 + SSM으로 전환(D-072), 코드 쪽 완료·AWS 설정 대기
+
+- 사용자 지시: "CD를 OIDC IAM 롤 방식으로 설정하자 … 내가 설정할 거랑 너가 진행할 거 … 정리".
+- 호스트 확인: SSM 에이전트 실행 중, AWS CLI 2.33 설치됨, 인스턴스 역할 없음(IMDS `iam/info` 404). 운영자 PC의
+  AWS CLI에는 자격 증명이 없어 AWS 쪽 생성은 사용자가 콘솔에서 한다(런북의 JSON).
+- 변경: `deploy.yml`(ssh 단계 제거, `id-token: write`, `configure-aws-credentials` v6.3.0 SHA 고정, Parameter Store
+  스테이징·SSM 실행·결과 대기·항상 삭제), `ssm_deploy.sh`(신규), `init_github_secrets.sh`(ssh 배포 키 옵션 제거),
+  런북 "CD 경로"·"새 호스트에서 처음부터", D-072.
+- 검증: YAML 파싱, `bash -n`, SSM에 넘길 명령 문자열을 `sh`로 실행해 `runuser`가 받는 인자가 의도대로인지 확인.
+  실제 SSM 실행은 AWS 설정 뒤.
+
 ## 2026-09-23 — 12A1 첫 배포: https://moau.store (ssh 수동, CD 꺼짐)
 
 - 사용자 제공·결정: 도메인 `moau.store`(A → 새 EIP `43.201.151.63`, 80/443 전체 개방), 22번은 운영자 주소만, 인증서

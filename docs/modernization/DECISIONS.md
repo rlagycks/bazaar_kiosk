@@ -6,6 +6,26 @@
 주는 선택 사항은 이 파일에 기록합니다. 대체된 항목도 보존하고 이를 대신한
 결정을 연결하세요.
 
+### D-072 — CD는 GitHub OIDC로 IAM 역할을 받아 SSM Run Command로 배포 (D-070의 ssh 경로 대체)
+
+- 날짜: 2026-09-23. 상태: accepted (AWS 설정은 사용자 몫, 미완).
+- 사용자 근거: 22번을 운영자 주소로만 열기로 함("ssh 내 ip만 열어둘거야"), "다음 배포부터는 cd에서 진행할 거라 …
+  iam 롤 설정해서", "이제 CD를 OIDC IAM 롤 방식으로 설정하자".
+- 결정: `deploy.yml`은 ssh하지 않는다. OIDC로 `bazaar-kiosk-github-deploy` 역할을 받아(장기 키 없음, 신뢰 조건
+  `sub = repo:rlagycks/bazaar_kiosk:environment:production`), 설정 묶음을 SSM Parameter Store SecureString
+  `/bazaar-kiosk/production/deploy-payload`로 올리고, SSM Run Command로 호스트에서 `ssm_deploy.sh`를 `ec2-user`로
+  실행한다. 호스트는 인스턴스 역할로 파라미터를 읽고 즉시 삭제한 뒤 `install_config.sh` → `deploy.sh`. 워크플로가
+  끝에 다시 삭제한다. 비밀값의 원본은 여전히 GitHub(D-071).
+- 대안과 이유: 값을 SSM 명령 인자로 넘기면 명령 기록에 평문으로 남는다 → 파라미터 전달. 호스트 공개키로 직접
+  암호화해 인자로 넘기는 방법은 자체 암호화 코드가 늘어나 채택하지 않았다. Parameter Store를 원본으로 삼는 방법은
+  D-071(원본은 GitHub)과 충돌한다.
+- 권한 범위: 배포 역할은 이 인스턴스·`AWS-RunShellScript`에 대한 `SendCommand`, 결과 조회, 그 파라미터 하나의
+  쓰기·삭제만. 인스턴스 역할은 `AmazonSSMManagedInstanceCore` + 그 파라미터 읽기·삭제만.
+- 남은 위험: SSM 에이전트가 root로 명령을 받으므로 배포 역할을 가진 쪽은 호스트 root와 같다(ssh 배포 키가
+  `ec2-user`+sudo였던 것과 실질적으로 같은 수준). 그래서 `production` 환경의 배포 브랜치를 `main`으로 제한하는 것이
+  역할 경계의 일부다. 파라미터는 배포 동안 수 초~수 분 AWS에 암호화되어 머문다.
+- 기록: [DEPLOY_RUNBOOK](DEPLOY_RUNBOOK.md) "CD 경로".
+
 ### D-071 — 설정·비밀값의 원본은 GitHub `production` 환경, CD가 매 배포에 주입 (D-046 비밀 생성 위치 개정)
 
 - 날짜: 2026-09-23. 상태: accepted.

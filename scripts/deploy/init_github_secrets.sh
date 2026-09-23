@@ -3,20 +3,17 @@
 # repository's GitHub "production" environment. Run on an operator machine
 # with `gh` logged in, not on the host.
 #
-#   scripts/deploy/init_github_secrets.sh [--deploy-key <public-key-out>]
+#   scripts/deploy/init_github_secrets.sh
 #
 # Generated values go straight from this process into `gh secret set` on
-# stdin: they are never printed, written to disk or put on a command line
-# (the one exception is the deploy key pair below, which exists only in a
-# private temporary directory until it has been stored).
+# stdin: they are never printed, written to disk or put on a command line.
 # Only the event password is typed, and only its PBKDF2 hash leaves this
 # machine (D-051). Secrets that already exist are left alone -- a rotation is
 # a deliberate act (delete the one secret first; the two database passwords
 # need the runbook procedure, because the database keeps the old ones).
 #
-# --deploy-key also creates the deploy-only ssh key pair: the private half
-# becomes BK_DEPLOY_SSH_KEY, the public half is written to the given path for
-# the host's ~/.ssh/authorized_keys. It refuses if BK_DEPLOY_SSH_KEY exists.
+# Deployment itself needs no stored credential: the workflow assumes an IAM
+# role through GitHub OIDC (D-072).
 #
 # The environment itself (and its protection rules) is created in GitHub's
 # settings first; this script refuses to create it implicitly.
@@ -27,13 +24,7 @@ die() { printf 'init_github_secrets: %s\n' "$*" >&2; exit 1; }
 say() { printf '==> %s\n' "$*"; }
 
 ENVIRONMENT=production
-pubkey_out=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --deploy-key) [ $# -ge 2 ] || die "--deploy-key needs a path"; pubkey_out="$2"; shift 2 ;;
-        *) die "usage: init_github_secrets.sh [--deploy-key <public-key-out>]" ;;
-    esac
-done
+[ $# -eq 0 ] || die "usage: init_github_secrets.sh"
 
 command -v gh >/dev/null || die "gh (GitHub CLI) is required"
 command -v python3 >/dev/null || die "python3 is required"
@@ -85,18 +76,6 @@ PYHASH
 )" || die "event password hash was not created"
     printf '%s\n' "$hash" | set_secret BK_EVENT_PASSWORD_HASH
     unset hash
-fi
-
-if [ -n "$pubkey_out" ]; then
-    exists BK_DEPLOY_SSH_KEY && die "BK_DEPLOY_SSH_KEY exists; delete it first to replace the deploy key"
-    [ ! -e "$pubkey_out" ] || die "$pubkey_out exists"
-    command -v ssh-keygen >/dev/null || die "ssh-keygen is required"
-    keydir="$(mktemp -d)"
-    trap 'rm -rf "$keydir"' EXIT
-    ssh-keygen -q -t ed25519 -N "" -C "bazaar-kiosk-deploy" -f "$keydir/id" >/dev/null
-    set_secret BK_DEPLOY_SSH_KEY < "$keydir/id"
-    cp "$keydir/id.pub" "$pubkey_out"
-    say "deploy public key written to $pubkey_out (add it to the host user's ~/.ssh/authorized_keys)"
 fi
 
 say "done. Secret names in $ENVIRONMENT:"
