@@ -39,3 +39,4 @@ README.md
 AGENTS.md
 requirements-ci.txt
 orders/tests/
+.config-incoming.*

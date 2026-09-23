@@ -20,7 +20,7 @@ case "${1:-}" in
     *) bk_die "usage: render_nginx.sh [--bootstrap]" ;;
 esac
 
-command -v envsubst >/dev/null || bk_die "envsubst is missing (apt install gettext-base)"
+command -v envsubst >/dev/null || bk_die "envsubst is missing (scripts/deploy/server_setup.sh)"
 case "$BK_DOMAIN" in
     *[!A-Za-z0-9.-]*|"") bk_die "BK_DOMAIN must be a bare hostname, got: $BK_DOMAIN" ;;
 esac
@@ -32,7 +32,7 @@ out="$BK_ROOT/tls/conf.d"
 src="$BK_ROOT/scripts/nginx_tls"
 mkdir -p "$out"
 
-if [ "$mode" = "full" ] && [ ! -r "/etc/letsencrypt/live/$BK_DOMAIN/fullchain.pem" ]; then
+if [ "$mode" = "full" ] && ! bk_have_certificate; then
     bk_die "no certificate for $BK_DOMAIN yet; render with --bootstrap and run issue_cert.sh first"
 fi
 

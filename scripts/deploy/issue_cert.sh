@@ -25,7 +25,7 @@ extra=()
 command -v certbot >/dev/null || bk_die "certbot is missing (scripts/deploy/server_setup.sh)"
 [ -d "$BK_CERTBOT_WEBROOT" ] || bk_die "webroot $BK_CERTBOT_WEBROOT does not exist (server_setup.sh)"
 
-if [ -r "/etc/letsencrypt/live/$BK_DOMAIN/fullchain.pem" ]; then
+if bk_have_certificate; then
     bk_die "a certificate for $BK_DOMAIN already exists; certbot renews it on its own"
 fi
 

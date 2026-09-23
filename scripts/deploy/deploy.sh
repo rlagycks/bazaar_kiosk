@@ -10,8 +10,13 @@
 #   1. check out the ref (detached; the checkout is not a working branch)
 #   2. build the app and proxy images from it
 #   3. `manage.py check` and `migrate` with the new image, old app still serving
-#   4. `up -d` -- postgres is untouched, app and proxy are replaced
+#   4. render the proxy configuration from .env, `up -d` (postgres is
+#      untouched, app and proxy are replaced) and reload the proxy
 #   5. wait until https://BK_DOMAIN/orders/login/ answers 200
+#   6. remove dangling images and build cache (8 GB root volume, D-071)
+#
+# Before building it refuses to start with less than BK_MIN_FREE_MB free
+# (default 2560) after reclaiming unused images and cache.
 #
 # Rollback is the same command with the previous ref (deploy.log keeps them);
 # migrations are not rolled back automatically -- see the runbook.
@@ -36,7 +41,7 @@ done
 bk_load_env
 bk_require_docker
 bk_require_secrets
-[ -f "$BK_ROOT/tls/conf.d/10_https.conf" ] || bk_die "tls/conf.d has no https configuration; run issue_cert.sh (first time) or render_nginx.sh"
+bk_have_certificate || bk_die "no certificate for $BK_DOMAIN; run issue_cert.sh first (runbook)"
 
 cd "$BK_ROOT"
 git fetch -q --tags origin
@@ -60,6 +65,7 @@ if [ -n "$(git log --oneline HEAD --not --remotes=origin 2>/dev/null | head -1)"
 fi
 git checkout -q --detach "$sha"
 
+bk_require_disk
 bk_say "building images"
 "${BK_COMPOSE[@]}" build --quiet app proxy
 
@@ -67,8 +73,16 @@ bk_say "configuration check and migrations with the new image"
 "${BK_COMPOSE[@]}" run --rm --no-deps -T app python manage.py check --deploy --fail-level ERROR
 "${BK_COMPOSE[@]}" run --rm -T app python manage.py migrate --noinput
 
+# .env comes from GitHub on every run (D-071); re-rendering here makes a
+# changed domain or HSTS value take effect without a separate step.
+bk_say "rendering proxy configuration"
+"$BK_ROOT/scripts/deploy/render_nginx.sh" >/dev/null
+
 bk_say "restarting app and proxy"
 "${BK_COMPOSE[@]}" up -d --remove-orphans
+# An unchanged proxy container is not recreated, so it re-reads conf.d here.
+"${BK_COMPOSE[@]}" exec -T proxy nginx -t
+"${BK_COMPOSE[@]}" exec -T proxy nginx -s reload
 
 bk_say "waiting for https://$BK_DOMAIN/orders/login/"
 ok=0
@@ -81,4 +95,5 @@ printf '%s deploy %s -> %s status=%s\n' "$(date -u +%FT%TZ)" "$current" "$sha" "
 [ "$ok" -eq 1 ] || bk_die "login page did not answer 200 within 60 s (last: ${code:-none}); check '${BK_COMPOSE[*]} logs app proxy'"
 
 "${BK_COMPOSE[@]}" ps
-bk_say "deployed $sha"
+bk_reclaim_docker_space
+bk_say "deployed $sha ($(bk_free_mb) MB free)"

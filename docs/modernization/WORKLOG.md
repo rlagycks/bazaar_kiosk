@@ -3,6 +3,30 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-09-23 — 12A1: 비밀값을 GitHub에서 주입(D-071), Amazon Linux 2023 대응, 8 GB 디스크 가드
+
+- 사용자 제공: EC2 t4g.small, EIP `43.203.101.122`, 관리 키 `segwang_youth.pem`, SSH 개방. 사용자 결정: 모든 비밀값을
+  GitHub Actions에서 관리·주입(D-071), 디스크는 8 GB 유지 + 정리 로직(B안).
+- 호스트 확인(관리 키로 읽기 전용 접속): Amazon Linux 2023.12(aarch64), `ec2-user`, 1.8 GB RAM, 루트 8 GB(1.7 GB 사용),
+  docker·git 미설치, python3 3.9. dnf 저장소에 docker 25(buildx 포함)·certbot 2.6(`certbot-renew.timer` 포함, 비활성)·
+  gettext 있음, compose 플러그인 없음. 로컬에서는 pem 권한만 644→400으로 바꿨다. 이후 22번 연결이 시간 초과로 바뀌어
+  (SG 변경 또는 접속 주소 변경 추정, 미확인) 호스트에서의 스크립트 시험은 하지 못했다.
+- 변경: `install_config.sh`(신규, 호스트 수신·검증·DB 비밀번호 가드), `init_github_secrets.sh`(신규, `make_secrets.sh` 대체),
+  `deploy.yml`(설정 주입 단계, `config_only` 입력, 비밀값은 `production` 환경), `server_setup.sh`(AL2023·dnf, compose v5.5.1
+  체크섬 고정, 갱신 타이머 활성), `lib.sh`/`deploy.sh`(디스크 가드·정리, 배포마다 프록시 설정 렌더링·reload),
+  인증서 유무 판정을 root 전용 `live/` 대신 `renewal/<도메인>.conf`로(기존 `-r` 검사는 `ec2-user`에서 항상 실패했을 것),
+  런북·D-071·`.env.prod.example`.
+- 검증: 스크립트 7개 `bash -n`, 워크플로 YAML 파싱. `install_config.sh` 시나리오(macOS bash 3.2, 가짜 docker): 신규 설치
+  권한 0600/0700, 재실행 무변경, 볼륨 있을 때 DB 비밀번호 변경 거부(기존 값 유지), 볼륨 없으면 허용, docker 조회 실패 시
+  거부, `.env`의 `${}`·`$( )`·비 BK 키·필수 키 누락 거부, 알 수 없는/중복/누락 항목·약한 비밀번호·잘못된 base64 거부,
+  임시 디렉터리 정리. 시험 중 BSD grep이 빈 대안 `(|…)`을 오류로 처리해 검증이 통과로 읽히던 결함을 찾아 고쳤다
+  (grep 상태 2도 거부). GNU 환경(AL2023)에서의 실행, 실제 워크플로 실행, `server_setup.sh` 실행은 하지 않았다.
+- 독립 보안 리뷰: CRITICAL/HIGH 0, MEDIUM 2, LOW 2. 반영: 7개 파일 교체 중 실패 시 바뀐 파일 목록 출력(재실행으로 수렴),
+  DB 비밀번호 가드를 docker 볼륨 라벨 조회 대신 호스트 파일 비교로(라벨이 바뀌면 가드가 조용히 꺼지던 결합 제거),
+  `BK_HSTS_MAX_AGE` 숫자 검사. 수용: 매 배포마다 비밀값이 ssh로 재전송되는 것(D-071의 교환 조건).
+- 다음: 사용자 — DNS·도메인, 22번 정책, `production` 환경 생성. 이후 승인 받아 비밀값 등록 → 서버 세팅 → `config_only`
+  → 인증서 → 첫 배포 → EC2 부하 측정(D-067).
+
 ## 2026-09-23 — 운영 준비: 보안 점검(차단 없음)과 12A1 배포 준비(스크립트만, 실행 안 함)
 
 - 사용자 지시: "키랑 올라가면 안 되는 것들 그리고 보안상 문제가 될 수 있는 것들 검증 진행하고 문제없으면 배포 준비";
