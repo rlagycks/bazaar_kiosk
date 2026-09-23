@@ -12,6 +12,7 @@
 #
 # Everything is validated before anything is written, and each file is only
 # replaced when its content changed. Values are never printed; only names.
+# secrets/ is 0700 and its files 0444 (see the install step for why).
 #
 # Database passwords are the exception to "GitHub wins". PostgreSQL applies
 # them once, when the data volume is first initialised, so a password that
@@ -124,20 +125,25 @@ report_partial() {
 set -E
 trap 'report_partial' ERR
 
-install_file() {  # source, destination
+install_file() {  # source, destination, mode
     if [ -e "$2" ] && cmp -s "$1" "$2"; then
+        chmod "$3" "$2"
         return 0
     fi
-    chmod 600 "$1"
+    chmod "$3" "$1"
     mv -f "$1" "$2"
     updated+=("$2")
     say "$2 updated"
 }
 
-install_file "$incoming/env" .env
+# .env is read on the host only. The secret files are bind-mounted into the
+# containers, whose users are not this one (app: uid 10001, postgres: uid 70),
+# so they must be readable by others; the 0700 secrets/ directory is what keeps
+# other host users out -- a bind-mounted file is reached without traversing it.
+install_file "$incoming/env" .env 600
 for name in secret_key jwt_signing_key event_password_hash database_url \
             postgres_bootstrap_password postgres_app_password; do
-    install_file "$incoming/$name" "secrets/$name"
+    install_file "$incoming/$name" "secrets/$name" 444
 done
 trap - ERR
 say "configuration is in place"
