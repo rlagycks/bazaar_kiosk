@@ -1,0 +1,38 @@
+/* Adopted 05 design tokens. Opt-in so later screens can migrate independently. */
+.ui05 {
+  --ui-canvas: #f3f5f4;
+  --ui-surface: #fff;
+  --ui-ink: #172d2b;
+  --ui-muted: #536461;
+  --ui-line: #cfd8d5;
+  --ui-control-border: #70847c;
+  --ui-accent: #146356;
+  --ui-tint: #e7f1ed;
+  --ui-danger: #a73535;
+  margin: 0;
+  background: var(--ui-canvas);
+  color: var(--ui-ink);
+  font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.ui05 *, .ui05 *::before, .ui05 *::after { box-sizing: border-box; }
+.ui05 h1, .ui05 h2, .ui05 p { margin: 0; }
+.ui05 button, .ui05 input, .ui05 select { font: inherit; }
+.ui05 button, .ui05 a { touch-action: manipulation; }
+.ui05 button { cursor: pointer; }
+.ui05 :focus-visible { outline: 3px solid var(--ui-accent); outline-offset: 3px; }
+.ui05 :disabled { cursor: not-allowed; opacity: .5; }
+.ui05 [hidden] { display: none !important; }
+.ui05 dialog::backdrop { background: rgb(23 45 43 / 45%); }
+.ui05 .ui-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; border: 1px solid var(--ui-control-border); border-radius: 8px;
+  padding: 8px 12px; background: var(--ui-surface); color: var(--ui-ink);
+  font-weight: 700; text-decoration: none; gap: 8px;
+}
+.ui05 .ui-button-primary { background: var(--ui-accent); color: #fff; border-color: var(--ui-accent); }
+.ui05 .ui-muted { color: var(--ui-muted); font-size: 14px; }
+.ui05 .ui-error { color: var(--ui-danger); font-size: 14px; }
+.ui05 .practice-banner { padding: 12px; margin: 0 0 12px; background: #fff7df; border: 1px solid #a07821; border-radius: 8px; color: #684a08; font-size: 14px; }
+.ui05 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }

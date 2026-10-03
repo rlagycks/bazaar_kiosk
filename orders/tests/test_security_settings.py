@@ -9,13 +9,15 @@ import uuid
 from unittest.mock import patch
 
 from django.conf import settings
+from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.core import mail
-from django.test import Client, SimpleTestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import include, path
 from django.utils.log import AdminEmailHandler
 from django.views.debug import ExceptionReporter, get_default_exception_reporter_filter
 
 from orders.views import auth
+from orders.tests.auth_support import make_account
 
 
 def report_failure(request, *args, **kwargs):
@@ -29,7 +31,7 @@ class EarlyFailureMiddleware:
     def __call__(self, request):
         # Keep the parsed form in this traceback frame to exercise redaction of
         # a MultiValueDict local as well as the report's separate POST section.
-        post_data = request.POST
+        post_data = request.POST  # noqa: F841 - deliberate traceback local
         return report_failure(request)
 
 
@@ -40,14 +42,15 @@ urlpatterns = [
 ]
 
 
-@override_settings(ROOT_URLCONF=__name__)
-class SecurityErrorReportTests(SimpleTestCase):
+@override_settings(ROOT_URLCONF=__name__, LOGIN_MAX_FAILURES=100)
+class SecurityErrorReportTests(TestCase):
     def setUp(self):
-        self.configured_pin = uuid.uuid4().hex
-        self.submitted_pin = uuid.uuid4().hex
+        self.configured_hash = PBKDF2PasswordHasher().encode(uuid.uuid4().hex, "synthetic-redaction-salt", iterations=1)
+        self.submitted_password = uuid.uuid4().hex
         self.secret = uuid.uuid4().hex
+        make_account("order", "SERVING")
         self.config = override_settings(
-            ROLE_PINS={"ORDER": self.configured_pin}, SECRET_KEY=self.secret,
+            EVENT_PASSWORD_HASH=self.configured_hash, SECRET_KEY=self.secret,
         )
         self.config.enable()
         self.addCleanup(self.config.disable)
@@ -58,8 +61,8 @@ class SecurityErrorReportTests(SimpleTestCase):
     def assert_no_credentials(self, output):
         # Do not echo the entire report or synthetic secrets on assertion failure.
         for label, value in (
-            ("configured PIN", self.configured_pin),
-            ("submitted PIN", self.submitted_pin),
+            ("configured password hash", self.configured_hash),
+            ("submitted password", self.submitted_password),
             ("SECRET_KEY", self.secret),
         ):
             self.assertFalse(value in output, f"Error report exposed {label}")
@@ -68,10 +71,10 @@ class SecurityErrorReportTests(SimpleTestCase):
         with self.assertLogs("django.request", level="ERROR") as captured:
             if login:
                 # A failed login normally renders an error. Inject a rendering
-                # failure after both submitted and expected PINs have been read.
+                # failure after the submitted password has been read.
                 with patch.object(auth, "render", report_failure):
                     response = self.client.post(
-                        "/login/", {"role": "ORDER", "pin": self.submitted_pin},
+                        "/login/", {"name": "order", "password": self.submitted_password},
                         HTTP_ACCEPT=accept,
                     )
             else:
@@ -95,7 +98,7 @@ class SecurityErrorReportTests(SimpleTestCase):
                 response, _ = self.request_failure(accept=accept)
                 text = response.content.decode()
                 self.assertIn("synthetic error-report failure", text)
-                self.assertIn("ROLE_PINS", text)
+                self.assertIn("EVENT_PASSWORD_HASH", text)
                 self.assert_no_credentials(text)
                 # Django uses its text error report for a non-HTML client;
                 # this patch does not invent a JSON exception response contract.
@@ -103,7 +106,7 @@ class SecurityErrorReportTests(SimpleTestCase):
                 self.assertTrue(response["Content-Type"].startswith(expected_type))
 
     @override_settings(DEBUG=True)
-    def test_login_error_hides_post_pin_and_local_expected_pin_in_debug(self):
+    def test_login_error_hides_post_password_and_local_password_in_debug(self):
         for accept in ("text/html", "application/json"):
             with self.subTest(accept=accept):
                 response, record = self.request_failure(login=True, accept=accept)
@@ -115,25 +118,24 @@ class SecurityErrorReportTests(SimpleTestCase):
                 )
                 variables = dict(login_frame["vars"])
                 self.assert_no_credentials(str(variables))
-                self.assertIn("pin", variables)
-                self.assertIn("expected", variables)
-                self.assertEqual(record.request.POST["pin"], self.submitted_pin)
+                self.assertIn("password", variables)
+                self.assertEqual(record.request.POST["password"], self.submitted_password)
                 filtered = dict(data["filtered_POST_items"])
-                self.assertEqual(filtered["role"], "ORDER")
+                self.assertEqual(filtered["name"], "order")
                 # Absence of the secret plus presence of the marker: without the
                 # second half, blanking every field would also pass.
-                self.assertEqual(filtered["pin"], self.cleansed())
-                self.assertEqual(variables["pin"], repr(self.cleansed()))
-                self.assertEqual(variables["expected"], repr(self.cleansed()))
+                self.assertEqual(filtered["password"], self.cleansed())
+                self.assertEqual(variables["password"], repr(self.cleansed()))
+
 
     @override_settings(
         DEBUG=True, MIDDLEWARE=[__name__ + ".EarlyFailureMiddleware"],
     )
-    def test_post_pin_is_redacted_before_login_decorators_run(self):
+    def test_post_password_is_redacted_before_login_decorators_run(self):
         response, record = self.request_failure(login=True)
         self.assertFalse(hasattr(record.request, "sensitive_post_parameters"))
         self.assert_no_credentials(response.content.decode())
-        self.assertEqual(record.request.POST["pin"], self.submitted_pin)
+        self.assertEqual(record.request.POST["password"], self.submitted_password)
         data = ExceptionReporter(record.request, *record.exc_info).get_traceback_data()
         frame = next(
             frame for frame in data["frames"]
@@ -142,14 +144,14 @@ class SecurityErrorReportTests(SimpleTestCase):
         post_data = dict(frame["vars"])["post_data"]
         self.assert_no_credentials(post_data)
         # The traceback local must be cleansed field by field, not blanked whole.
-        self.assertIn("'role'", post_data)
-        self.assertIn("ORDER", post_data)
+        self.assertIn("'name'", post_data)
+        self.assertIn("order", post_data)
         self.assertIn(self.cleansed(), post_data)
         self.assertEqual(
             dict(
                 ExceptionReporter(record.request, *record.exc_info)
                 .get_traceback_data()["filtered_POST_items"]
-            )["pin"],
+            )["password"],
             self.cleansed(),
         )
 
@@ -159,18 +161,18 @@ class SecurityErrorReportTests(SimpleTestCase):
             "django.views.debug.SafeExceptionReporterFilter"
         ),
     )
-    def test_login_annotation_alone_redacts_the_post_pin(self):
+    def test_login_annotation_alone_redacts_the_post_password(self):
         # Pin @sensitive_post_parameters independently. The project filter
         # redacts the field whether or not the view is annotated, so without
         # Django's stock filter here the decorator could be deleted unnoticed.
         get_default_exception_reporter_filter.cache_clear()
         _, record = self.request_failure(login=True)
-        self.assertEqual(tuple(record.request.sensitive_post_parameters), ("pin",))
+        self.assertIn("password", record.request.sensitive_post_parameters)
         data = ExceptionReporter(record.request, *record.exc_info).get_traceback_data()
         filtered = dict(data["filtered_POST_items"])
-        self.assertEqual(filtered["role"], "ORDER")
-        self.assertEqual(filtered["pin"], self.cleansed())
-        self.assertEqual(record.request.POST["pin"], self.submitted_pin)
+        self.assertEqual(filtered["name"], "order")
+        self.assertEqual(filtered["password"], self.cleansed())
+        self.assertEqual(record.request.POST["password"], self.submitted_password)
 
     @override_settings(DEBUG=True, MIDDLEWARE=[__name__ + ".EarlyFailureMiddleware"])
     def test_credential_field_names_beyond_pin_are_redacted_case_insensitively(self):

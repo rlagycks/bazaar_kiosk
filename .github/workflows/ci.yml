@@ -26,6 +26,11 @@ jobs:
       BK_TEST_DATABASE_URL: postgresql://bk_test_runner:synthetic-local-runner-only@127.0.0.1:55437/bk_test_control
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.7.0'
+      - name: Test browser authentication and operational UI
+        run: node --test scripts/test_auth_client.cjs scripts/test_dom_helpers.cjs scripts/test_request_id.cjs scripts/test_kitchen_live.cjs scripts/test_order_state.cjs scripts/test_order_controller.cjs scripts/test_monitor_state.cjs scripts/test_monitor_controller.cjs scripts/test_stats_ui.cjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

@@ -4,6 +4,9 @@
 대시보드 시스템입니다. 이 저장소는 점진적인 현대화를 준비하고 있습니다. 현재 동작은
 테스트와 운영자의 결정으로 확인되기 전까지 레거시 동작으로 간주해야 합니다.
 
+2026-09-21: **05안 UI를 채택**하고 로그인·내 메뉴·휴대폰 주문/결제부터 적용했습니다.
+[적용 범위와 다음 단계](docs/modernization/UI_IMPLEMENTATION.md)를 확인하세요.
+
 ## 로컬 설정
 
 개발·테스트·CI·운영에서 PostgreSQL만 지원합니다. Python3.12와 Docker Compose가 필요합니다.
@@ -16,6 +19,11 @@ docker compose -p bazaar-dev -f compose.dev.yaml up -d --wait postgres
 
 [.env.example](.env.example)의 개발 URL은 위 Compose의 loopback55436 DB를 가리킵니다.
 Django는 .env를 자동으로 읽지 않습니다. 기존 파일을 덮어쓰지 않고 검토한 뒤 적용합니다.
+
+**`DEBUG`는 기본값이 없습니다.** 2026-09-14부터 `0`이나 `1`을 반드시 적어야 시작합니다.
+`DEBUG` 줄이 없는 기존 `.env`를 쓰고 있다면 `DEBUG=1`을 한 줄 추가하세요.
+운영에서는 `DEBUG=0`과 함께 필수 설정이 모두 있어야 하며, 없거나 저장소에 적힌 기본값이면
+시작을 거부합니다. [운영 필수 설정](docs/modernization/REQUIRED_SETTINGS.md).
 
 ```bash
 test -e .env || cp .env.example .env
@@ -39,7 +47,7 @@ DATABASE_URL이 누락되거나 PostgreSQL URL이 아니면 시작이 실패합�
 .venv/bin/python scripts/test_postgres.py
 ```
 
-전체 테스트를 발견해 migration15개와 앱/guard38개를 별도 프로세스에서 실행합니다.
+전체 테스트를 발견해 마이그레이션 검사와 앱/guard 검사를 별도 프로세스에서 실행합니다.
 모두 PostgreSQL에서 실행하며 SQLite skip 경로는 없습니다. CI도 같은 명령을 사용합니다.
 [전환 범위·남은 결정](docs/modernization/POSTGRES_ONLY.md)에 기존 DB 파일과 마이그레이션 보존,
 영속 개발 DB·일회용 테스트 DB 구분, 운영 인수 한계를 기록했습니다.
@@ -57,3 +65,10 @@ DATABASE_URL이 누락되거나 PostgreSQL URL이 아니면 시작이 실패합�
 - 원활한 인수인계를 위한 결정 사항 및 작업 로그 템플릿
 
 에이전트는 코드를 변경하기 전에 [AGENTS.md](AGENTS.md)를 읽어야 합니다.
+
+## 배포 준비 (12A1)
+
+운영 배포 구성과 절차는 [docs/modernization/DEPLOY_RUNBOOK.md](docs/modernization/DEPLOY_RUNBOOK.md)를 따른다.
+`compose.prod.yaml` 위에 `compose.tls.yaml`을 얹고, 호스트에서 `scripts/deploy/`의 스크립트로 준비·배포한다.
+설정·비밀값의 원본은 GitHub `production` 환경이며 배포 워크플로가 매번 호스트에 주입한다(D-071).
+실제 호스트 생성과 배포 실행은 별도 승인이다.

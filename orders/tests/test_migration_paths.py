@@ -9,7 +9,8 @@ cases still assert failure and row preservation until that policy is decided.
 import importlib
 import inspect
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
+from django.utils import timezone
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -24,6 +25,17 @@ from orders.tests import original_0020
 M18 = ("orders", "0018_alter_order_floor_alter_order_order_type_and_more")
 M19 = ("orders", "0019_remove_order_orders_table_rule_and_more")
 M20 = ("orders", "0020_create_floor_sequences")
+M21 = ("orders", "0021_auth_device")
+M22 = ("orders", "0022_eventday_ordernumbercounter_and_more")
+M23 = ("orders", "0023_orderrequest")
+M24 = ("orders", "0024_order_uq_active_takeout_slot")
+M25 = ("orders", "0025_account_permissions_audit")
+M26 = ("orders", "0026_order_change_amount")
+M27 = ("orders", "0027_orderevent_kind_items")
+M28 = ("orders", "0028_change_revision")
+M29 = ("orders", "0029_revision_generation")
+M30 = ("orders", "0030_order_departed_at")
+M31 = ("orders", "0031_takeout_voucher")
 
 
 class MigrationPathTests(TestCase):
@@ -102,6 +114,31 @@ class MigrationPathTests(TestCase):
         )
         return order
 
+    def test_departure_column_preserves_history_without_backfill_and_reverses(self):
+        apps = self.migrate(M29)
+        alias = self.connection.alias
+        order = self.fixture(apps)
+        historical_order = apps.get_model("orders", "Order")
+        historical_order.objects.using(alias).filter(pk=order.pk).update(status="READY")
+        before = historical_order.objects.using(alias).get(pk=order.pk)
+        previous_updated = before.updated_at
+        target = M30
+        apps = self.migrate(target)
+        current = apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk)
+        self.assertEqual(current.status, "READY")
+        self.assertIsNone(current.departed_at)
+        self.assertEqual(current.updated_at, previous_updated)
+        self.assertEqual(current.note, before.note)
+        # The previous app can still read/write its old fields on the new schema.
+        before.note = "old app remains compatible"
+        before.save(using=alias, update_fields=["note"])
+        apps = self.migrate(M29)
+        restored = apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk)
+        self.assertEqual(restored.status, "READY")
+        self.assertEqual(restored.note, "old app remains compatible")
+        apps = self.migrate(target)
+        self.assertIsNone(apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk).departed_at)
+
     def assert_database_error(self, error, sqlstate, constraint=None):
         cause = error.__cause__
         self.assertIsNotNone(cause)
@@ -130,9 +167,21 @@ class MigrationPathTests(TestCase):
             self.assertEqual(cursor.fetchone()[0], expected)
 
     def assert_orders_tables_empty(self, apps):
+        """A fresh install holds no data -- with one deliberate exception.
+
+        10B's change marker is a counter, not a record: migration 0028 seeds
+        the single row it counts on, at zero. Asserting its exact contents
+        rather than skipping it keeps this check honest, because "the marker
+        row exists and starts at zero" is itself a property of a fresh install
+        that something could break.
+        """
         for model in apps.get_app_config("orders").get_models():
             with self.subTest(model=model._meta.label):
-                self.assertEqual(model.objects.using(self.connection.alias).count(), 0)
+                rows = model.objects.using(self.connection.alias)
+                if model._meta.label == "orders.ChangeRevision":
+                    self.assertEqual(list(rows.values_list("scope", "value")), [("board", 0)])
+                    continue
+                self.assertEqual(rows.count(), 0)
 
     @contextmanager
     def original_0020_operations(self):
@@ -153,7 +202,7 @@ class MigrationPathTests(TestCase):
         self.assertEqual(self.snapshot(apps), before)
         self.assert_head(start)
 
-    def test_empty_database_installs_every_app_and_starts_at_one(self):
+    def test_empty_database_installs_every_app_and_ends_without_the_sequence(self):
         # Deliberately migrates every leaf, not just orders: this is the path the
         # Django test runner takes when it builds its own empty PostgreSQL database,
         # which 0020 used to break. assert_head still scopes correctness to orders.
@@ -161,11 +210,302 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        self.assert_head(M20)
-        apps = MigrationExecutor(self.connection).loader.project_state([M20]).apps
+        leaf = M31
+        self.assert_head(leaf)
+        apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
+        # D-047 replaced the sequence with a counter row, so a fresh database
+        # must end with no sequence at all. 0020's own paths are asserted above
+        # at their own target and are unaffected.
+        self.assert_sequence_absent()
+
+    def test_the_numbering_change_reverses_back_to_the_sequence(self):
+        """0022 is reversible: stepping back restores the 0020 sequence."""
+        self.migrate(M22)
+        self.assert_sequence_absent()
+        self.migrate(M21)
         self.assert_sequence_state(1, False)
         self.assert_next_number(1)
+
+    def legacy_order(self, apps, *, order_no, order_date, table_number):
+        """An order written under the old per-day numbering contract."""
+        alias = self.connection.alias
+        table = apps.get_model("orders", "Table").objects.using(alias).create(
+            number=table_number, name="legacy fixture"
+        )
+        return apps.get_model("orders", "Order").objects.using(alias).create(
+            floor="B1", order_type="DINE_IN", source="ORDER", table_id=table.pk,
+            order_no=order_no, order_date=order_date, is_takeout=False,
+            total_price=4300, received_amount=4300, payment_method="CASH",
+            received_cash_amount=4300, received_ticket_amount=0,
+        )
+
+    def test_orders_written_before_the_change_stay_in_the_sales_figures(self):
+        """The new column defaults to PRACTICE, and the dashboard counts only
+        REAL. Without a backfill every historical order would silently drop out
+        of the sales totals -- so 0022 classifies them."""
+        apps = self.migrate(M21)
+        self.legacy_order(apps, order_no=7, order_date=date(2025, 10, 18), table_number=1)
+        self.legacy_order(apps, order_no=8, order_date=date(2026, 9, 7), table_number=2)
+        after = self.migrate(M22)
+        series = sorted(
+            after.get_model("orders", "Order").objects.using(self.connection.alias)
+            .values_list("order_no", "number_series")
+        )
+        self.assertEqual(series, [(7, "REAL"), (8, "REAL")])
+
+    def test_numbers_repeated_across_days_of_one_year_stop_the_migration(self):
+        """Numbering used to restart daily, so the same number can appear on two
+        days of one year. The new uniqueness is yearly, and those rows violate
+        it. Renumbering them is out of scope, so the migration refuses with an
+        explanation instead of a bare unique violation."""
+        apps = self.migrate(M21)
+        self.legacy_order(apps, order_no=1, order_date=date(2025, 10, 18), table_number=1)
+        self.legacy_order(apps, order_no=1, order_date=date(2025, 10, 19), table_number=2)
+        with self.assertRaises(RuntimeError) as caught:
+            self.migrate(M22)
+        self.assertIn("floor=B1 series=REAL year=2025 no=1", str(caught.exception))
+        # Nothing half-applied: the head is still the previous migration and the
+        # rows are untouched.
+        self.assert_head(M21)
+        rows = (
+            MigrationExecutor(self.connection).loader.project_state([M21]).apps
+            .get_model("orders", "Order").objects.using(self.connection.alias)
+            .values_list("order_no", "order_date")
+        )
+        self.assertEqual(
+            sorted(rows),
+            [(1, date(2025, 10, 18)), (1, date(2025, 10, 19))],
+        )
+
+    def test_the_same_number_on_two_days_is_fine_in_different_years(self):
+        apps = self.migrate(M21)
+        self.legacy_order(apps, order_no=1, order_date=date(2025, 10, 18), table_number=1)
+        self.legacy_order(apps, order_no=1, order_date=date(2026, 10, 17), table_number=2)
+        self.migrate(M22)
+        self.assert_head(M22)
+
+    def test_auth_tables_upgrade_and_reverse_preserve_existing_orders(self):
+        apps = self.migrate(M20)
+        self.fixture(apps, order_no=7)
+        models = list(apps.get_app_config("orders").get_models())
+        def rows():
+            return {model._meta.label: list(model.objects.order_by("pk").values())
+                    for model in models}
+        before = rows()
+        self.migrate(("orders", "0021_auth_device"))
+        self.assertEqual(rows(), before)
+        self.assertIn("orders_authdevice", self.connection.introspection.table_names())
+        self.assertIn("orders_loginattempt", self.connection.introspection.table_names())
+        # Schema reversibility only: reverting the old auth app is NOT a safe
+        # operational rollback because its legacy sessions may become valid.
+        self.migrate(M20)
+        self.assertEqual(rows(), before)
+        self.assertNotIn("orders_authdevice", self.connection.introspection.table_names())
+        self.assertNotIn("orders_loginattempt", self.connection.introspection.table_names())
+
+    def active_takeout_pair(self, apps, *, table_number=101):
+        """Two live takeout orders holding one tag: what a database written
+        before D-050 may contain, and exactly what 0024 forbids."""
+        alias = self.connection.alias
+        table = apps.get_model("orders", "Table").objects.using(alias).create(
+            number=table_number, name="takeout tag"
+        )
+        order_model = apps.get_model("orders", "Order")
+        return [
+            order_model.objects.using(alias).create(
+                floor="B1", order_type="TAKEOUT", source="ORDER", status=status,
+                table_id=table.pk, is_takeout=True, total_price=4300,
+                received_amount=4300, payment_method="CASH",
+                received_cash_amount=4300, received_ticket_amount=0,
+            )
+            for status in ("PREPARING", "READY")
+        ]
+
+    def test_0023_active_takeout_orders_sharing_a_tag_cannot_upgrade_to_0024(self):
+        """0024 fails closed on legacy duplicates and leaves every row in place.
+
+        A deployment that hits this has to release the tag (cancel or hand
+        over one of the orders) and migrate again; ORDER_STATE.md carries the
+        query that finds such rows before the migration is run.
+        """
+        apps = self.migrate(M23)
+        self.active_takeout_pair(apps)
+        before = self.snapshot(apps)
+        with self.assertRaises(IntegrityError) as caught:
+            self.migrate(M24)
+        self.assert_database_error(caught.exception, "23505", "uq_active_takeout_slot")
+        self.assertEqual(self.snapshot(apps), before)
+        self.assert_head(M23)
+
+    def test_0024_applies_once_the_duplicate_tag_is_released_and_reverses_cleanly(self):
+        apps = self.migrate(M23)
+        first, _ = self.active_takeout_pair(apps)
+        first.status = "CANCELLED"
+        first.save(update_fields=["status"])
+        before = self.snapshot(apps)
+        self.migrate(M24)
+        self.assert_head(M24)
+        # Rows only: the history now records 0024 and pg_constraint does not
+        # list a unique index, so the full snapshot is compared after reverting.
+        self.assertEqual(self.snapshot(apps)[0], before[0])
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT indexdef FROM pg_indexes WHERE indexname = 'uq_active_takeout_slot'")
+            definition = cursor.fetchone()[0]
+        self.assertIn("UNIQUE", definition)
+        self.assertIn("WHERE", definition)
+        # Schema reversibility only; the business rule is not something to
+        # roll back once the event has run on it.
+        self.migrate(M23)
+        self.assert_head(M23)
+        self.assertEqual(self.snapshot(apps), before)
+
+    def test_0025_revokes_every_shared_account_device_and_keeps_orders(self):
+        """D-051: nobody keeps a session across the change to personal
+        accounts, and nothing that was ordered goes missing."""
+        apps = self.migrate(M24)
+        alias = self.connection.alias
+        order = self.fixture(apps, order_no=3)
+        apps.get_model("orders", "OrderRequest").objects.using(alias).create(
+            key="attempt-0000-0001", role="ORDER", fingerprint="f" * 64, order_id=order.pk,
+        )
+        device_model = apps.get_model("orders", "AuthDevice")
+        device_model.objects.using(alias).create(
+            role="ORDER", account_id="order", credential_fingerprint="a" * 64,
+            refresh_jti_hash="b" * 64, expires_at=timezone.now() + timedelta(hours=1),
+        )
+        after = self.migrate(M25)
+        self.assert_head(M25)
+        device = after.get_model("orders", "AuthDevice").objects.using(alias).get()
+        self.assertIsNotNone(device.revoked_at)
+        self.assertIsNone(device.account_id)
+        kept = after.get_model("orders", "Order").objects.using(alias).get(pk=order.pk)
+        self.assertEqual(kept.order_no, 3)
+        self.assertIsNone(kept.created_by_id)
+        request = after.get_model("orders", "OrderRequest").objects.using(alias).get()
+        self.assertEqual(request.actor, "ORDER")
+        columns = {
+            column.name for column in
+            self.connection.introspection.get_table_description(
+                self.connection.cursor().cursor, "orders_authdevice")
+        }
+        self.assertNotIn("role", columns)
+        self.assertIn("account_id", columns)
+        self.assertIn("orders_account", self.connection.introspection.table_names())
+        self.assertIn("orders_orderevent", self.connection.introspection.table_names())
+        # Schema reversibility only: the old application must not be restored.
+        self.migrate(M24)
+        self.assert_head(M24)
+        self.assertEqual(
+            apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk).order_no, 3
+        )
+
+    def test_0026_adds_the_change_column_without_backfilling_old_rows(self):
+        """7A (D-048): the change is stored from now on. Rows from before keep
+        NULL -- the API computes those -- and nothing about them is rewritten.
+        Rolling the column back leaves the order as it was."""
+        apps = self.migrate(M25)
+        alias = self.connection.alias
+        order = self.fixture(apps, order_no=5)
+        apps.get_model("orders", "Order").objects.using(alias).filter(pk=order.pk).update(
+            received_amount=10000, received_cash_amount=10000, total_price=4300,
+        )
+        after = self.migrate(M26)
+        self.assert_head(M26)
+        kept = after.get_model("orders", "Order").objects.using(alias).get(pk=order.pk)
+        self.assertIsNone(kept.change_amount)
+        self.assertEqual((kept.received_cash_amount, kept.total_price, kept.order_no), (10000, 4300, 5))
+        self.migrate(M25)
+        self.assert_head(M25)
+        columns = {
+            column.name for column in
+            self.connection.introspection.get_table_description(
+                self.connection.cursor().cursor, "orders_order")
+        }
+        self.assertNotIn("change_amount", columns)
+        self.assertEqual(
+            apps.get_model("orders", "Order").objects.using(alias).get(pk=order.pk).received_cash_amount, 10000
+        )
+
+    def test_0028_adds_the_change_marker_without_touching_existing_orders(self):
+        """10B (D-019): the marker arrives at zero and nothing else moves.
+
+        A database that already holds orders gets one new row in one new table.
+        No order is read, rewritten or re-keyed. Zero is the correct starting
+        value, not a gap: every screen reads it as older than anything it could
+        be holding, so the first connection after the migration fetches once
+        and is current from then on.
+
+        Rolling back drops the table. The older application does not know the
+        marker exists, so it neither reads nor writes it; what it loses is the
+        ability to say that something changed -- the state it was already in
+        before this phase. The orders are still there, unchanged, either way.
+        """
+        apps = self.migrate(M27)
+        alias = self.connection.alias
+        order = self.fixture(apps, order_no=9)
+        before = self.snapshot(apps)
+
+        after = self.migrate(M28)
+        self.assert_head(M28)
+        markers = list(
+            after.get_model("orders", "ChangeRevision").objects.using(alias)
+            .values_list("scope", "value")
+        )
+        self.assertEqual(markers, [("board", 0)])
+        kept = after.get_model("orders", "Order").objects.using(alias).get(pk=order.pk)
+        self.assertEqual(kept.order_no, 9)
+
+        back = self.migrate(M27)
+        self.assert_head(M27)
+        self.assertNotIn("orders_changerevision", self.connection.introspection.table_names())
+        self.assertEqual(self.snapshot(back), before)
+
+    def test_0029_gives_the_marker_a_lineage_without_disturbing_it(self):
+        """10C (D-019): the column that makes a restore visible to a screen.
+
+        Additive. The marker's value is untouched and no order is read, so the
+        only thing that changes is that every version handed out from now on
+        says which lineage it belongs to.
+
+        Rolling back drops the column. Versions from the older application
+        have no generation in them, so a screen holding one cannot match a new
+        one and fetches once -- which is the safe direction. That property is
+        the entire reason for the column, so it is worth stating that it holds
+        in both directions rather than only forwards.
+        """
+        apps = self.migrate(M28)
+        alias = self.connection.alias
+        order = self.fixture(apps, order_no=11)
+        marker = apps.get_model("orders", "ChangeRevision").objects.using(alias)
+        marker.filter(scope="board").update(value=7)
+
+        after = self.migrate(M29)
+        self.assert_head(M29)
+        rows = list(
+            after.get_model("orders", "ChangeRevision").objects.using(alias)
+            .values_list("scope", "value", "generation")
+        )
+        self.assertEqual(len(rows), 1)
+        scope, value, generation = rows[0]
+        self.assertEqual((scope, value), ("board", 7), "the value is not disturbed")
+        self.assertIsNotNone(generation)
+        self.assertEqual(
+            after.get_model("orders", "Order").objects.using(alias).get(pk=order.pk).order_no, 11
+        )
+
+        back = self.migrate(M28)
+        self.assert_head(M28)
+        columns = {
+            column.name for column in
+            self.connection.introspection.get_table_description(
+                self.connection.cursor().cursor, "orders_changerevision")
+        }
+        self.assertNotIn("generation", columns)
+        self.assertEqual(
+            back.get_model("orders", "ChangeRevision").objects.using(alias)
+            .get(scope="board").value, 7
+        )
 
     def test_original_0020_still_fails_on_an_empty_database(self):
         # Pins why D-P07 changed the SQL: the pre-repair statement is the cause.
@@ -349,3 +689,58 @@ class MigrationPathTests(TestCase):
         apps = self.migrate(M19)
         self.fixture(apps, order_type="TAKEOUT", with_table=True)
         self.assert_constraint_failure_preserves(apps, M19, M18)
+
+    # ---- 0031 (D-069): takeout orders stop holding a table or a tag ----
+    # Before it, a takeout row without a table is refused by `orders_table_rule`
+    # and two live takeout rows on one tag by `uq_active_takeout_slot`; after
+    # it, both are ordinary data. Reversal restores the schema only while no
+    # such rows exist -- they are the new contract's data, not a mistake.
+
+    def takeout_row(self, apps, *, table_id=None, status="PREPARING"):
+        return apps.get_model("orders", "Order").objects.using(self.connection.alias).create(
+            floor="B1", order_type="TAKEOUT", source="ORDER", status=status,
+            table_id=table_id, is_takeout=True, total_price=4300,
+            received_amount=4300, payment_method="CASH",
+            received_cash_amount=4300, received_ticket_amount=0,
+        )
+
+    def test_0030_refuses_a_takeout_order_without_a_table(self):
+        apps = self.migrate(M30)
+        with self.assertRaises(IntegrityError) as caught:
+            self.takeout_row(apps)
+        self.assert_database_error(caught.exception, "23514", "orders_table_rule")
+
+    def test_0031_lets_takeout_orders_share_or_lack_a_table_and_reverses_cleanly(self):
+        apps = self.migrate(M30)
+        before = self.snapshot(apps)
+        self.migrate(M31)
+        self.assert_head(M31)
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'uq_active_takeout_slot'")
+            self.assertIsNone(cursor.fetchone(), "the slot index is gone")
+        first, second = self.active_takeout_pair(apps)      # one tag, two live orders
+        loose = self.takeout_row(apps)                         # no table at all
+        self.assertIsNone(loose.table_id)
+        for row in (first, second, loose):
+            row.delete()
+        apps.get_model("orders", "Table").objects.using(self.connection.alias).filter(number=101).delete()
+        self.migrate(M30)
+        self.assert_head(M30)
+        self.assertEqual(self.snapshot(apps), before)
+
+    def test_0031_does_not_reverse_over_voucher_rows(self):
+        apps = self.migrate(M31)
+        self.takeout_row(apps)
+        with self.assertRaises(IntegrityError) as caught:
+            self.migrate(M30)
+        self.assert_database_error(caught.exception, "23514", "orders_table_rule")
+        self.assert_head(M31)
+
+    def test_0031_does_not_reverse_over_takeout_rows_sharing_a_tag(self):
+        """The other constraint reversal restores: one tag, two live orders."""
+        apps = self.migrate(M31)
+        self.active_takeout_pair(apps)
+        with self.assertRaises(IntegrityError) as caught:
+            self.migrate(M30)
+        self.assert_database_error(caught.exception, "23505", "uq_active_takeout_slot")
+        self.assert_head(M31)

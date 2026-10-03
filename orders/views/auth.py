@@ -1,71 +1,114 @@
-# FILE: orders/views/auth.py
-from __future__ import annotations
-from functools import wraps
+"""Name + event password login (D-051) and device-scoped JWT refresh/logout endpoints."""
 from django.conf import settings
-from django.shortcuts import render, redirect
+from django.middleware.csrf import rotate_token
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
+from django.views.decorators.http import require_http_methods, require_POST
 
-ROLE_DEFINITIONS = [
-    ("ORDER",           "주문(서빙)",   "테이블 주문 · 서빙 전용 화면", "orders:order"),
-    ("B1_COUNTER",      "주방 카운터",  "결제 · 주문 현황 모니터링",    "orders:b1-counter"),
-    ("KITCHEN",         "주방",        "모든 주문을 한 화면에서 확인",  "orders:kitchen"),
-    ("KITCHEN_HALL",    "홀 총괄",      "홀 주문 · 혼합 주문 집중 관리", "orders:kitchen-hall"),
-    ("KITCHEN_TAKEOUT", "포장 총괄",    "포장 주문만 모아서 확인",      "orders:kitchen-takeout"),
-]
+from orders.authentication import (
+    AuthError, RefreshInProgress, clean_name, issue_tokens, rotate_refresh, revoke_refresh,
+)
+from orders.client_ip import client_ip
+from orders.login_security import attempt_login
+from orders.roles import landing_urlname
 
-ROLE_TO_URLNAME = {code: urlname for code, _, _, urlname in ROLE_DEFINITIONS}
-ROLE_LABELS = {code: label for code, label, *_ in ROLE_DEFINITIONS}
 
-@sensitive_variables("pin", "expected")
-@sensitive_post_parameters("pin")
+@sensitive_variables()
+def _set_refresh_cookie(response, pair):
+    if pair.refresh_token is None:
+        return
+    response.set_cookie(
+        settings.JWT_REFRESH_COOKIE_NAME, pair.refresh_token,
+        max_age=max(0, int((pair.expires_at - timezone.now()).total_seconds())),
+        httponly=True, secure=settings.JWT_COOKIE_SECURE, samesite='Strict',
+        path=settings.JWT_REFRESH_COOKIE_PATH,
+    )
+
+
+def _refresh_cookie(request):
+    return request.COOKIES.get(settings.JWT_REFRESH_COOKIE_NAME, '')
+
+
+@never_cache
+@ensure_csrf_cookie
+@require_http_methods(['GET', 'POST'])
+@sensitive_variables()
+@sensitive_post_parameters('password')
 def login_view(request):
-    role_codes = [code for code, *_ in ROLE_DEFINITIONS]
-    role_choices = [(code, ROLE_LABELS.get(code, code)) for code in role_codes]
-    role_cards = [
-        {
-            "code": code,
-            "label": label,
-            "desc": desc,
-            "next": reverse(urlname),
-        }
-        for code, label, desc, urlname in ROLE_DEFINITIONS
-    ]
-    if request.method == "POST":
-        role = (request.POST.get("role") or "").upper()
-        pin  = (request.POST.get("pin") or "").strip()
-        expected = settings.ROLE_PINS.get(role)
-        if expected and pin == expected and role in ROLE_TO_URLNAME:
-            request.session["role"] = role
-            return redirect(reverse(ROLE_TO_URLNAME[role]))
-        return render(request, "orders/login.html", {
-            "roles": role_codes,
-            "role_choices": role_choices,
-            "role_cards": role_cards,
-            "error": "역할 또는 PIN이 올바르지 않습니다.",
-            "last_role": role,
-        }, status=200)
-    return render(request, "orders/login.html", {
-        "roles": role_codes,
-        "role_choices": role_choices,
-        "role_cards": role_cards,
-    })
+    if request.method == 'GET':
+        return render(request, 'orders/login.html')
+    name = clean_name(request.POST.get('name', ''))
+    password = request.POST.get('password', '')
+    if not settings.EVENT_PASSWORD_HASH:
+        return render(request, 'orders/login.html', {'error': '로그인 설정을 확인해 주세요.'}, status=503)
+    if name is None or len(password) > 1024:
+        return render(request, 'orders/login.html', {'error': '이름 또는 비밀번호가 올바르지 않습니다.'}, status=200)
+    # The peer address, or the forwarded client address when the peer is a
+    # configured proxy. Never an arbitrary X-Forwarded-For (issue #61).
+    account, retry = attempt_login(name, password, client_ip(request))
+    landing = landing_urlname(account.permissions) if account else None
+    if account and landing:
+        # Switching accounts in a browser retires its previous device credential.
+        try:
+            revoke_refresh(_refresh_cookie(request))
+        except AuthError:
+            pass
+        request.session.flush()
+        rotate_token(request)
+        pair = issue_tokens(account)
+        response = redirect(reverse(landing))
+        _set_refresh_cookie(response, pair)
+        return response
+    # An account with no permissions is refused with the same sentence as an
+    # unknown name: the screen does not say which names are registered.
+    response = render(request, 'orders/login.html', {
+        'error': ('로그인 시도가 많습니다. 잠시 후 다시 시도해 주세요.' if retry
+                  else '이름 또는 비밀번호가 올바르지 않습니다.'),
+    }, status=429 if retry else 200)
+    if retry:
+        response['Retry-After'] = str(retry)
+    return response
 
+
+@never_cache
+@require_POST
+@sensitive_variables()
+def refresh_view(request):
+    try:
+        pair = rotate_refresh(_refresh_cookie(request))
+    except RefreshInProgress:
+        return JsonResponse({'detail': '인증 갱신 중입니다. 다시 시도해 주세요.'}, status=409)
+    except AuthError:
+        response = JsonResponse({'detail': '로그인이 필요합니다.'}, status=401)
+        response['WWW-Authenticate'] = 'Bearer'
+        return response
+    response = JsonResponse({'access_token': pair.access_token,
+                             'account_id': str(pair.account.id), 'account_name': pair.account.name,
+                             'permissions': sorted(pair.permissions), 'session_id': pair.session_id,
+                             'expires_in': min(900, max(0, int((pair.expires_at - timezone.now()).total_seconds())))})
+    _set_refresh_cookie(response, pair)
+    return response
+
+
+refresh_view.answers_in_json = True
+
+
+@never_cache
+@require_POST
+@sensitive_variables()
 def logout_view(request):
+    try:
+        revoke_refresh(_refresh_cookie(request))
+    except AuthError:
+        pass
     request.session.flush()
-    return redirect(reverse("orders:login"))
-
-def require_roles(*allowed_roles: str):
-    allowed = {r.upper() for r in allowed_roles if r}
-    def deco(viewfunc):
-        @wraps(viewfunc)
-        def _wrapped(request, *args, **kwargs):
-            role = request.session.get("role")
-            if not role or (allowed and role.upper() not in allowed):
-                return redirect(reverse("orders:login"))
-            return viewfunc(request, *args, **kwargs)
-        return _wrapped
-    return deco
-
-def require_role(role: str):
-    return require_roles(role)
+    rotate_token(request)
+    response = redirect(reverse('orders:login'))
+    response.delete_cookie(settings.JWT_REFRESH_COOKIE_NAME,
+                           path=settings.JWT_REFRESH_COOKIE_PATH, samesite='Strict')
+    return response

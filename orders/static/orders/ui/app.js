@@ -34,6 +34,10 @@ export function sumCart(cart) {
   return cart.reduce((acc, it) => acc + (Number(it.unit_price||it.price||0) * Number(it.qty||0)), 0);
 }
 
+function clearNode(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+}
+
 // 안전 리셋: 총액/거스름돈/입력값/장바구니 영역을 즉시 0/빈값으로 업데이트
 export function resetMoneyUI({totalSel, changeSel, cashSel, recentSel, itemsSel}) {
   const $total  = document.querySelector(totalSel);
@@ -43,9 +47,11 @@ export function resetMoneyUI({totalSel, changeSel, cashSel, recentSel, itemsSel}
   if ($total)  $total.textContent  = `${KRW(0)}원`;
   if ($change) $change.textContent = `${KRW(0)}원`;
   if ($cash)   $cash.value = '';
-  if ($items)  $items.innerHTML = '';
+  // Emptying through the DOM rather than an markup assignment, so this file
+  // carries no parser-facing write at all (4B1).
+  if ($items)  clearNode($items);
   if (recentSel) {
     const $recent = document.querySelector(recentSel);
-    if ($recent) $recent.innerHTML = '';
+    if ($recent) clearNode($recent);
   }
 }

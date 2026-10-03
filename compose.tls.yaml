@@ -1,0 +1,46 @@
+# 12A1 overlay: the public listener. Layered on top of compose.prod.yaml:
+#
+#   docker compose -f compose.prod.yaml -f compose.tls.yaml <command>
+#
+# The candidate stack (4A3) publishes 127.0.0.1:8080 so the header boundary
+# can be exercised without TLS. This overlay replaces that with 80/443 on the
+# host and gives the same proxy container the certificate. It is the proxy
+# container -- not a second nginx on the host -- that terminates TLS (D-070):
+# the proxy *overwrites* X-Forwarded-For with the peer it saw, so anything in
+# front of it would collapse every client into one login-throttle bucket
+# (issue #61). TRUSTED_PROXY_IPS therefore stays 10.89.0.10, unchanged.
+#
+# Files this overlay expects on the host (scripts/deploy/ creates them):
+#   ./tls/conf.d/*.conf        rendered by scripts/deploy/render_nginx.sh
+#   /etc/letsencrypt/          certbot on the host (scripts/deploy/issue_cert.sh)
+#   ${BK_CERTBOT_WEBROOT}      ACME http-01 webroot, written by certbot, read here
+#
+# `.env` next to the compose files supplies BK_DOMAIN, BK_ALLOWED_HOSTS,
+# BK_CSRF_TRUSTED_ORIGINS (see .env.prod.example). It is gitignored.
+
+services:
+  postgres:
+    logging: &bk_logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  app:
+    logging: *bk_logging
+
+  proxy:
+    ports: !override
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Replaces the image's conf.d (nginx_prod.conf, plain HTTP) wholesale.
+      # The include files the image carries (/etc/nginx/bk_*.conf) stay.
+      - ./tls/conf.d:/etc/nginx/conf.d:ro
+      # The whole certbot tree, read-only: certbot's live/ symlinks point into
+      # archive/, so both are needed. This host serves one domain; if it ever
+      # carries another certificate, narrow this to live/ and archive/ of
+      # BK_DOMAIN so the proxy cannot read the other key.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ${BK_CERTBOT_WEBROOT:-/var/lib/bazaar_kiosk/certbot-www}:/var/www/certbot:ro
+    logging: *bk_logging

@@ -1,0 +1,63 @@
+.monitor-page { max-width: 1520px; margin: auto; padding: 32px 40px 56px; }
+.monitor-header, .monitor-toolbar, .monitor-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.monitor-header { margin-bottom: 24px; }
+.monitor-brand { color: var(--ui-accent); font-weight: 700; overflow-wrap: anywhere; }
+.monitor-header .ui-button, .monitor-toolbar .ui-button { min-width: 180px; min-height: 52px; }
+.monitor-page h1 { font-size: 36px; margin-bottom: 20px; }
+.monitor-toolbar { margin-bottom: 16px; }
+.monitor-section-heading { margin: 24px 0 16px; }
+.monitor-section-heading h2 { font-size: 22px; }
+.waiting-orders { display: flex; align-items: stretch; gap: 16px; overflow-x: auto; padding-bottom: 16px; scroll-snap-type: x proximity; }
+.monitor-card { flex: 0 0 420px; padding: 20px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--ui-line); border-radius: 14px; background: var(--ui-surface); scroll-snap-align: start; min-width: 0; }
+.monitor-card h3 { margin: 0; font-size: 26px; }
+.monitor-card .menu-summary { font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+.monitor-card .card-actions { display: flex; gap: 12px; margin-top: auto; padding-top: 4px; }
+.monitor-card .card-actions .ui-button { flex: 1; }
+.status-label { font-weight: 700; color: var(--ui-accent); }
+.status-cancelled, .danger { color: var(--ui-danger) !important; }
+.status-legacy { color: var(--ui-muted); }
+.practice-tag { display: inline-block; color: #684a08; background: #fff7df; border: 1px solid #a07821; border-radius: 4px; padding: 0 6px; font-size: 13px; margin-right: 6px; }
+.monitor-help { color: var(--ui-muted); font-size: 14px; margin-top: 12px !important; }
+.monitor-notice:not(:empty) { margin-top: 12px; background: var(--ui-tint); padding: 12px; border-radius: 8px; }
+.monitor-empty { padding: 32px; background: var(--ui-surface); border-radius: 12px; width: 100%; }
+.history-scroll { overflow-x: auto; }
+.history-table { border-collapse: collapse; width: 100%; text-align: left; min-width: 900px; }
+.history-table th { padding: 14px 12px; background: var(--ui-tint); font-size: 14px; white-space: nowrap; }
+.history-table td { padding: 12px; background: var(--ui-surface); border-bottom: 1px solid var(--ui-line); vertical-align: middle; }
+.history-table td:nth-child(1) { min-width: 155px; }
+.history-table td:nth-child(2) { font-weight: 700; min-width: 110px; }
+.history-table td:nth-child(3) { width: 36%; overflow-wrap: anywhere; }
+.history-table td:nth-child(4) { white-space: nowrap; }
+.history-table td:nth-child(5) { min-width: 170px; }
+.history-table .ui-button { white-space: nowrap; }
+.history-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 16px; }
+.monitor-dialog { width: min(480px, calc(100% - 32px)); max-width: none; max-height: calc(100dvh - 32px); border: 1px solid var(--ui-line); border-radius: 20px; background: var(--ui-surface); color: var(--ui-ink); padding: 0; }
+.monitor-dialog[open] { display: flex; flex-direction: column; }
+.monitor-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 24px 24px 16px; flex-shrink: 0; }
+.monitor-dialog-header h2 { font-size: 24px; overflow-wrap: anywhere; }
+.monitor-dialog-header .ui-button { flex-shrink: 0; }
+.monitor-dialog-body { overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 16px; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+.monitor-dialog-footer { padding: 12px 24px 24px; border-top: 1px solid var(--ui-line); flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
+.monitor-dialog-footer .ui-button { width: 100%; }
+.detail-actions { display: flex; flex-direction: row; gap: 12px; }
+.detail-actions .ui-button { flex: 1; }
+.detail-items { display: grid; gap: 16px; }
+.detail-item { background: var(--ui-canvas); padding: 16px; border-radius: 12px; }
+.detail-item h3 { margin: 0 0 10px; font-size: 18px; overflow-wrap: anywhere; }
+.prepared-control { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.prepared-control label { flex: 1; }
+.prepared-control .ui-button { width: 44px; flex-shrink: 0; padding: 8px; }
+.prepared-control input { width: 58px; min-height: 44px; border: 1px solid var(--ui-control-border); border-radius: 8px; text-align: center; color: var(--ui-ink); background: var(--ui-surface); font-size: 20px; font-weight: 700; }
+.detail-item .ui-muted { margin-top: 10px; }
+#detail-note, #confirm-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+body:has(dialog[open]) { overflow: hidden; }
+@media (max-width: 700px) {
+  .monitor-page { padding: 20px 16px 32px; }
+  .monitor-page h1 { font-size: 28px; }
+  .monitor-header .ui-button, .monitor-toolbar .ui-button { min-width: 100px; }
+  .monitor-card { flex-basis: min(420px, 88vw); padding: 16px; }
+  .monitor-section-heading { gap: 8px; }
+  .monitor-dialog-header { padding: 16px; }
+  .monitor-dialog-body { padding: 0 16px 16px; }
+  .monitor-dialog-footer { padding: 12px 16px 16px; }
+}

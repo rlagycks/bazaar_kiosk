@@ -128,6 +128,9 @@ body {
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
 }
 
+/* 로그아웃은 POST 라서 form 이다. 브라우저 기본 form 여백이 flex 정렬을 흔든다. */
+.logout-form { margin: 0; }
+
 .header h2 {
     color: #333;
     font-size: 1.8rem;
@@ -564,4 +567,21 @@ body {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+/* D-047: today is not a registered event day, so orders here are rehearsals. */
+.practice-banner {
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    border: 1px solid #f59e0b;
+    border-left-width: 4px;
+    border-radius: 8px;
+    background: #fffbeb;
+    color: #7c2d12;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.practice-banner strong {
+    color: #92400e;
 }

@@ -54,6 +54,12 @@ _test_config = test_database_config(os.environ.get("BK_TEST_DATABASE_URL", ""))
 with patch.dict(os.environ, {
     "DATABASE_URL": "postgresql://bk_test_runner:synthetic-local-runner-only@127.0.0.1:"
                     + _test_config["PORT"] + "/bk_test_control?sslmode=disable",
+    # Base settings refuse an unstated DEBUG (D-039), and the env is cleared
+    # here. "1" only skips the deployment gate during the import; this profile
+    # pins DEBUG=False below and never runs as a deployment. The gate itself is
+    # exercised by orders/tests/test_required_settings.py, which boots the real
+    # settings module in a fresh interpreter rather than importing it here.
+    "DEBUG": "1",
 }, clear=True):
     from .settings import *  # noqa: F403
 
@@ -79,15 +85,13 @@ CACHES = {
     }
 }
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
-SUPABASE_URL = ""
-SUPABASE_ANON_KEY = ""
-ROLE_PINS = {
-    "ORDER": "test-order",
-    "B1_COUNTER": "test-counter",
-    "KITCHEN": "test-kitchen",
-    "KITCHEN_HALL": "test-hall",
-    "KITCHEN_TAKEOUT": "test-takeout",
-}
+from django.contrib.auth.hashers import PBKDF2PasswordHasher
+
+# D-051: the synthetic event password every test account logs in with.
+EVENT_PASSWORD_HASH = PBKDF2PasswordHasher().encode("test-event-password", "synthetic-tests-only", iterations=1)
+JWT_SIGNING_KEY = "synthetic-jwt-signing-key-test-only-at-least-fifty-characters"
+JWT_COOKIE_SECURE = False
+
 
 # Template tests need static URLs, not a deployment's collectstatic manifest.
 STATIC_ROOT = None
