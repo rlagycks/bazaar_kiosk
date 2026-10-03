@@ -128,7 +128,10 @@ class ScopeTests(TestCase):
         for client, allowed, _ in sides:
             for order in allowed:
                 with self.subTest(order=order.id, action="status"):
-                    self.assertEqual(self.status_change(client, order).status_code, 200)
+                    # D-075: permission alone cannot complete both parts of a
+                    # mixed order. Each channel must finish its own work.
+                    expected = 409 if order == self.mixed else 200
+                    self.assertEqual(self.status_change(client, order).status_code, expected)
                 with self.subTest(order=order.id, action="progress"):
                     self.assertEqual(self.progress(client, order).status_code, 200)
 
@@ -141,7 +144,8 @@ class ScopeTests(TestCase):
     def test_both_monitors_change_everything(self):
         both = self.client_as("BOTH_MONITORS")
         for order in (self.hall, self.takeout, self.mixed):
-            self.assertEqual(self.status_change(both, order).status_code, 200)
+            self.assertEqual(self.status_change(both, order).status_code,
+                             409 if order == self.mixed else 200)
 
     def test_the_kitchen_pages_open_only_for_their_permission(self):
         pages = {"kitchen": ("BOTH_MONITORS",), "kitchen-hall": ("HALL_MONITOR", "BOTH_MONITORS"),

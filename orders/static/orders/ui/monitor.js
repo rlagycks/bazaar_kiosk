@@ -24,7 +24,8 @@
       attrs: {type: 'button', 'aria-label': `${number(orders.get(id))} ${text}`}, data: {action, 'order-id': id}});
   }
   function badge(order) {
-    return el('span', {class: 'status-label' + (order.status === 'CANCELLED' ? ' status-cancelled' : order.status === 'READY' && !order.departed_at ? ' status-legacy' : ''), text: model.label(order)});
+    const legacy = order.status === 'READY' && model.kind(order) === '식당' && !model.hallCompleted(order);
+    return el('span', {class: 'status-label' + (order.status === 'CANCELLED' ? ' status-cancelled' : legacy ? ' status-legacy' : ''), text: model.label(order)});
   }
   function reference(order) {
     const parts = [el('span', {text: number(order) + ' · ' + clock(order.created_at)})];
@@ -43,6 +44,11 @@
         el('div', {class: 'hall-table', attrs: {role: 'group', 'aria-label': tableName(order)}}, [el('span', {text: '테이블'}), el('strong', {text: order.table?.number ?? '미지정'})])]),
       el('div', {class: 'hall-menu-list'}, order.items.map(item => {
         const complete = item.prepared_qty >= item.qty;
+        // D-075: a mixed order's takeout lines belong to the takeout monitor.
+        if (mixed && item.service_mode === 'TAKEOUT') return el('div', {class: 'hall-menu-row is-takeout',
+          attrs: {role: 'group', 'aria-label': `${modeName(item)} ${itemName(item)}, 준비 ${item.prepared_qty} / ${item.qty}개. 포장 모니터링에서 처리`}}, [
+          el('span', {class: 'hall-menu-name'}, [el('span', {class: 'hall-mode', text: modeName(item)}), el('span', {text: itemName(item)})]),
+          el('span', {class: 'hall-menu-quantity', text: `${item.prepared_qty}/${item.qty}`, attrs: {'aria-hidden': 'true'}}, [el('span', {text: '개'})])]);
         return el('button', {class: 'hall-menu-row' + (complete ? ' is-complete' : ''),
           attrs: {type: 'button', 'aria-label': `${modeName(item)} ${itemName(item)}, 준비 ${item.prepared_qty} / ${item.qty}개. ${complete ? '준비 완료' : '1초 꾹 누르면 1개 추가. 수량 정정은 상세 · 부분 체크 버튼에서'} `},
           data: {action: 'prepare', 'order-id': order.id, 'item-id': item.id, complete: String(complete)}}, [
@@ -51,7 +57,8 @@
       })),
       el('p', {class: 'hall-hold-help', text: '메뉴를 1초 꾹 누르면 준비 수량이 1개 늘어납니다.'}),
       el('p', {class: 'hall-progress', text: `준비 ${sum.prepared} / ${sum.qty}개 · ${model.label(order)}`}),
-      el('div', {class: 'card-actions'}, [button('상세 · 부분 체크', 'detail', order.id), button('완료 · 서빙 출발', 'depart', order.id, true)]),
+      el('div', {class: 'card-actions'}, [button('상세 · 부분 체크', 'detail', order.id),
+        ...(model.hallCompleted(order) ? [] : [button('완료 · 서빙 출발', 'depart', order.id, true)])]),
     ]);
   }
   function card(order) {
@@ -62,7 +69,8 @@
       el('h3', {text: tableName(order)}), reference(order),
       el('p', {class: 'menu-summary', text: menuSummary(order)}),
       el('p', {class: 'ui-muted', text: `준비 ${sum.prepared} / ${sum.qty}개`}),
-      el('div', {class: 'card-actions'}, [button('상세 · 부분 체크', 'detail', order.id), button('완료 · 서빙 출발', 'depart', order.id, true)]),
+      el('div', {class: 'card-actions'}, [button('상세 · 부분 체크', 'detail', order.id),
+        ...(model.hallCompleted(order) ? [] : [button('완료 · 서빙 출발', 'depart', order.id, true)])]),
     ]);
   }
   function row(order) {
@@ -149,6 +157,11 @@
     byId('detail-note').textContent = order.note || '';
     DOM.render(byId('detail-items'), draft.items().map(item => {
       const id = 'prepared-' + item.id;
+      if (!draft.editable(item.id)) return el('section', {class: 'detail-item'}, [
+        el('h3', {text: `${modeName(item)} · ${itemName(item)} · 주문 ${item.qty}개`}),
+        el('p', {text: `준비 ${item.prepared_qty} / ${item.qty}개 · 남은 ${item.qty - item.prepared_qty}개`}),
+        el('p', {class: 'ui-muted', text: '포장 수량은 포장 모니터링에서 처리합니다'}),
+      ]);
       return el('section', {class: 'detail-item'}, [
         el('h3', {text: `${modeName(item)} · ${itemName(item)} · 주문 ${item.qty}개`}),
         el('div', {class: 'prepared-control'}, [el('label', {text: '준비 수량', attrs: {for: id}}),
@@ -165,7 +178,7 @@
   function updateControls() {
     page.querySelectorAll('[data-action]').forEach(control => { control.disabled = busy || !fresh || control.dataset.complete === 'true'; });
     if (draft) {
-      const cancelled = draft.original.status === 'CANCELLED', ready = draft.original.status === 'READY';
+      const cancelled = draft.original.status === 'CANCELLED', ready = draft.original.status === 'READY' || model.hallCompleted(draft.original);
       const disabled = busy || conflict || !fresh || cancelled;
       byId('detail-items').querySelectorAll('input,button').forEach(control => { control.disabled = disabled; });
       byId('save-progress').hidden = cancelled;
@@ -200,6 +213,7 @@
   function ask(action, editor, source) {
     cancelHold();
     if (busy || !fresh) return;
+    if (action === 'depart' && model.hallCompleted(editor.original)) return;
     if (action === 'reopen' && hasEdits()) {
       byId('detail-error').textContent = '수정 중인 준비 수량을 먼저 저장하거나, 닫고 다시 열어 주세요.';
       byId('detail-error').focus();
@@ -210,6 +224,10 @@
     const words = {depart: ['완료 · 서빙 출발', '모든 음식이 준비되어 서빙을 출발하나요? 확인하면 모든 품목의 준비 수량을 주문 수량으로 맞추고 출발을 기록합니다.'],
       cancel: ['주문 전체 취소', '이 주문 전체를 취소하나요? 취소 후 되돌릴 수 없으며 매출 집계에서 제외됩니다.'],
       reopen: ['준비 중으로 되돌리기', '완료 상태를 준비 중으로 되돌리나요? 저장된 준비 수량은 유지되며 미완료 목록에 다시 표시됩니다.']};
+    if (model.kind(order) === '식당' && (order.items.some(item => item.service_mode === 'TAKEOUT') || order.takeout_pending_qty > 0)) {
+      words.depart[1] = '식당 음식이 준비되어 서빙을 출발하나요? 확인하면 식당 품목의 준비 수량을 주문 수량으로 맞추고 출발을 기록합니다. 포장 수량은 포장 모니터링에서 처리합니다.';
+      words.reopen[1] = '식당 서빙 출발을 준비 중으로 되돌리나요? 저장된 준비 수량은 유지되며 식당 미완료 목록에 다시 표시됩니다. 포장 수량은 포장 모니터링에서 처리합니다.';
+    }
     byId('confirm-title').textContent = words[action][0];
     byId('confirm-description').textContent = `${number(order)} · ${tableName(order)}\n${words[action][1]}`;
     byId('confirm-error').textContent = '';
@@ -266,8 +284,8 @@
     if (alreadyHolding || event.isPrimary === false || event.button !== 0 || control.disabled || busy || !fresh || detail.open || confirmation.open) return;
     const order = orders.get(Number(control.dataset.orderId));
     const item = order?.items.find(row => row.id === Number(control.dataset.itemId));
-    if (!item || item.prepared_qty >= item.qty) return;
-    const editor = model.editor(order);
+    const editor = order && model.editor(order);
+    if (!item || item.prepared_qty >= item.qty || !editor.editable(item.id)) return;
     hold = {control, pointer: event.pointerId, x: event.clientX, y: event.clientY};
     control.setAttribute('data-holding', 'true');
     hold.timer = window.setTimeout(() => {

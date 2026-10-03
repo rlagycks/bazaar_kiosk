@@ -141,11 +141,32 @@ test('missing latest order still requires dirty-input discard confirmation',asyn
   await ui.click(ui.get('detail-reload'));
   assert.equal(ui.get('order-detail').open,true);assert.equal(ui.get('prepared-7').value,'1');assert.equal(ui.posts.length,0);
 });
+const mixedOrder = () => ({...baseOrder(),items:[...baseOrder().items,
+  {id:8,menu_item_name:'포장 메뉴',qty:2,prepared_qty:1,service_mode:'TAKEOUT'}]});
+test('ALL mixed detail shows takeout read-only and submits only hall quantities',async()=>{
+  const ui=app();ui.snapshot(mixedOrder());await ui.open();
+  assert.equal(ui.get('prepared-8'),null);assert.match(ui.get('detail-items').textContent,/포장 수량은 포장 모니터링에서 처리합니다/);
+  await ui.input('2');await ui.click(ui.get('save-progress'));
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.posts[0].body.items)),[{id:7,prepared_qty:2}]);
+});
+test('hall-departed mixed order pending takeout has no second departure action and permits hall reopen',async()=>{
+  const ui=app();ui.snapshot({...mixedOrder(),departed_at:'2026-10-03T01:00:00Z',hall_completed:true,takeout_pending_qty:1});
+  assert.equal(ui.get('waiting-orders').querySelector('[data-action="depart"]'),null);
+  assert.match(ui.get('waiting-orders').textContent,/식당 서빙 출발 · 포장 대기/);
+  await ui.open();assert.equal(ui.get('depart-order').hidden,true);assert.equal(ui.get('reopen-order').hidden,false);
+});
+test('mixed departure confirmation explicitly completes hall quantities only',async()=>{
+  const ui=app();ui.snapshot(mixedOrder());await ui.click(ui.get('waiting-orders').querySelector('[data-action="depart"]'));
+  assert.match(ui.get('confirm-description').textContent,/식당 품목/);
+  assert.match(ui.get('confirm-description').textContent,/포장 수량은 포장 모니터링에서 처리합니다/);
+});
 
 const prepare = ui => ui.get('waiting-orders').querySelector('[data-action="prepare"]');
 test('hall rows expose every menu with custom and service labels; takeout retains its card',()=>{
   const ui=app();const order=baseOrder();order.items=Array.from({length:7},(_,i)=>({...order.items[0],id:i+1,menu_item_name:'메뉴'+i,is_custom:i===6,service_mode:i===6?'TAKEOUT':'DINE_IN'}));ui.snapshot(order);
-  assert.equal(ui.get('waiting-orders').querySelectorAll('[data-action="prepare"]').length,7);
+  // D-075: the mixed order's takeout line is shown but held only by the takeout monitor.
+  assert.equal(ui.get('waiting-orders').querySelectorAll('[data-action="prepare"]').length,6);
+  assert.equal(ui.get('waiting-orders').querySelectorAll('.is-takeout').length,1);
   assert.match(ui.get('waiting-orders').textContent,/기타 · 메뉴6/);assert.match(ui.get('waiting-orders').textContent,/포장/);
   assert.equal(ui.get('waiting-orders').querySelectorAll('img').length,0);
   order.items.forEach(item=>item.service_mode='TAKEOUT');ui.snapshot(order);assert.equal(prepare(ui),null);
@@ -241,4 +262,11 @@ test('a successful hold returns focus to its row once the next read unlocks it, 
   ui.snapshot({...baseOrder(),monitor_version:'v2',items:[{...baseOrder().items[0],prepared_qty:1}]},{},false);
   ui.callbacks.onStatus({...state,applied:{at:new Date(Date.now()+1)}});
   assert.equal(prepare(ui).disabled,false);assert.equal(ui.document.activeElement,prepare(ui));
+});
+
+test('mixed takeout row never starts a hold write',async()=>{
+  const ui=app();ui.snapshot(mixedOrder());
+  const row=ui.get('waiting-orders').querySelector('.is-takeout');
+  assert.equal(row.dataset.action,undefined);
+  await ui.fire(row,'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,0);
 });

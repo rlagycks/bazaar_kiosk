@@ -18,6 +18,7 @@ class OrderEventKind(models.TextChoices):
     STATUS = "STATUS", "상태 변경"
     PROGRESS = "PROGRESS", "조리 진행"
     ITEMS = "ITEMS", "품목 수정"  # 7B: lines changed after the order was taken
+    DEPARTED = "DEPARTED", "식당 서빙 출발"  # mixed order can still await takeout
 
 
 class OrderEvent(models.Model):

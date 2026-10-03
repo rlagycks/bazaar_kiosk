@@ -35,3 +35,16 @@ class OrderRequest(models.Model):
 
     def __str__(self):
         return f"{self.key} -> order {self.order_id}"
+
+
+class TakeoutCompletionRequest(models.Model):
+    """A committed batch receipt; an unanswered retry must never cook twice.
+
+    Retained without expiry for the same reason as OrderRequest. The record
+    and all quantity/audit changes share one transaction.
+    """
+    key = models.CharField(max_length=64, unique=True)
+    actor = models.CharField(max_length=64)
+    fingerprint = models.CharField(max_length=64)
+    result = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)

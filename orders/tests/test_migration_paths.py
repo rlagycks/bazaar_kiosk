@@ -37,6 +37,8 @@ M29 = ("orders", "0029_revision_generation")
 M30 = ("orders", "0030_order_departed_at")
 M31 = ("orders", "0031_takeout_voucher")
 M32 = ("orders", "0032_orderitem_custom_line")
+M33 = ("orders", "0033_mixed_departure_event")
+M34 = ("orders", "0034_takeout_completion_request")
 
 
 class MigrationPathTests(TestCase):
@@ -211,7 +213,7 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = M32
+        leaf = M34
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
@@ -747,6 +749,45 @@ class MigrationPathTests(TestCase):
             received_cash_amount=5000, received_ticket_amount=0,
         )
         return apps.get_model("orders", "OrderItem").objects.using(db).create(order_id=order.pk, qty=1, **line)
+
+    def test_0033_preserves_audit_rows_when_choices_change_in_either_direction(self):
+        apps = self.migrate(M32)
+        order = self.takeout_row(apps)
+        Event = apps.get_model("orders", "OrderEvent")
+        Event.objects.create(order_id=order.pk, kind="CREATED", to_status="PREPARING")
+        before = self.snapshot(apps)
+        new = self.migrate(M33)
+        self.assertEqual(self.snapshot(new)[0], before[0])
+        event = new.get_model("orders", "OrderEvent").objects.create(
+            order_id=order.pk, kind="DEPARTED", to_status="PREPARING")
+        self.migrate(M32)
+        self.assertEqual(Event.objects.get(pk=event.pk).kind, "DEPARTED")
+        self.assertEqual(Event.objects.count(), 2)
+        self.migrate(M33)
+        self.assertEqual(new.get_model("orders", "OrderEvent").objects.count(), 2)
+
+    def test_0034_adds_only_the_receipt_table_and_reverses_cleanly_while_empty(self):
+        apps = self.migrate(M33)
+        self.takeout_row(apps)
+        before = self.snapshot(apps)
+        new = self.migrate(M34)
+        self.assert_head(M34)
+        self.assertEqual(new.get_model("orders", "TakeoutCompletionRequest").objects.count(), 0)
+        self.migrate(M33)
+        self.assert_head(M33)
+        self.assertEqual(self.snapshot(apps), before)
+
+    def test_0034_does_not_reverse_over_a_receipt(self):
+        """A receipt is what stops a retried completion applying twice; the
+        refusal comes before the table is dropped (D-075)."""
+        apps = self.migrate(M34)
+        Receipt = apps.get_model("orders", "TakeoutCompletionRequest")
+        Receipt.objects.using(self.connection.alias).create(
+            key="synthetic-receipt", actor="1", fingerprint="0" * 64, result={"completed_qty": 1})
+        with self.assertRaisesRegex(RuntimeError, "cannot be reversed"):
+            self.migrate(M33)
+        self.assert_head(M34)
+        self.assertEqual(Receipt.objects.using(self.connection.alias).count(), 1)
 
     def test_0032_keeps_every_line_a_menu_line_and_reverses_cleanly(self):
         apps = self.migrate(M31)

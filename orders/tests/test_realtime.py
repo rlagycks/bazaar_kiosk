@@ -101,7 +101,8 @@ class TheRenderedPageIsWiredTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 body = response.content.decode()
                 self.assertIn(reverse("orders:kitchen-stream"), body)
-                self.assertIn(reverse("orders:snapshot-monitoring"), body)
+                self.assertIn(reverse("orders:snapshot-takeout" if name == "orders:kitchen-takeout"
+                                      else "orders:snapshot-monitoring"), body)
                 self.assertIn("kitchen_live.js", body)
                 self.assertIsNone(re.search(r"""["'](?:https?:)?//""", body),
                                   "the page addresses only this server")

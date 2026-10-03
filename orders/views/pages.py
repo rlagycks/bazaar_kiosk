@@ -79,4 +79,4 @@ def kitchen_takeout_page(request):
         "page_hint": "포장만 있는 주문",
         "mode_scope": "TAKEOUT",
     }
-    return render(request, "orders/kitchen_supervisor.html", context)
+    return render(request, "orders/kitchen_takeout.html", context)

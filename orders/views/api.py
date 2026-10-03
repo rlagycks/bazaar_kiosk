@@ -15,7 +15,7 @@ from orders.models import (
 )
 from orders.services import allocate_floor_order_no, series_for, idempotency
 from orders.services import status as status_service
-from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, SERVING_PERMISSIONS, STATS_PERMISSIONS
+from orders.roles import HALL_MONITOR, TAKEOUT_MONITOR, MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, SERVING_PERMISSIONS, STATS_PERMISSIONS
 from orders.services import audit, custom_items, payments, queues, reporting, revisions, scope, snapshots
 from orders.views import selectors, serializers, validators
 from orders.views.guards import require_api_permissions
@@ -410,8 +410,6 @@ def order_item_progress(request: HttpRequest, item_id: int):
             if order_id is None:
                 raise OrderItem.DoesNotExist
             order = status_service.locked(order_id)
-            if not scope.may_change(order, request.auth_permissions):
-                return JsonResponse({"detail": "권한이 없습니다."}, status=403)
             # D-073: the menu is nullable now, and PostgreSQL will not lock the
             # nullable side of an outer join; only the item row is locked here.
             item = (
@@ -419,6 +417,11 @@ def order_item_progress(request: HttpRequest, item_id: int):
                 .select_for_update(of=("self",))
                 .get(id=item_id)
             )
+            # D-075: item progress belongs to the item's channel even on a
+            # mixed order. Holding hall permission never authorizes takeout.
+            needed = TAKEOUT_MONITOR if item.service_mode == OrderType.TAKEOUT else HALL_MONITOR
+            if needed not in request.auth_permissions:
+                return JsonResponse({"detail": "권한이 없습니다."}, status=403)
             if status_service.is_closed(order):
                 # 409, like every other refusal that is about the order's
                 # state rather than the request's shape (D-050).

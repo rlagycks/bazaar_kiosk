@@ -317,6 +317,13 @@ def _scope_view(permissions):
         separators=(",", ":"), sort_keys=True,
     )
     digest = hashlib.blake2s(body.encode("utf-8"), digest_size=16).hexdigest()
+    # D-075: TAKEOUT now includes mixed-order lines, catalog zeroes and all
+    # history pages. None of these may be inferred from the capped queue.
+    # STATS does not read the takeout snapshot, so it does not pay for it.
+    from orders.roles import TAKEOUT_MONITOR
+    if TAKEOUT_MONITOR in permissions:
+        from orders.services.takeout_monitoring import stream_digest
+        digest += ":" + stream_digest()
     if not taken.complete:
         # A cut list cannot promise that equal digests mean an unchanged
         # board, so it does not get to be compared at all.

@@ -1,10 +1,33 @@
 # 현대화 세션 시작과 인수인계
 
-마지막 상태 정리: 2026-09-22. 이 문서는 모델에 공통인 작업 계약이다.
+마지막 상태 정리: 2026-10-03. 이 문서는 모델에 공통인 작업 계약이다.
 
 ## 현재 단계와 기준
 
-**2026-09-22 최신:** UI-05B PR82가 develop `e61d6ab`로 머지됐다(리뷰 보완 포함).
+**2026-10-03 현재 — 포장 메뉴별 완료(D-075), 구현·검증 완료, PR 리뷰 대기:**
+전용 worktree는 `/Users/gimhyochan/system/bazaar_kiosk-takeout`, 브랜치는 `ui/takeout-menu-monitor`다.
+착수 직전 조회한 `origin/develop` `d94a39b`(PR #98 포함)가 기준이며 당시 `origin/main`과 파일 트리는 같았다.
+[포장 UI 계약](UI_TAKEOUT_MONITORING.md)과 [D-075](DECISIONS.md)를 먼저 읽는다. 승인된 Figma 세 프레임은 코드 구현 기준이고
+Figma 파일 자체는 변경하지 않는다. TAKEOUT 품목은 혼합 주문을 포함해 포장 집계·이력·완료로, DINE_IN 품목은 식당으로 나눈다.
+순수 포장은 전량 완료로 READY, 혼합 주문은 양쪽 수량 충족과 식당의 명시적 출발 기록 후 READY다.
+기존 주문 단위 조회·취소 분류는 유지한다. 구형 진행·관리자 편집의 혼합 상태 재조정과 READY 검증은 리뷰 보완 중이다.
+식당 출발 후 양쪽 수량 충족은 READY, 순수 포장 READY를 식당 출발 기록 없는 혼합 주문으로 바꾸면 PREPARING이 계약이다.
+
+완료 POST는 `request_id`·`expected_version`·`items`가 필수다. 같은 ID·행위자·내용은 오래된 버전이어도 영수증의 200 결과를
+반환한다. 같은 ID의 행위자/내용 변경은 409, 서로 다른 ID의 같은 버전 경합은 한쪽만 200이다. 실패·롤백에는 영수증이 남지 않는다.
+네트워크 오류·5xx의 미확인 요청은 원 payload·ID로 편집·새 배치를 잠그고 `완료 결과 다시 확인`으로만 수동 재시도한다.
+확정된 400/409는 최신 검토를 허용한다. 자동 POST는 없고 `beforeunload`로 이탈을 보호하며 메모리 보관만 하므로 재로딩 복원은 없다.
+`0033`의 `DEPARTED` 감사 선택지를 유지하며 `0034_takeout_completion_request`는 만료 없는 영수증 테이블만 추가한다.
+0034는 기존 주문 데이터를 변경하지 않는다. 운영 DB 적용은 이번 범위 밖이다. 사용 후 역이행은 영수증을 지워 중복 반영을 허용할 수 있다.
+구버전 식당 출발은 혼합 주문 양쪽 품목을 채울 수도 있으므로 출발·감사·영수증을 보존하는 정방향 수정으로 복구한다.
+
+이번 승인 범위는 로컬 구현·문서·검증이다. 이후 사용자 지시로 push·PR 생성이 승인됐다(아래). merge·배포는 별도 승인이 필요하다.
+테스트 실행 결과·최종 인수 상태는 총괄 담당자가 [WORKLOG](WORKLOG.md)에 기록한다. 아래 과거 수치를 이번 검증 결과로 쓰지 않는다.
+여러 담당자가 함께 작업 중이므로 다른 담당자의 미커밋 변경을 되돌리지 않는다. 문서 담당 범위는 루트 `README.md`와
+`docs/modernization/`의 `UI_TAKEOUT_MONITORING.md`·`BLUEPRINT.md`·`DECISIONS.md`·`UI_MONITORING.md`·
+`UI_IMPLEMENTATION.md`·`SESSION_SETUP.md`다. `docs/modernization/README.md`와 WORKLOG는 총괄 담당자가 소유한다.
+
+**2026-09-22 이력:** UI-05B PR82가 develop `e61d6ab`로 머지됐다(리뷰 보완 포함).
 사용자가 머지 후 다음 작업을 지시했다. UI-05C는 별도 worktree `bazaar_kiosk-ui05c`,
 브랜치 `ui/05-stats-dashboard`에서 구현·검증했고, develop 위로 미공개 커밋 기준을 정리해
 통계 변경만 PR83으로 제출했다. 기준 변경 전후 전체 파일 내용은 동일하다.
@@ -112,6 +135,8 @@ gh pr list --state open --json number,title,headRefName,baseRefName,isDraft,url
 
 ## 승인과 범위
 
+이 절의 기존 승인 기록은 각 당시 작업에 한정한다. 현재 포장 작업은 위 2026-10-03 범위를 따른다.
+
 D-031로 외부 인터넷 접속을 허용하는 방향이 확정됐다. HTTPS·도메인 연결은 검토 중이다.
 2026-09-12에 D-034~039를 확정했다. 주방 공용 계정은 **1개로 단일화**하고(D-034, D-032의 3계정 구분을 대체),
 인증은 역할별 고정 id/pw와 JWT로 전환하며 리프레시 토큰은 httpOnly 쿠키에 둔다(D-035).
@@ -140,11 +165,27 @@ EC2 배포 대상은 D-038로 확정됐으나 실제 리소스 생성·배포는
 
 ## 현재 검증 명령
 
-[POSTGRES_TESTING](POSTGRES_TESTING.md)의 새 전용 Compose 생성·명시적 테스트 URL 설정 후 실행한다.
+아래는 실행 방법이며 통과 기록이 아니다. 현재 worktree에는 별도 `.venv`를 전제하지 않는다.
+기본 저장소의 Python 3.12 가상환경을 절대 경로로 사용하거나, 같은 의존성을 갖춘 환경을 `BK_PYTHON`으로 지정한다.
 
 ```bash
-.venv/bin/python scripts/test_postgres.py
+cd /Users/gimhyochan/system/bazaar_kiosk-takeout
+BK_PYTHON="${BK_PYTHON:-/Users/gimhyochan/system/bazaar_kiosk/.venv/bin/python}"
+"$BK_PYTHON" --version
+git status --short --branch
 ```
+
+[POSTGRES_TESTING](POSTGRES_TESTING.md)의 새 전용 Compose 생성·명시적 `BK_TEST_DATABASE_URL` 설정 후,
+이 worktree에서 실행한다. 그 안내의 `.venv/bin/python`도 위 `"$BK_PYTHON"`으로 대체한다.
+
+```bash
+"$BK_PYTHON" scripts/test_postgres.py
+node --test scripts/test_takeout_state.cjs scripts/test_takeout_controller.cjs scripts/test_monitor_state.cjs scripts/test_monitor_controller.cjs
+git diff --check
+```
+
+Python 실행기는 새 포장 테스트를 포함해 전체 Django 테스트를 발견한다. Node 포장 state/controller 검사와
+CI 명령 목록 반영은 프런트 담당 범위다. 이 문서 담당은 코드·실행기·CI를 수정하거나 앱 검사를 중복 실행하지 않는다.
 
 실제 대상 검증 후 check/drift와 프로젝트 전체 테스트를 migration/app 별도 프로세스로 실행한다.
 4A1 잔여 구현 당시 검증은 80개(15+65), 모두 PostgreSQL·skip0이었다. 최신 결과는 [WORKLOG](WORKLOG.md)를 따른다. DB 충돌은 자동 삭제하지 않고 오류로 종료한다.

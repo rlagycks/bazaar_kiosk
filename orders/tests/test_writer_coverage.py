@@ -93,6 +93,18 @@ INVENTORY: dict[str, tuple[str, str]] = {
         "Atomic monitoring quantities/status/departure and audit; marks exactly "
         "once when changed, never on stale input, rollback or a no-op retry.",
     ),
+    "services.takeout_monitoring:complete": (
+        Classification.MARKS,
+        "D-075 takeout batch: receipt, quantities, audit and status in one "
+        "transaction that marks once at the end. A replayed receipt or a "
+        "refused batch writes nothing and does not mark.",
+    ),
+    "services.status:sync_from_items": (
+        Classification.INSIDE_A_MARKED_WRITE,
+        "Status/departure reconciliation after a line write (D-075). Called "
+        "by the monitor action, the old quantity endpoint and admin line "
+        "edits, each inside its own marked transaction.",
+    ),
     "services.status:change": (
         Classification.INSIDE_A_MARKED_WRITE,
         "Called by the two views above and by the admin, each inside their own "
@@ -134,6 +146,11 @@ INVENTORY: dict[str, tuple[str, str]] = {
     "services.audit:record_progress": (
         Classification.INSIDE_A_MARKED_WRITE,
         "History for cooking progress, written in the transaction that marks.",
+    ),
+    "services.audit:record_departure": (
+        Classification.INSIDE_A_MARKED_WRITE,
+        "History for a mixed order's hall departure (D-075), written in the "
+        "monitor action's marked transaction.",
     ),
     "services.audit:record_items": (
         Classification.INSIDE_A_MARKED_WRITE,

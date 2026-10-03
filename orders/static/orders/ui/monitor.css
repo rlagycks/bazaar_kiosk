@@ -81,6 +81,7 @@ body:has(dialog[open]) { overflow: hidden; }
 .hall-menu-quantity { flex-shrink: 0; color: var(--ui-accent); font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .hall-menu-quantity > span { font-size: 14px; font-weight: 500; margin-left: 4px; }
 .hall-menu-row.is-complete { color: var(--ui-muted); background: var(--ui-line); cursor: default; }
+.hall-menu-row.is-takeout { color: var(--ui-muted); cursor: default; }
 .hall-menu-row:disabled { cursor: default; }
 .ui05 .hall-menu-row.is-complete:disabled { opacity: 1; }
 .hall-hold-help, .hall-progress { font-size: 12px; color: var(--ui-muted); }
