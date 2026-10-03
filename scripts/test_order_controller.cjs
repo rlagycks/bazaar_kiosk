@@ -22,8 +22,10 @@ async function app(respond, {custom = false} = {}) {
   for (const id of ['mode-hint', 'order-notice', 'menu-grid']) add(page, 'div', id);
   if (custom) {
     const section = add(page, 'section', 'custom-item');
-    for (const id of ['custom-name', 'custom-qty', 'custom-amount']) add(section, 'input', id);
-    add(section, 'datalist', 'custom-names'); add(section, 'button', 'btn-custom-add');
+    add(section, 'select', 'custom-menu');
+    const nameRow = add(section, 'label', 'custom-name-row'); add(nameRow, 'input', 'custom-name');
+    for (const id of ['custom-qty', 'custom-amount']) add(section, 'input', id);
+    add(section, 'button', 'btn-custom-add');
   }
   add(document, 'p', 'order-summary'); add(document, 'button', 'btn-checkout');
   const checkout = add(document, 'dialog', 'checkout', {class: 'checkout'});
@@ -191,7 +193,10 @@ test('shorthand transfers focus at first ticket digit and remaining typing enter
 
 test('D-073: a custom line posts its name, quantity and line total, and only removes', async () => {
   const ui = await app(saved, {custom: true});
-  assert.equal(ui.get('custom-names').children[0].attrs.value, '떡볶이');
+  const options = ui.get('custom-menu').children;
+  assert.deepEqual(options.map(option => [option.attrs.value, option.textContent]),
+    [['', '직접 입력 (메뉴에 없는 품목)'], ['7', '떡볶이']]);
+  assert.equal(ui.get('custom-name-row').hidden, false);
   await ui.input('custom-name', '  삼계탕 '); await ui.input('custom-qty', '3'); await ui.input('custom-amount', '20,000');
   await ui.click(ui.get('btn-custom-add'));
   assert.match(ui.get('order-notice').textContent, /기타 삼계탕 3개 20,000원/);
@@ -218,4 +223,31 @@ test('D-073: an incomplete custom line is explained and nothing is added', async
   assert.match(ui.get('order-notice').textContent, /합계 금액/);
   assert.equal(ui.get('btn-checkout').disabled, true);
   assert.equal(ui.get('custom-name').value, '떡꼬치');
+});
+
+test('D-073: picking a menu from the dropdown hides the name field and sends that menu name', async () => {
+  const ui = await app(saved, {custom: true});
+  ui.get('custom-menu').value = '7'; await ui.get('custom-menu').dispatch('change');
+  assert.equal(ui.get('custom-name-row').hidden, true);
+  assert.equal(ui.document.activeElement, ui.get('custom-qty'));
+  await ui.input('custom-qty', '2'); await ui.input('custom-amount', '5000');
+  await ui.click(ui.get('btn-custom-add'));
+  assert.match(ui.get('order-notice').textContent, /기타 떡볶이 2개 5,000원/);
+  assert.equal(ui.get('custom-menu').value, '');
+  assert.equal(ui.get('custom-name-row').hidden, false);
+  await ui.click(ui.get('btn-checkout'));
+  await ui.input('table-number', '12'); await ui.input('cash-in', '5000');
+  await ui.submit();
+  assert.deepEqual(ui.posts[0].payload.items, [{custom_name: '떡볶이', qty: 2, line_amount: 5000, mode: 'DINE_IN'}]);
+});
+
+test('D-073: switching back to direct input asks for a name again', async () => {
+  const ui = await app(saved, {custom: true});
+  ui.get('custom-menu').value = '7'; await ui.get('custom-menu').dispatch('change');
+  ui.get('custom-menu').value = ''; await ui.get('custom-menu').dispatch('change');
+  assert.equal(ui.get('custom-name-row').hidden, false);
+  assert.equal(ui.document.activeElement, ui.get('custom-name'));
+  await ui.input('custom-amount', '1000');
+  await ui.click(ui.get('btn-custom-add'));
+  assert.match(ui.get('order-notice').textContent, /품목명/);
 });
