@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from django.db import connection, transaction
 
-from orders.models import FloorChoices, OrderStatus
+from orders.models import FloorChoices, OrderStatus, OrderType
 from orders.roles import HALL_MONITOR, TAKEOUT_MONITOR
 from orders.services import queues, revisions, scope, snapshots
 from orders.views import selectors, serializers
@@ -23,12 +23,21 @@ from orders.views import selectors, serializers
 
 HISTORY_PAGE_SIZE = 50
 MAX_PAGE_NUMBER = 1_000_000
-REPRESENTATION_VERSION = "monitoring-v1"
+REPRESENTATION_VERSION = "monitoring-v2"
 REQUIRED_PERMISSIONS = {
     scope.HALL: frozenset((HALL_MONITOR,)),
     scope.TAKEOUT: frozenset((TAKEOUT_MONITOR,)),
     "ALL": frozenset((HALL_MONITOR, TAKEOUT_MONITOR)),
 }
+
+
+def serialize(order, mode):
+    data = serializers.order(order)
+    if mode == scope.HALL:
+        data["takeout_pending_qty"] = sum(i["remaining_qty"] for i in data["items"] if i["service_mode"] == OrderType.TAKEOUT)
+        data["hall_completed"] = order.departed_at is not None
+        data["items"] = [i for i in data["items"] if i["service_mode"] == OrderType.DINE_IN]
+    return data
 
 
 def read(permissions, *, mode: str = "ALL", page: int = 1,
@@ -79,13 +88,15 @@ must let this function own its transaction to preserve the read contract.
         )
         visible = scope.visible(visible, required)
         waiting = visible.filter(status=OrderStatus.PREPARING)
+        if mode == scope.HALL:
+            waiting = waiting.filter(departed_at__isnull=True)
         if unchanged:
             waiting_orders = []
             waiting_total = waiting.count()
             has_more = waiting_total > queues.MAX_QUEUE
         else:
             queue = queues.waiting(waiting)
-            waiting_orders = [serializers.order(order) for order in queue.orders]
+            waiting_orders = [serialize(order, mode) for order in queue.orders]
             waiting_total = queue.total
             has_more = queue.has_more
 
@@ -95,7 +106,7 @@ must let this function own its transaction to preserve the read contract.
         if not unchanged and page <= pages:
             offset = (page - 1) * HISTORY_PAGE_SIZE
             history_orders = [
-                serializers.order(order)
+                serialize(order, mode)
                 for order in visible.order_by("-created_at", "-id")[offset:offset + HISTORY_PAGE_SIZE]
             ]
 

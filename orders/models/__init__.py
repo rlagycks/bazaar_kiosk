@@ -4,7 +4,7 @@ from .core import (
 )
 from .counters import FloorOrderCounter, OrderNumberCounter
 from .events import EventDay
-from .requests import OrderRequest
+from .requests import OrderRequest, TakeoutCompletionRequest
 from .authentication import Account, AuthDevice, LoginAttempt
 from .audit import OrderEvent, OrderEventKind
 from .revisions import BOARD, ChangeRevision

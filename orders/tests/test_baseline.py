@@ -64,7 +64,9 @@ class LoginBaselineTests(BaselineMixin, TestCase):
             with self.subTest(page=page):
                 response = self.client.get(reverse(f"orders:{page}"))
                 self.assertEqual(response.status_code, 200)
-                self.assertTemplateUsed(response, "orders/kitchen_supervisor.html")
+                # D-075: the takeout page is its own menu-based screen.
+                self.assertTemplateUsed(response, "orders/kitchen_takeout.html" if page == "kitchen-takeout"
+                                        else "orders/kitchen_supervisor.html")
                 self.assertEqual(response.context["mode_scope"], scope)
                 self.assertContains(response, 'aria-label="업무 화면"')
                 for target in ("kitchen", "kitchen-hall", "kitchen-takeout"):

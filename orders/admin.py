@@ -7,7 +7,7 @@ from django.db import transaction
 from orders.services import audit, custom_items, order_edits, revisions
 from orders.services import status as status_service
 
-from .models import Account, Table, MenuItem, Order, OrderItem, OrderEvent, EventDay
+from .models import Account, Table, MenuItem, Order, OrderItem, OrderEvent, OrderStatus, EventDay
 
 class MarksTheBoard:
     """Say that a screen's contents changed, for admins that write directly.
@@ -202,6 +202,12 @@ class OrderAdminForm(forms.ModelForm):
         current = self.instance.status
         if target != current and target not in status_service.ALLOWED_TRANSITIONS.get(current, ()):
             raise forms.ValidationError(status_service.TransitionRefused(current, target).detail)
+        # D-075: the same rule `change` enforces, as a form message rather
+        # than a refusal in the middle of the save. Line edits saved with the
+        # form are reconciled afterwards by `sync_from_items`.
+        if target != current and target == OrderStatus.READY and status_service.mixed_not_ready(self.instance):
+            raise forms.ValidationError(
+                "혼합 주문은 식당 서빙 출발이 기록되고 모든 수량이 준비돼야 완료할 수 있습니다.")
         return target
 
 

@@ -24,3 +24,9 @@ def record_items(order: Order, actor: Account | None) -> OrderEvent:
     new total, this row carries that it happened and by whom."""
     return OrderEvent.objects.create(order=order, actor=actor, kind=OrderEventKind.ITEMS,
                                      to_status=order.status)
+
+
+def record_departure(order: Order, actor: Account | None) -> OrderEvent:
+    """Hall left while a mixed order may still be waiting for takeout."""
+    return OrderEvent.objects.create(order=order, actor=actor, kind=OrderEventKind.DEPARTED,
+                                    to_status=order.status)
