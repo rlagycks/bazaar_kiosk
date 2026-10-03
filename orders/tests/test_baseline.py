@@ -315,7 +315,7 @@ class OrderBaselineTests(OrderFixtureMixin, TestCase):
         progress(first, {"done": True})
         assert_progress([2, 0], [0, 3], "PREPARING")
         progress(second, {"done": True})
-        assert_progress([2, 3], [0, 0], "PREPARING")
+        assert_progress([2, 3], [0, 0], "READY")  # D-076: all prepared completes
 
 
 @override_settings(**AUTH_SETTINGS)

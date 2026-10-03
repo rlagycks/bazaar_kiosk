@@ -47,13 +47,16 @@ class MonitoringFixture(StatusFixture):
 
 @override_settings(**AUTH_SETTINGS)
 class MonitoringActionTests(MonitoringFixture, TestCase):
-    def test_progress_all_prepared_stays_preparing_without_departure(self):
+    def test_progress_all_prepared_completes_and_records_departure(self):
+        """D-076 replaces UI-05B: preparing everything is the departure."""
         response = self.send()
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json(), {"id": self.order.pk, "status": "PREPARING"})
-        self.assertEqual(self.state()[:3], ("PREPARING", None, [2, 3]))
+        self.assertEqual(response.json(), {"id": self.order.pk, "status": "READY"})
+        status, departed_at, prepared = self.state()[:3]
+        self.assertEqual((status, prepared), ("READY", [2, 3]))
+        self.assertIsNotNone(departed_at)
         self.assertEqual(list(self.order.events.values_list("kind", "actor__name")),
-                         [("PROGRESS", "kitchen"), ("PROGRESS", "kitchen")])
+                         [("PROGRESS", "kitchen"), ("PROGRESS", "kitchen"), ("STATUS", "kitchen")])
 
     def test_depart_bulk_completes_and_audits_once_in_one_transaction(self):
         with patch.object(revisions, "mark", wraps=revisions.mark) as marked:

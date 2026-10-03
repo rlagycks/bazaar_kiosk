@@ -132,11 +132,12 @@ def apply(order_id: int, payload: dict, *, actor, permissions) -> Order:
             changed = True
 
     if action.name == "progress":
-        status_service.sync_from_items(order)
-        if changed and order.status == previous:
+        synced = status_service.sync_from_items(order, actor)
+        if changed and not synced:
             # Status changes already touch the order. Quantity-only writes
             # must do so too, or 0 -> 1 -> 0 revives an earlier version.
             order.save(update_fields=["updated_at"])
+        changed = changed or synced
     elif action.name == "depart":
         order.departed_at = timezone.now()
         if all(item.remaining_qty == 0 for item in items):

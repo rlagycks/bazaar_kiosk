@@ -21,8 +21,10 @@ from __future__ import annotations
 from django.db import transaction
 from django.db.models import F
 
+from django.utils import timezone
+
 from orders.models import Order, OrderStatus, OrderType
-from orders.services import revisions
+from orders.services import audit, revisions
 
 ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     OrderStatus.PREPARING: frozenset({OrderStatus.READY, OrderStatus.CANCELLED}),
@@ -90,51 +92,50 @@ def change(order: Order, target: str) -> bool:
     return True
 
 
-def sync_from_items(order: Order) -> None:
+def sync_from_items(order: Order, actor=None) -> bool:
     """Bring the status in line with the quantities after any line write.
 
-    UI-05B separates food preparation from explicit serving departure, so a
-    pure hall order is never completed by quantities alone. D-075 adds the
-    takeout side, for every writer (takeout batch, monitor, old quantity
-    endpoint, admin line edits):
+    D-076 (user decision 2026-10-03) replaces UI-05B's explicit-only
+    departure: preparing every quantity *is* the completion. For every writer
+    (hall monitor, takeout batch, old quantity endpoint, admin line edits):
 
-    * incomplete quantities reopen READY; reopening only takeout keeps an
-      already served hall part's departure;
-    * a pure takeout order whose quantities are all prepared is READY -- it
-      has no serving departure;
-    * a mixed order is READY once every quantity is prepared *and* its hall
-      part has departed; a READY mixed order without that departure (an
-      admin edit that added a hall line) goes back to PREPARING.
+    * every hall line prepared records the hall departure -- for a mixed order
+      this takes it off the hall list while takeout is still waiting; a hall
+      line falling short again clears it;
+    * every line prepared makes the order READY; anything short reopens a
+      READY order. A reopened pure takeout order has no departure to keep.
 
-    Without the promotion an order finished outside the takeout batch would
-    sit PREPARING with nothing left on any screen (PR review H1).
+    The explicit "완료 · 서빙 출발" action stays as the one-step shortcut that
+    fills the hall lines. Records the DEPARTED event for a mixed order (the
+    pure hall departure is told by its READY event); callers still record
+    STATUS. Returns whether the order row changed so callers can mark it.
     """
     if order.status == OrderStatus.CANCELLED:
-        return
-    items = list(order.items.order_by("id"))
-    pending = [item for item in items if item.prepared_qty < item.qty]
-    modes = {item.service_mode for item in items}
-    has_hall, has_takeout = OrderType.DINE_IN in modes, OrderType.TAKEOUT in modes
-    if pending:
-        if order.status == OrderStatus.READY:
-            order.status = OrderStatus.PREPARING
-            if not has_hall or any(item.service_mode == OrderType.DINE_IN for item in pending):
-                order.departed_at = None
-            order.save(update_fields=["status", "departed_at", "updated_at"])
-        elif order.status == OrderStatus.PREPARING and order.departed_at is not None and any(
-                item.service_mode == OrderType.DINE_IN for item in pending):
-            order.departed_at = None
-            order.save(update_fields=["departed_at", "updated_at"])
-        return
-    if not has_takeout:
-        return  # pure hall: departure stays explicit
-    hall_done = not has_hall or order.departed_at is not None
-    if order.status == OrderStatus.PREPARING and hall_done:
-        order.status = OrderStatus.READY
-        order.save(update_fields=["status", "updated_at"])
-    elif order.status == OrderStatus.READY and not hall_done:
-        order.status = OrderStatus.PREPARING
-        order.save(update_fields=["status", "updated_at"])
+        return False
+    # Python ordering keeps a caller's prefetched, locked rows (takeout batch).
+    items = sorted(order.items.all(), key=lambda item: item.pk)
+    hall = [item for item in items if item.service_mode == OrderType.DINE_IN]
+    mixed = bool(hall) and len(hall) != len(items)
+    pending = any(item.prepared_qty < item.qty for item in items)
+    status, departed_at = order.status, order.departed_at
+    if hall and any(item.prepared_qty < item.qty for item in hall):
+        departed_at = None
+    elif hall and departed_at is None:
+        departed_at = timezone.now()
+    if pending and status == OrderStatus.READY:
+        status = OrderStatus.PREPARING
+        if not hall:
+            departed_at = None
+    elif not pending and status == OrderStatus.PREPARING:
+        status = OrderStatus.READY
+    if (status, departed_at) == (order.status, order.departed_at):
+        return False
+    departed = order.departed_at is None and departed_at is not None
+    order.status, order.departed_at = status, departed_at
+    order.save(update_fields=["status", "departed_at", "updated_at"])
+    if departed and mixed:
+        audit.record_departure(order, actor)
+    return True
 
 
 def is_closed(order: Order) -> bool:

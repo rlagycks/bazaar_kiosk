@@ -450,12 +450,12 @@ def order_item_progress(request: HttpRequest, item_id: int):
                 item.save(update_fields=["prepared_qty"])
                 audit.record_progress(order, item, request.auth_account)
 
-            # UI-05B: incomplete quantities reopen READY; preparation alone is not departure.
+            # D-076: every quantity prepared completes the order; short reopens it.
             previous = order.status
-            status_service.sync_from_items(order)
+            synced = status_service.sync_from_items(order, request.auth_account)
             if order.status != previous:
                 audit.record_status(order, request.auth_account, previous=previous)
-            elif changed:
+            if changed and not synced:
                 # The monitor token must distinguish a quantity round trip
                 # even while PREPARING. This shares the item write's lock
                 # and transaction; an unchanged quantity stays a no-op.
@@ -472,7 +472,7 @@ def order_item_progress(request: HttpRequest, item_id: int):
             # re-taps a finished item. The order row committed and no screen
             # was told -- with polling gone (4B2), permanently (PR #77 review,
             # reproduced against PostgreSQL).
-            if changed or order.status != previous:
+            if changed or synced:
                 revisions.mark()
             order.refresh_from_db()
     except OrderItem.DoesNotExist:

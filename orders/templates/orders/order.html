@@ -54,12 +54,12 @@
       <button type="button" id="btn-back" class="ui-button">돌아가기</button>
     </header>
     <div class="checkout-body">
-      <label class="field" for="table-number">테이블 번호
+      <label class="field" id="table-field" for="table-number" hidden>테이블 번호
         <input id="table-number" inputmode="numeric" maxlength="6" placeholder="예) 12" aria-describedby="table-help" autocomplete="off">
       </label>
       <h2 class="cart-title" id="cart-title">담은 메뉴 · 0개</h2>
       <div id="cart-items" class="order-items"></div>
-      <p id="table-help" class="ui-muted">포장만 주문할 때는 비워 두세요. 주문 번호가 교환권입니다.</p>
+      <p id="table-help" class="ui-muted">포장 주문은 테이블 번호가 필요 없습니다. 주문 번호가 교환권입니다.</p>
       <fieldset class="payment-methods">
         <legend class="sr-only">결제 수단</legend>
         <label><input type="radio" name="pay" value="CASH" checked><span class="ui-button">현금</span></label>

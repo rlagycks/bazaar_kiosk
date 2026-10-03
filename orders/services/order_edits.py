@@ -107,7 +107,7 @@ def apply_line_changes(order: Order, actor: Account | None) -> None:
     order.change_amount = settlement.change
     order.save(update_fields=["total_price", "change_amount", "updated_at"])
     previous = order.status
-    status_service.sync_from_items(order)
+    status_service.sync_from_items(order, actor)
     # The ITEMS row carries the status the edit left the order in; the STATUS
     # row after it says how it got there (PR #70 review).
     audit.record_items(order, actor)
