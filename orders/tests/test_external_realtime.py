@@ -151,7 +151,12 @@ class TheBoardSaysHowLiveItIsTests(TestCase):
                     # refresh that lost a race (409). It re-reads nothing and
                     # never reschedules itself; the pattern below is what
                     # would catch it if it started to.
-                    self.assertNotIn("setTimeout(", source.replace("window.setTimeout(resolve", ""))
+                    # And monitor.js times the hall card's 1-second press (UI
+                    # monitoring 2026-10-03): one shot per press, cleared on
+                    # release, and it writes nothing until the press holds --
+                    # the write then goes through the scheduler's refetch.
+                    allowed = source.replace("window.setTimeout(resolve", "").replace("hold.timer = window.setTimeout(", "")
+                    self.assertNotIn("setTimeout(", allowed)
                     self.assertIsNone(RESCHEDULING_TIMEOUT.search(source))
 
     def controller(self):

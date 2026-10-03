@@ -7,7 +7,7 @@
   const detail = byId('order-detail'), confirmation = byId('confirm-action');
   const orders = new Map();
   let draft = null, pending = null, busy = false, conflict = false, fresh = false;
-  let opener = null, latestState = null, inputDirty = false, blockedRead = null;
+  let opener = null, latestState = null, inputDirty = false, blockedRead = null, hold = null, awaitingWriteRead = false, refocus = null;
   const hasEdits = () => inputDirty || Boolean(draft?.dirty());
   const modeName = item => item.service_mode === 'TAKEOUT' ? '포장' : '홀';
   const number = order => '#' + String(order.order_no ?? order.id).padStart(3, '0');
@@ -32,7 +32,37 @@
     if (order.is_practice) parts.unshift(el('span', {class: 'practice-tag', text: '연습'}));
     return el('div', {}, parts);
   }
+  function hallCard(order) {
+    const sum = model.totals(order), mixed = order.items.some(item => item.service_mode === 'TAKEOUT');
+    const created = new Date(order.created_at);
+    const received = Number.isNaN(created.getTime()) ? '시각 미상' : created.toLocaleTimeString('ko-KR', {timeZone: 'Asia/Seoul', hour: 'numeric', minute: '2-digit', hour12: true});
+    return el('article', {class: 'monitor-card hall-card', attrs: {'aria-label': `${number(order)} ${tableName(order)}`}}, [
+      el('div', {class: 'hall-card-header'}, [
+        el('div', {class: 'hall-reference'}, [el('strong', {class: 'hall-order-number', text: number(order)}),
+          el('span', {class: 'hall-received', text: received + ' 접수'}),
+          ...(order.is_practice ? [el('span', {class: 'practice-tag', text: '연습'})] : [])]),
+        el('div', {class: 'hall-table', attrs: {role: 'group', 'aria-label': tableName(order)}}, [el('span', {text: '테이블'}), el('strong', {text: order.table?.number ?? '미지정'})])]),
+      el('div', {class: 'hall-menu-list'}, order.items.map(item => {
+        const complete = item.prepared_qty >= item.qty;
+        // D-075: a mixed order's takeout lines belong to the takeout monitor.
+        if (mixed && item.service_mode === 'TAKEOUT') return el('div', {class: 'hall-menu-row is-takeout',
+          attrs: {role: 'group', 'aria-label': `${modeName(item)} ${itemName(item)}, 준비 ${item.prepared_qty} / ${item.qty}개. 포장 모니터링에서 처리`}}, [
+          el('span', {class: 'hall-menu-name'}, [el('span', {class: 'hall-mode', text: modeName(item)}), el('span', {text: itemName(item)})]),
+          el('span', {class: 'hall-menu-quantity', text: `${item.prepared_qty}/${item.qty}`, attrs: {'aria-hidden': 'true'}}, [el('span', {text: '개'})])]);
+        return el('button', {class: 'hall-menu-row' + (complete ? ' is-complete' : ''),
+          attrs: {type: 'button', 'aria-label': `${modeName(item)} ${itemName(item)}, 준비 ${item.prepared_qty} / ${item.qty}개. ${complete ? '준비 완료' : '1초 꾹 누르면 1개 추가. 수량 정정은 상세 · 부분 체크 버튼에서'} `},
+          data: {action: 'prepare', 'order-id': order.id, 'item-id': item.id, complete: String(complete)}}, [
+          el('span', {class: 'hall-menu-name'}, [...(mixed ? [el('span', {class: 'hall-mode', text: modeName(item)})] : []), el('span', {text: itemName(item)})]),
+          el('span', {class: 'hall-menu-quantity', text: `${item.prepared_qty}/${item.qty}`, attrs: {'aria-hidden': 'true'}}, [el('span', {text: '개'})])]);
+      })),
+      el('p', {class: 'hall-hold-help', text: '메뉴를 1초 꾹 누르면 준비 수량이 1개 늘어납니다.'}),
+      el('p', {class: 'hall-progress', text: `준비 ${sum.prepared} / ${sum.qty}개 · ${model.label(order)}`}),
+      el('div', {class: 'card-actions'}, [button('상세 · 부분 체크', 'detail', order.id),
+        ...(model.hallCompleted(order) ? [] : [button('완료 · 서빙 출발', 'depart', order.id, true)])]),
+    ]);
+  }
   function card(order) {
+    if (model.kind(order) !== '포장') return hallCard(order);
     const sum = model.totals(order);
     return el('article', {class: 'monitor-card'}, [
       el('p', {class: 'status-label', text: model.kind(order) + ' · ' + model.label(order)}),
@@ -51,8 +81,9 @@
   }
   function drawSnapshot(data) {
     if (!Array.isArray(data.orders) || !Array.isArray(data.history?.orders)) throw new Error('모니터링 응답을 확인할 수 없습니다.');
+    cancelHold();
     const active = document.activeElement;
-    const restore = active?.dataset?.orderId ? {id: active.dataset.orderId, action: active.dataset.action, region: active.closest('tbody') ? 'history-orders' : 'waiting-orders'} : null;
+    const restore = active?.dataset?.orderId ? {id: active.dataset.orderId, action: active.dataset.action, item: active.dataset.itemId, region: active.closest('tbody') ? 'history-orders' : 'waiting-orders'} : null;
     orders.clear();
     [...data.history.orders, ...data.orders].forEach(order => orders.set(order.id, order));
     DOM.render(byId('waiting-orders'), data.orders.length ? data.orders.map(card) : el('p', {class: 'monitor-empty', text: '미완료 주문이 없습니다.'}));
@@ -66,7 +97,7 @@
     links.push(el('span', {class: 'ui-muted', text: `${history.page} / ${Math.max(1, history.pages)} 페이지 · 페이지당 50건`}));
     if (history.has_next) links.push(el('a', {class: 'ui-button', text: '다음', attrs: {href: `?page=${history.page + 1}#history`}}));
     DOM.render(byId('history-pagination'), links);
-    fresh = true;
+    fresh = !awaitingWriteRead;
     if (detail.open && draft) {
       const latest = orders.get(draft.original.id);
       if (draft.conflicts(latest)) {
@@ -81,19 +112,26 @@
     updateControls();
     if (restore) {
       const container = byId(restore.region);
-      (container.querySelector(`[data-order-id="${restore.id}"][data-action="${restore.action}"]`) || byId('reload-orders')).focus({preventScroll: true});
+      (container.querySelector(`[data-order-id="${restore.id}"][data-action="${restore.action}"]${restore.item ? `[data-item-id="${restore.item}"]` : ''}`) || byId('reload-orders')).focus({preventScroll: true});
     }
   }
   function onLiveStatus(state) {
     latestState = state;
     if (state.lastError || !state.running) {
+      cancelHold();
       fresh = false;
       blockedRead = state.applied.at;
     } else if (state.applied.at && state.applied.at !== blockedRead) {
       // The scheduler keeps the same Date object through heartbeats/resume;
       // only a successful read (including unchanged) supplies a new one.
-      fresh = true;
+      // A pre-write GET may finish after PATCH. The scheduler reports its
+      // queued post-write GET as in flight before emitting any idle status.
+      // Keep the barrier through that queue, including drawSnapshot above.
+      if (!awaitingWriteRead || !state.inFlight) {
+        awaitingWriteRead = false; fresh = true;
+      }
     }
+    const returnTo = fresh && refocus;
     const last = clock(state.applied.at);
     let text = !state.running ? '탭이 보이지 않아 갱신을 멈췄습니다' : state.lastError ? `읽기 실패 · ${last} 목록 유지 · 5초마다 다시 읽음` : !state.polling ? '실시간 연결' : state.stream !== 'open' ? '연결 중 · 5초마다 다시 읽음' : !state.hubOk ? '서버 감지 지연 · 5초마다 다시 읽음' : '5초마다 다시 읽음';
     if (state.ended) text = '로그인 화면으로 이동합니다';
@@ -101,6 +139,11 @@
     byId('reload-orders').disabled = state.inFlight || busy;
     byId('reload-orders').textContent = state.inFlight ? '읽는 중…' : '새로고침';
     updateControls();
+    if (returnTo) {
+      refocus = null;
+      const row = byId('waiting-orders').querySelector(`[data-order-id="${returnTo.order}"][data-item-id="${returnTo.item}"]`);
+      if (row && !row.disabled) row.focus({preventScroll: true});
+    }
   }
   const live = window.BazaarLive.create({window, document, EventSource: window.EventSource,
     fetch: window.BazaarAuth.fetch, streamUrl: page.dataset.streamUrl, snapshotUrl: page.dataset.snapshotUrl,
@@ -133,7 +176,7 @@
     updateControls();
   }
   function updateControls() {
-    page.querySelectorAll('[data-action]').forEach(control => { control.disabled = busy || !fresh; });
+    page.querySelectorAll('[data-action]').forEach(control => { control.disabled = busy || !fresh || control.dataset.complete === 'true'; });
     if (draft) {
       const cancelled = draft.original.status === 'CANCELLED', ready = draft.original.status === 'READY' || model.hallCompleted(draft.original);
       const disabled = busy || conflict || !fresh || cancelled;
@@ -157,6 +200,8 @@
     detail.setAttribute('aria-busy', String(busy));
   }
   function openDetail(order, source) {
+    cancelHold();
+    if (detail.open) return;
     draft = model.editor(order); conflict = false; inputDirty = false; opener = source;
     renderDetail(); detail.showModal(); byId('detail-close').focus();
   }
@@ -166,6 +211,7 @@
     (opener?.isConnected ? opener : byId('reload-orders')).focus({preventScroll: true});
   }
   function ask(action, editor, source) {
+    cancelHold();
     if (busy || !fresh) return;
     if (action === 'depart' && model.hallCompleted(editor.original)) return;
     if (action === 'reopen' && hasEdits()) {
@@ -193,9 +239,9 @@
     const source = pending?.source; confirmation.close(); pending = null;
     (source?.isConnected ? source : detail.open ? byId('detail-close') : byId('reload-orders')).focus({preventScroll: true});
   }
-  async function write(action, editor) {
+  async function write(action, editor, inline = false) {
     if (busy || !fresh || editor.conflicts(orders.get(editor.original.id))) return;
-    const errorRegion = confirmation.open ? byId('confirm-error') : byId('detail-error');
+    const errorRegion = inline ? byId('monitor-notice') : confirmation.open ? byId('confirm-error') : byId('detail-error');
     errorRegion.textContent = ''; busy = true; updateControls();
     let succeeded = false;
     try {
@@ -215,18 +261,68 @@
       if (pending) pending.stale = true;
     } finally {
       busy = false;
-      if (succeeded) { closeConfirm(); if (detail.open) closeDetail(true); }
+      // A write response is not a snapshot: lock further changes until a new read.
+      fresh = false; awaitingWriteRead = true; blockedRead = latestState?.applied.at;
+      // An inline hold has no dialog to close; closing would move focus to
+      // the reload button. Its row is refocused once the next read enables it.
+      if (succeeded && !inline) { closeConfirm(); if (detail.open) closeDetail(true); }
+      if (!succeeded) refocus = null;
       updateControls();
       // All rendered order data, including after a refusal, comes from this scheduler.
       live.refetch('write');
     }
   }
+  function cancelHold() {
+    if (!hold) return;
+    window.clearTimeout(hold.timer);
+    hold.control.setAttribute('data-holding', 'false');
+    hold = null;
+  }
+  DOM.delegate(page, 'pointerdown', '[data-action="prepare"]', (event, control) => {
+    const alreadyHolding = Boolean(hold);
+    cancelHold();
+    if (alreadyHolding || event.isPrimary === false || event.button !== 0 || control.disabled || busy || !fresh || detail.open || confirmation.open) return;
+    const order = orders.get(Number(control.dataset.orderId));
+    const item = order?.items.find(row => row.id === Number(control.dataset.itemId));
+    const editor = order && model.editor(order);
+    if (!item || item.prepared_qty >= item.qty || !editor.editable(item.id)) return;
+    hold = {control, pointer: event.pointerId, x: event.clientX, y: event.clientY};
+    control.setAttribute('data-holding', 'true');
+    hold.timer = window.setTimeout(() => {
+      cancelHold();
+      if (!control.isConnected || control.disabled || !fresh || busy || document.hidden || detail.open || confirmation.open || editor.conflicts(orders.get(order.id))) return;
+      editor.set(item.id, item.prepared_qty + 1);
+      refocus = document.activeElement === control ? {order: String(order.id), item: String(item.id)} : null;
+      write('progress', editor, true);
+    }, 1000);
+  });
+  DOM.delegate(page, 'keydown', '[data-action="prepare"]', (event, control) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault(); cancelHold();
+    if (!event.repeat && !control.disabled && fresh && !busy) openDetail(orders.get(Number(control.dataset.orderId)), control);
+  });
+  document.addEventListener('pointerdown', event => { if (hold && event.pointerId !== hold.pointer) cancelHold(); });
+  document.addEventListener('pointermove', event => {
+    if (hold && (event.pointerId !== hold.pointer || Math.hypot(event.clientX - hold.x, event.clientY - hold.y) > 8)) cancelHold();
+  });
+  for (const event of ['pointerup', 'pointercancel', 'lostpointercapture', 'scroll']) document.addEventListener(event, cancelHold, true);
+  // pointerleave does not bubble; capture it only for the pressed row itself.
+  document.addEventListener('pointerleave', event => { if (hold?.control === event.target) cancelHold(); }, true);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) cancelHold(); });
+  window.addEventListener('blur', cancelHold);
+  DOM.delegate(page, 'contextmenu', '[data-action="prepare"]', event => { event.preventDefault(); });
+
   function captureInputs() {
     const inputs = [...byId('detail-items').querySelectorAll('input')];
     for (const input of inputs) draft.set(Number(input.dataset.itemId), input.value);
   }
   DOM.delegate(page, 'click', '[data-action]', (event, control) => {
-    if (busy || !fresh) return;
+    if (busy || !fresh || control.disabled) return;
+    if (control.dataset.action === 'prepare') {
+      // Keyboard/assistive activation opens the existing precise quantity editor.
+      if (event.detail === 0) openDetail(orders.get(Number(control.dataset.orderId)), control);
+      return;
+    }
     const order = orders.get(Number(control.dataset.orderId)); if (!order) return;
     if (control.dataset.action === 'detail') openDetail(order, control);
     else ask('depart', model.editor(order), control);

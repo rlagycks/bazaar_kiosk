@@ -21,8 +21,13 @@ function app(respond = async () => new Response(JSON.stringify({id:1}))) {
   for (const id of ['detail-close','save-progress','cancel-order','depart-order','reopen-order','detail-reload']) add(detail,'button',id);
   for (const id of ['confirm-title','confirm-description','confirm-error']) add(confirm,'div',id);
   for (const id of ['confirm-back','confirm-submit']) add(confirm,'button',id);
-  const posts=[],refetches=[]; let callbacks;
-  const window = {addEventListener(){}, confirm:()=>false,
+  const posts=[],refetches=[],timers=new Map(),windowListeners=new Map(); let callbacks, timerId=0, now=0;
+  const setTimeout=(callback,delay)=>{const id=++timerId;timers.set(id,{callback,at:now+delay});return id;};
+  const clearTimeout=id=>timers.delete(id);
+  const advance=async ms=>{now+=ms;for(const [id,timer] of [...timers])if(timer.at<=now){timers.delete(id);timer.callback();}await flush();};
+  const fire=async (target,type,fields={})=>{assert.ok(target,'event target exists');const event={type,target,button:0,isPrimary:true,pointerId:1,clientX:0,clientY:0,preventDefault(){},...fields};for(let node=target;node;node=node.parent)for(const handler of node.listeners.get(type)||[])await handler(event);await flush();};
+  const windowEvent=async type=>{for(const handler of windowListeners.get(type)||[])handler({});await flush();};
+  const window = {addEventListener(type,fn){if(!windowListeners.has(type))windowListeners.set(type,[]);windowListeners.get(type).push(fn);}, setTimeout, clearTimeout, confirm:()=>false,
     BazaarAuth:{fetch:async (url, options)=>{posts.push({url,...options,body:JSON.parse(options.body)});return respond();}},
     BazaarLive:{create:opts=>{callbacks=opts;return {start(){},refetch:reason=>refetches.push(reason)};}},
     BazaarDom:{
@@ -40,12 +45,13 @@ function app(respond = async () => new Response(JSON.stringify({id:1}))) {
   const get=id=>document.getElementById(id);
   const click=async node=>{assert.ok(node); assert.equal(node.disabled,false,'button enabled');await node.dispatch('click');await flush();};
   const input=async value=>{get('prepared-7').value=value;await get('prepared-7').dispatch('input');};
-  function snapshot(row=baseOrder(), extra={}) {
+  function snapshot(row=baseOrder(), extra={}, settled=true) {
     callbacks.onApply({orders:row.status==='PREPARING'?[row]:[],total:row.status==='PREPARING'?1:0,count:1,has_more:false,
       history:{orders:[row],total:1,page:1,pages:1,has_previous:false,has_next:false,...extra}});
+    if(settled)callbacks.onStatus({running:true,applied:{at:new Date()},inFlight:false,polling:false,stream:'open',hubOk:true});
   }
   const open=()=>click(get('waiting-orders').querySelector('[data-action="detail"]') || get('history-orders').querySelector('[data-action="detail"]'));
-  return {get,click,input,snapshot,open,posts,refetches,callbacks,document};
+  return {get,click,input,snapshot,open,posts,refetches,callbacks,document,fire,advance,windowEvent};
 }
 test('real data keys open details; inputs and +/- controls submit atomic versioned progress',async()=>{
   const ui=app();ui.snapshot();await ui.open();assert.equal(ui.get('order-detail').open,true);
@@ -153,4 +159,114 @@ test('mixed departure confirmation explicitly completes hall quantities only',as
   const ui=app();ui.snapshot(mixedOrder());await ui.click(ui.get('waiting-orders').querySelector('[data-action="depart"]'));
   assert.match(ui.get('confirm-description').textContent,/식당 품목/);
   assert.match(ui.get('confirm-description').textContent,/포장 수량은 포장 모니터링에서 처리합니다/);
+});
+
+const prepare = ui => ui.get('waiting-orders').querySelector('[data-action="prepare"]');
+test('hall rows expose every menu with custom and service labels; takeout retains its card',()=>{
+  const ui=app();const order=baseOrder();order.items=Array.from({length:7},(_,i)=>({...order.items[0],id:i+1,menu_item_name:'메뉴'+i,is_custom:i===6,service_mode:i===6?'TAKEOUT':'DINE_IN'}));ui.snapshot(order);
+  // D-075: the mixed order's takeout line is shown but held only by the takeout monitor.
+  assert.equal(ui.get('waiting-orders').querySelectorAll('[data-action="prepare"]').length,6);
+  assert.equal(ui.get('waiting-orders').querySelectorAll('.is-takeout').length,1);
+  assert.match(ui.get('waiting-orders').textContent,/기타 · 메뉴6/);assert.match(ui.get('waiting-orders').textContent,/포장/);
+  assert.equal(ui.get('waiting-orders').querySelectorAll('img').length,0);
+  order.items.forEach(item=>item.service_mode='TAKEOUT');ui.snapshot(order);assert.equal(prepare(ui),null);
+});
+test('short tap does not mutate; one full second increments one line with full versioned payload',async()=>{
+  const ui=app();const order=baseOrder();order.items.push({...order.items[0],id:8,prepared_qty:1});ui.snapshot(order);
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(999);assert.equal(ui.posts.length,0);
+  await ui.fire(prepare(ui),'pointerup');await ui.click(prepare(ui));await ui.advance(1);assert.equal(ui.posts.length,0);
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,1);
+  assert.deepEqual(ui.posts[0].body,{action:'progress',expected_version:'v1',items:[{id:7,prepared_qty:1},{id:8,prepared_qty:1}]});
+  await ui.advance(3000);assert.equal(ui.posts.length,1);assert.equal(prepare(ui).disabled,true);
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,1);
+  ui.snapshot({...order,monitor_version:'v2',items:order.items.map(item=>({...item,prepared_qty:1}))});assert.equal(prepare(ui).disabled,false);
+});
+for(const cancel of ['pointercancel','pointerleave','lostpointercapture','movement','scroll','blur','hidden','snapshot','secondary','read failure','detail opened'])test('hold cancelled on '+cancel,async()=>{
+  const ui=app();ui.snapshot();await ui.fire(prepare(ui),'pointerdown');await ui.advance(600);
+  if(cancel==='movement')await ui.fire(prepare(ui),'pointermove',{clientX:20});
+  else if(cancel==='blur')await ui.windowEvent('blur');
+  else if(cancel==='hidden'){ui.document.hidden=true;await ui.fire(ui.document,'visibilitychange');}
+  else if(cancel==='snapshot')ui.snapshot({...baseOrder(),monitor_version:'v2'});
+  else if(cancel==='secondary')await ui.fire(prepare(ui),'pointerdown',{pointerId:2,isPrimary:false});
+  else if(cancel==='detail opened')await ui.open();
+  else if(cancel==='read failure')ui.callbacks.onStatus({lastError:'offline',running:true,applied:{at:1}});
+  else await ui.fire(prepare(ui),cancel);
+  await ui.advance(1000);assert.equal(ui.posts.length,0);
+  assert.notEqual(prepare(ui).attrs['data-holding'],'true');
+});
+test('completed rows cannot overcount and keyboard routes to unchanged details',async()=>{
+  const ui=app();ui.snapshot({...baseOrder(),items:[{...baseOrder().items[0],prepared_qty:3}]});assert.equal(prepare(ui).disabled,true);
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,0);
+  ui.snapshot();await ui.fire(prepare(ui),'keydown',{key:'Enter'});assert.equal(ui.get('order-detail').open,true);assert.equal(ui.posts.length,0);
+});
+test('inline write failure is visible outside details, waits for snapshot, and never retries',async()=>{
+  const ui=app(()=>new Response(JSON.stringify({detail:'다른 직원이 수정했습니다'}),{status:409}));ui.snapshot();
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);
+  assert.match(ui.get('monitor-notice').textContent,/다른 직원/);assert.equal(ui.get('order-detail').open,false);assert.equal(prepare(ui).disabled,true);
+  await ui.advance(5000);assert.equal(ui.posts.length,1);ui.snapshot({...baseOrder(),monitor_version:'v2'});assert.equal(prepare(ui).disabled,false);
+});
+
+test('secondary buttons never start progress, context menu does not interrupt touch hold',async()=>{
+  const ui=app();ui.snapshot();await ui.fire(prepare(ui),'pointerdown',{button:2});await ui.advance(1000);assert.equal(ui.posts.length,0);
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(500);await ui.fire(prepare(ui),'contextmenu');await ui.advance(500);assert.equal(ui.posts.length,1);
+});
+test('pending write remains single and heartbeat cannot unlock the old snapshot after success',async()=>{
+  let resolve;const ui=app(()=>new Promise(r=>{resolve=r;}));ui.snapshot();
+  const state={running:true,applied:{at:new Date()},inFlight:false,polling:false,stream:'open',hubOk:true};ui.callbacks.onStatus(state);
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,1);
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,1);
+  resolve(new Response(JSON.stringify({id:1})));await flush();ui.callbacks.onStatus(state);assert.equal(prepare(ui).disabled,true);
+  ui.callbacks.onStatus({...state,applied:{at:new Date()}});assert.equal(prepare(ui).disabled,false);
+});
+test('a snapshot during pending write cannot let another increment through',async()=>{
+  let resolve;const ui=app(()=>new Promise(r=>{resolve=r;}));ui.snapshot();
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);
+  ui.snapshot({...baseOrder(),monitor_version:'v2',items:[{...baseOrder().items[0],prepared_qty:1}]});assert.equal(prepare(ui).disabled,true);
+  resolve(new Response(JSON.stringify({id:1})));await flush();assert.equal(prepare(ui).disabled,true);
+  ui.snapshot({...baseOrder(),monitor_version:'v2',items:[{...baseOrder().items[0],prepared_qty:1}]});assert.equal(prepare(ui).disabled,false);
+});
+
+for(const unchanged of [false,true])test('pre-write read '+(unchanged?'unchanged':'snapshot')+' cannot unlock while post-write read is queued',async()=>{
+  const ui=app();ui.snapshot();
+  const initial={running:true,applied:{at:new Date()},inFlight:true,polling:false,stream:'open',hubOk:true};ui.callbacks.onStatus(initial);
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,1);assert.equal(prepare(ui).disabled,true);
+  // Scheduler draws a pre-write response, then immediately starts the queued
+  // post-write read. There is no idle status between these two reads.
+  if(!unchanged)ui.snapshot(baseOrder(),{},false);
+  assert.equal(prepare(ui).disabled,true,'drawing the old response must retain the write barrier');
+  ui.callbacks.onStatus({...initial,applied:{at:new Date()}});
+  assert.equal(prepare(ui).disabled,true,'queued read status must retain the write barrier');
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,1);
+  ui.snapshot({...baseOrder(),monitor_version:'v2',items:[{...baseOrder().items[0],prepared_qty:1}]},{},false);
+  assert.equal(prepare(ui).disabled,true,'only the scheduler idle status releases the barrier');
+  ui.callbacks.onStatus({...initial,inFlight:false,applied:{at:new Date()}});assert.equal(prepare(ui).disabled,false);
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,2);assert.equal(ui.posts[1].body.expected_version,'v2');assert.equal(ui.posts[1].body.items[0].prepared_qty,2);
+});
+test('failed queued post-write read stays locked until a later successful unchanged read',async()=>{
+  const ui=app();ui.snapshot();const oldTime=new Date();
+  const state={running:true,applied:{at:oldTime},inFlight:true,polling:false,stream:'open',hubOk:true};ui.callbacks.onStatus(state);
+  await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);
+  const preWriteTime=new Date();ui.callbacks.onStatus({...state,applied:{at:preWriteTime}});
+  ui.callbacks.onStatus({...state,applied:{at:preWriteTime},inFlight:false,lastError:'offline'});assert.equal(prepare(ui).disabled,true);
+  ui.callbacks.onStatus({...state,applied:{at:preWriteTime},lastError:'offline'});assert.equal(prepare(ui).disabled,true);
+  // An unchanged success has no drawSnapshot callback; only its new read time.
+  ui.callbacks.onStatus({...state,inFlight:false,applied:{at:new Date()}});assert.equal(prepare(ui).disabled,false);
+  assert.equal(ui.posts.length,1);
+});
+
+test('a successful hold returns focus to its row once the next read unlocks it, not to reload',async()=>{
+  const ui=app();ui.snapshot();
+  const state={running:true,applied:{at:new Date()},inFlight:false,polling:false,stream:'open',hubOk:true};ui.callbacks.onStatus(state);
+  prepare(ui).focus();await ui.fire(prepare(ui),'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,1);
+  assert.notEqual(ui.document.activeElement,ui.get('reload-orders'));
+  ui.snapshot({...baseOrder(),monitor_version:'v2',items:[{...baseOrder().items[0],prepared_qty:1}]},{},false);
+  ui.callbacks.onStatus({...state,applied:{at:new Date(Date.now()+1)}});
+  assert.equal(prepare(ui).disabled,false);assert.equal(ui.document.activeElement,prepare(ui));
+});
+
+test('mixed takeout row never starts a hold write',async()=>{
+  const ui=app();ui.snapshot(mixedOrder());
+  const row=ui.get('waiting-orders').querySelector('.is-takeout');
+  assert.equal(row.dataset.action,undefined);
+  await ui.fire(row,'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,0);
 });
