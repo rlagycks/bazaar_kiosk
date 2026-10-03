@@ -26,10 +26,12 @@
     <section id="custom-item" class="menu-tile custom-item" aria-labelledby="custom-title">
       <h2 id="custom-title" class="menu-name">기타 품목</h2>
       <p class="ui-muted">메뉴판에 없거나 가격을 따로 정할 때 입력하세요. 금액은 수량 전체의 합계입니다. 메뉴 이름과 같으면 통계에서 그 메뉴에 합쳐집니다.</p>
-      <label class="field" for="custom-name">품목명
-        <input id="custom-name" maxlength="100" list="custom-names" autocomplete="off" placeholder="예) 삼계탕">
+      <label class="field custom-select" for="custom-menu">품목
+        <select id="custom-menu"><option value="">직접 입력 (메뉴에 없는 품목)</option></select>
       </label>
-      <datalist id="custom-names"></datalist>
+      <label class="field" id="custom-name-row" for="custom-name">품목명
+        <input id="custom-name" maxlength="100" autocomplete="off" placeholder="예) 떡꼬치">
+      </label>
       <div class="custom-figures">
         <label class="field" for="custom-qty">수량
           <input id="custom-qty" inputmode="numeric" maxlength="2" value="1" autocomplete="off">
