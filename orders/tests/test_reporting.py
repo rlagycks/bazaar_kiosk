@@ -73,7 +73,7 @@ class DashboardArithmeticTests(TestCase):
                                            "cancelled_orders": 1, "legacy_unsplit_orders": 0,
                                            "unattributed_orders": 0, "unattributed_amount": 0})
         self.assertEqual(data["payment"]["cash"], 5000)
-        self.assertEqual(data["menu"], [{"menu_item_id": self.meal.id, "name": "Meal", "qty": 1, "amount": 5000}])
+        self.assertEqual(data["menu"], [{"menu_item_id": self.meal.id, "name": "Meal", "qty": 1, "amount": 5000, "custom_qty": 0, "custom_amount": 0}])
         self.assertEqual(data["hourly"], [{"date": "2026-09-19", "hour": "12:00", "orders": 1, "revenue": 5000}])
 
     def test_multiday_hours_keep_separate_dates_and_existing_totals(self):
@@ -102,7 +102,7 @@ class DashboardArithmeticTests(TestCase):
             "cash_ratio": 1.0, "ticket_ratio": 0.0,
         })
         self.assertEqual(data["menu"], [
-            {"menu_item_id": self.meal.id, "name": "Meal", "qty": 10, "amount": 50000},
+            {"menu_item_id": self.meal.id, "name": "Meal", "qty": 10, "amount": 50000, "custom_qty": 0, "custom_amount": 0},
         ])
 
     def test_hourly_dates_cross_seoul_midnight_before_utc_midnight(self):
@@ -124,8 +124,8 @@ class DashboardArithmeticTests(TestCase):
         self.order([(self.meal, 1, 5000), (other_meal, 2, 7000)])
         data = self.dashboard()
         self.assertEqual(data["menu"], [
-            {"menu_item_id": other_meal.id, "name": "Meal", "qty": 2, "amount": 14000},
-            {"menu_item_id": self.meal.id, "name": "Meal", "qty": 1, "amount": 5000},
+            {"menu_item_id": other_meal.id, "name": "Meal", "qty": 2, "amount": 14000, "custom_qty": 0, "custom_amount": 0},
+            {"menu_item_id": self.meal.id, "name": "Meal", "qty": 1, "amount": 5000, "custom_qty": 0, "custom_amount": 0},
         ])
 
     def test_a_renamed_menu_keeps_its_row_and_shows_the_current_name(self):
@@ -134,7 +134,7 @@ class DashboardArithmeticTests(TestCase):
         self.order([(self.meal, 1, 5000)])
         MenuItem.objects.filter(pk=self.meal.pk).update(name="Big Meal", price=9000)
         data = self.dashboard()
-        self.assertEqual(data["menu"], [{"menu_item_id": self.meal.id, "name": "Big Meal", "qty": 1, "amount": 5000}])
+        self.assertEqual(data["menu"], [{"menu_item_id": self.meal.id, "name": "Big Meal", "qty": 1, "amount": 5000, "custom_qty": 0, "custom_amount": 0}])
         self.assertEqual(data["summary"]["revenue"], 5000)
 
     def test_rows_without_split_payment_fields_are_read_like_the_order_detail(self):
@@ -169,7 +169,7 @@ class DashboardArithmeticTests(TestCase):
         order.items.update(unit_price=None)
         data = self.dashboard()
         self.assertEqual(data["summary"]["items"], 3)
-        self.assertEqual(data["menu"], [{"menu_item_id": self.meal.id, "name": "Meal", "qty": 3, "amount": 0}])
+        self.assertEqual(data["menu"], [{"menu_item_id": self.meal.id, "name": "Meal", "qty": 3, "amount": 0, "custom_qty": 0, "custom_amount": 0}])
 
     def test_the_report_is_a_fixed_number_of_queries(self):
         """Adding a day's worth of orders must not add queries (PR #71)."""

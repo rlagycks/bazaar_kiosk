@@ -14,10 +14,10 @@ board is not one.
 from __future__ import annotations
 
 from django.db import transaction
-from django.db.models import Sum, F
+from django.db.models import Sum
 
 from orders.models import Order
-from orders.services import revisions
+from orders.services import reporting, revisions
 
 
 def recalc_totals(order: Order) -> None:
@@ -27,7 +27,7 @@ def recalc_totals(order: Order) -> None:
         # line edit lands between the two and the rescue stores a total that
         # was never true (PR #77 code review).
         Order.objects.select_for_update().get(pk=order.pk)
-        agg = order.items.aggregate(total=Sum(F("qty") * F("unit_price")))
+        agg = order.items.aggregate(total=Sum(reporting.LINE_AMOUNT))
         total = int(agg["total"] or 0)
         Order.objects.filter(pk=order.pk).update(total_price=total)
         order.total_price = total

@@ -54,11 +54,14 @@ def order(o: Order) -> dict[str, Any]:
         "items": [
             {
                 "id": i.id,
-                "menu_item": {"id": i.menu_item_id, "name": i.menu_item.name, "price": i.unit_price},
-                "menu_item_name": i.menu_item.name,
+                # D-073: a custom line shows its own name; `menu_item.id` is
+                # the menu it matched, or null.
+                "menu_item": {"id": i.menu_item_id, "name": i.display_name, "price": i.unit_price},
+                "menu_item_name": i.display_name,
+                "is_custom": i.is_custom,
                 "qty": i.qty,
                 "unit_price": i.unit_price,
-                "line_total": i.qty * (i.unit_price or 0),
+                "line_total": i.line_total,
                 "service_mode": i.service_mode,
                 "prepared_qty": i.prepared_qty,
                 "remaining_qty": i.remaining_qty,

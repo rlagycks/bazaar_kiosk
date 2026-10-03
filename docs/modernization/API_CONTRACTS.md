@@ -48,7 +48,7 @@
 | JSON 중첩 깊이 | 해석기 스택을 넘기면 거절 | 400 |
 | `floor`/`order_type` | 대문자로 비교. **공백을 다듬지 않는다** | 400 |
 | `note`/`table_number` | 공백을 다듬는다(기존 동작) | 400 |
-| `items` | 비어 있지 않은 객체 배열 | 400 |
+| `items` | 비어 있지 않은 객체 배열. 줄마다 `{menu_item_id, qty, mode}` 또는 기타 줄 `{custom_name, qty, line_amount, mode}`(D-073, 둘을 섞으면 거절) | 400 |
 | 금액·수량 | [payments](PAYMENTS.md)가 검사(7A) | 400 |
 | `request_id` | [idempotency](IDEMPOTENCY.md)가 검사(6A) | 400 |
 

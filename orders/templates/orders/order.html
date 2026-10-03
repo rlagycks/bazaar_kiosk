@@ -23,6 +23,23 @@
     <p id="mode-hint">홀 · 수량을 선택한 뒤 담아 주세요</p>
     <p id="order-notice" role="status" aria-live="polite"></p>
     <section id="menu-grid" class="menu-grid" aria-label="메뉴 목록" aria-busy="true"><p class="ui-muted">메뉴를 불러오는 중입니다.</p></section>
+    <section id="custom-item" class="menu-tile custom-item" aria-labelledby="custom-title">
+      <h2 id="custom-title" class="menu-name">기타 품목</h2>
+      <p class="ui-muted">메뉴판에 없거나 가격을 따로 정할 때 입력하세요. 금액은 수량 전체의 합계입니다. 메뉴 이름과 같으면 통계에서 그 메뉴에 합쳐집니다.</p>
+      <label class="field" for="custom-name">품목명
+        <input id="custom-name" maxlength="100" list="custom-names" autocomplete="off" placeholder="예) 삼계탕">
+      </label>
+      <datalist id="custom-names"></datalist>
+      <div class="custom-figures">
+        <label class="field" for="custom-qty">수량
+          <input id="custom-qty" inputmode="numeric" maxlength="2" value="1" autocomplete="off">
+        </label>
+        <label class="field" for="custom-amount">합계 금액(원)
+          <input id="custom-amount" inputmode="numeric" maxlength="24" placeholder="예) 20000" autocomplete="off">
+        </label>
+      </div>
+      <button type="button" id="btn-custom-add" class="ui-button add">기타 담기</button>
+    </section>
     <noscript><p class="ui-error">주문하려면 브라우저에서 JavaScript를 허용해 주세요.</p></noscript>
   </main>
   <footer class="serving-footer">

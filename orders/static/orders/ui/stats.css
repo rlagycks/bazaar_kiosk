@@ -56,3 +56,5 @@ body:has(#account-menu[open]) { overflow: hidden; }
   .payment-grid { gap: 16px; }
   .payment-grid dd { font-size: 22px; }
 }
+.stats-page .menu-part td { color: var(--ui-muted); font-size: 0.9em; }
+.stats-page .menu-part td:first-child { padding-left: 1.5em; }

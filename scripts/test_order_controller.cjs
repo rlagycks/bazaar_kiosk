@@ -13,13 +13,18 @@ const sources = ['order_state.js', 'order.js'].map(name => ({
 
 const {fakeDocument} = require('./fake_document.cjs');
 
-async function app(respond) {
+async function app(respond, {custom = false} = {}) {
   const document = fakeDocument();
   const add = (parent, tag, id, attrs = {}) => parent.append(document.create(tag, {...attrs, ...(id ? {id} : {})}));
   const page = add(document, 'main', 'order-page', {class: 'serving-page', 'data-menu-url': '/orders/menus/', 'data-order-url': '/orders/'});
   const tabs = add(page, 'nav', 'menu-tabs');
   for (const mode of ['DINE_IN', 'TAKEOUT']) add(tabs, 'button', '', {class: 'menu-tab', 'data-mode': mode});
   for (const id of ['mode-hint', 'order-notice', 'menu-grid']) add(page, 'div', id);
+  if (custom) {
+    const section = add(page, 'section', 'custom-item');
+    for (const id of ['custom-name', 'custom-qty', 'custom-amount']) add(section, 'input', id);
+    add(section, 'datalist', 'custom-names'); add(section, 'button', 'btn-custom-add');
+  }
   add(document, 'p', 'order-summary'); add(document, 'button', 'btn-checkout');
   const checkout = add(document, 'dialog', 'checkout', {class: 'checkout'});
   for (const id of ['btn-back', 'btn-submit', 'btn-reset']) add(checkout, 'button', id);
@@ -182,4 +187,35 @@ test('shorthand transfers focus at first ticket digit and remaining typing enter
   assert.equal(ui.posts[0].payload.received_cash_amount, 10000);
   assert.equal(ui.posts[0].payload.received_ticket_amount, 5000);
   assert.equal(ui.posts[0].payload.payment_method, 'CASH_TICKET');
+});
+
+test('D-073: a custom line posts its name, quantity and line total, and only removes', async () => {
+  const ui = await app(saved, {custom: true});
+  assert.equal(ui.get('custom-names').children[0].attrs.value, '떡볶이');
+  await ui.input('custom-name', '  삼계탕 '); await ui.input('custom-qty', '3'); await ui.input('custom-amount', '20,000');
+  await ui.click(ui.get('btn-custom-add'));
+  assert.match(ui.get('order-notice').textContent, /기타 삼계탕 3개 20,000원/);
+  for (const id of ['custom-name', 'custom-amount']) assert.equal(ui.get(id).value, '');
+  assert.equal(ui.get('custom-qty').value, '1');
+  await ui.click(ui.get('menu-grid').querySelector('[data-action="add"]'));
+  await ui.click(ui.get('btn-checkout'));
+  assert.match(ui.get('cart-items').textContent, /기타 · 삼계탕/);
+  assert.equal(ui.get('total-amount').textContent, '24,000원');
+  const customRow = ui.get('cart-items').querySelector('[data-id="custom-1"]');
+  assert.equal(customRow.querySelector('[data-action="inc"]'), null);
+  await ui.input('table-number', '12'); await ui.input('cash-in', '24000');
+  await ui.submit();
+  assert.deepEqual(ui.posts[0].payload.items, [
+    {custom_name: '삼계탕', qty: 3, line_amount: 20000, mode: 'DINE_IN'},
+    {menu_item_id: 7, qty: 1, mode: 'DINE_IN'},
+  ]);
+});
+
+test('D-073: an incomplete custom line is explained and nothing is added', async () => {
+  const ui = await app(saved, {custom: true});
+  await ui.input('custom-name', '떡꼬치');
+  await ui.click(ui.get('btn-custom-add'));
+  assert.match(ui.get('order-notice').textContent, /합계 금액/);
+  assert.equal(ui.get('btn-checkout').disabled, true);
+  assert.equal(ui.get('custom-name').value, '떡꼬치');
 });

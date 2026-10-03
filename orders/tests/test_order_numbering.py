@@ -298,7 +298,7 @@ class PracticeOrdersLeaveSalesAloneTests(TestCase):
         data = response.json()
         # These tests are about the series, not about 8C's added counts.
         data["summary"] = {k: v for k, v in data["summary"].items() if k in ("orders", "items", "revenue")}
-        data["menu"] = [{k: v for k, v in row.items() if k != "menu_item_id"} for row in data["menu"]]
+        data["menu"] = [{k: v for k, v in row.items() if k not in {"menu_item_id", "custom_qty", "custom_amount"}} for row in data["menu"]]
         return data
 
     def test_a_practice_order_adds_nothing_to_the_totals(self):

@@ -7,6 +7,8 @@ where they were (BK-R008). The user chose to keep that editing and route it
 through here, so an admin save keeps the same promises the screens keep:
 
 * the total is the price snapshot times quantity, recomputed from the lines;
+  a custom line counts its stored line total and cannot be changed, only
+  deleted and entered again (D-073);
 * the money received is history and is not touched; the change is derived
   from it again, and a total the money no longer covers is refused (D-048);
 * incomplete items reopen READY; preparation alone never completes it (UI-05B);
@@ -42,6 +44,17 @@ class Line:
     # A menu item the serving screen could not sell (inactive, or not a
     # kitchen item). The admin must not add what the API refuses (PR #70).
     sellable: bool = True
+    # D-073: a custom line's whole-line amount, and whether the edit touches
+    # its name, quantity or amount (refused: delete it and enter it again).
+    line_amount: int | None = None
+    custom_changed: bool = False
+
+    @property
+    def amount(self) -> tuple[int, int]:
+        """(price, quantity) as `payments.order_total` sums them."""
+        if self.line_amount is not None:
+            return self.line_amount, 1
+        return self.unit_price, self.qty
 
 
 def payment_of(order: Order) -> payments.Payment:
@@ -68,11 +81,13 @@ def check_lines(order: Order, lines: Iterable[Line]) -> payments.Settlement:
             continue
         if not line.sellable:
             raise EditRefused("판매 중인 주방 메뉴만 담을 수 있습니다.")
+        if line.custom_changed:
+            raise EditRefused("기타 품목은 고칠 수 없습니다. 지우고 다시 입력해 주세요.")
         if line.qty < 1 or line.qty > payments.MAX_QTY:
             raise EditRefused(f"수량은 1 이상 {payments.MAX_QTY} 이하여야 합니다.")
         if line.qty < line.prepared_qty:
             raise EditRefused("이미 조리한 수량보다 적게 줄일 수 없습니다.")
-        kept.append((line.unit_price, line.qty))
+        kept.append(line.amount)
     if not kept:
         raise EditRefused("주문에는 품목이 하나 이상 있어야 합니다.")
     try:
@@ -85,10 +100,10 @@ def check_lines(order: Order, lines: Iterable[Line]) -> payments.Settlement:
 def apply_line_changes(order: Order, actor: Account | None) -> None:
     """Bring the order row in line with its saved items. Call with the order
     locked, inside the transaction that wrote the items."""
-    lines = [Line(int(item.unit_price or 0), item.qty, item.prepared_qty)
+    lines = [Line(int(item.unit_price or 0), item.qty, item.prepared_qty, line_amount=item.line_amount)
              for item in order.items.all()]
     settlement = check_lines(order, lines)
-    order.total_price = payments.order_total((l.unit_price, l.qty) for l in lines)
+    order.total_price = payments.order_total(line.amount for line in lines)
     order.change_amount = settlement.change
     order.save(update_fields=["total_price", "change_amount", "updated_at"])
     previous = order.status

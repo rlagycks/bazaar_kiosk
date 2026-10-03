@@ -15,7 +15,9 @@
   // and every place this label appears already shows the number beside it.
   const tableName = order => (model.kind(order) === '포장' ? '포장 교환권' : '테이블 ' + (order.table?.number ?? '미지정'));
   const clock = value => value ? new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false}) : '—';
-  const menuSummary = order => order.items.map(item => `${modeName(item)} ${item.menu_item_name} ${item.qty}`).join(' · ');
+  // D-073: a custom line is named as entered and marked so the kitchen knows it.
+  const itemName = item => (item.is_custom ? '기타 · ' : '') + item.menu_item_name;
+  const menuSummary = order => order.items.map(item => `${modeName(item)} ${itemName(item)} ${item.qty}`).join(' · ');
   const notice = text => { byId('monitor-notice').textContent = text; };
   function button(text, action, id, primary = false) {
     return el('button', {text, class: 'ui-button' + (primary ? ' ui-button-primary' : ''),
@@ -111,12 +113,12 @@
     DOM.render(byId('detail-items'), draft.items().map(item => {
       const id = 'prepared-' + item.id;
       return el('section', {class: 'detail-item'}, [
-        el('h3', {text: `${modeName(item)} · ${item.menu_item_name} · 주문 ${item.qty}개`}),
+        el('h3', {text: `${modeName(item)} · ${itemName(item)} · 주문 ${item.qty}개`}),
         el('div', {class: 'prepared-control'}, [el('label', {text: '준비 수량', attrs: {for: id}}),
-          el('button', {class: 'ui-button', text: '−', attrs: {type: 'button', 'aria-label': item.menu_item_name + ' 준비 수량 줄이기'}, data: {step: '-1', 'item-id': item.id}}),
-          el('input', {attrs: {id, type: 'text', inputmode: 'numeric', maxlength: '2', value: String(item.prepared_qty), 'aria-label': `${modeName(item)} ${item.menu_item_name} 준비 수량`, 'aria-describedby': 'remaining-' + item.id}, data: {'item-id': item.id}}),
+          el('button', {class: 'ui-button', text: '−', attrs: {type: 'button', 'aria-label': itemName(item) + ' 준비 수량 줄이기'}, data: {step: '-1', 'item-id': item.id}}),
+          el('input', {attrs: {id, type: 'text', inputmode: 'numeric', maxlength: '2', value: String(item.prepared_qty), 'aria-label': `${modeName(item)} ${itemName(item)} 준비 수량`, 'aria-describedby': 'remaining-' + item.id}, data: {'item-id': item.id}}),
           el('span', {text: '/ ' + item.qty}),
-          el('button', {class: 'ui-button', text: '+', attrs: {type: 'button', 'aria-label': item.menu_item_name + ' 준비 수량 늘리기'}, data: {step: '1', 'item-id': item.id}})]),
+          el('button', {class: 'ui-button', text: '+', attrs: {type: 'button', 'aria-label': itemName(item) + ' 준비 수량 늘리기'}, data: {step: '1', 'item-id': item.id}})]),
         el('p', {class: 'ui-muted', text: `남은 ${item.qty - item.prepared_qty}개`, attrs: {id: 'remaining-' + item.id}}),
       ]);
     }));

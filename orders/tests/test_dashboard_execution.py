@@ -62,7 +62,7 @@ class DashboardExecutionTests(TestCase):
         data["summary"] = {k: v for k, v in data["summary"].items() if k in ("orders", "items", "revenue")}
         data["payment"] = {k: v for k, v in data["payment"].items()
                            if k in ("cash", "ticket", "cash_ratio", "ticket_ratio")}
-        data["menu"] = [{k: v for k, v in row.items() if k != "menu_item_id"} for row in data["menu"]]
+        data["menu"] = [{k: v for k, v in row.items() if k not in {"menu_item_id", "custom_qty", "custom_amount"}} for row in data["menu"]]
         return data
 
     def test_empty_dashboard_returns_zero_totals_and_empty_groups(self):
