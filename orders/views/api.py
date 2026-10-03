@@ -162,7 +162,12 @@ def orders_collection(request: HttpRequest):
         table_number_raw = validators.text(p, "table_number")
     except validators.InvalidInput as exc:
         return HttpResponseBadRequest(str(exc))
-    if order_type == OrderType.DINE_IN and not is_takeout:
+    if order_type == OrderType.DINE_IN and is_takeout:
+        # No screen sends this pair. Left alone it reached the database with
+        # no table and came back as a 500 from the check constraint; a
+        # contradiction in the payload is the caller's to fix (PR #88 review).
+        return HttpResponseBadRequest("매장 주문(DINE_IN)에는 is_takeout을 켤 수 없습니다.")
+    if order_type == OrderType.DINE_IN:
         if not table_number_raw:
             return HttpResponseBadRequest("매장 주문은 테이블 번호가 필요합니다(포장 제외).")
         try:
