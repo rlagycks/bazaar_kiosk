@@ -7,7 +7,7 @@
 .monitor-toolbar { margin-bottom: 16px; }
 .monitor-section-heading { margin: 24px 0 16px; }
 .monitor-section-heading h2 { font-size: 22px; }
-.waiting-orders { display: flex; align-items: stretch; gap: 16px; overflow-x: auto; padding-bottom: 16px; scroll-snap-type: x proximity; }
+.waiting-orders { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 16px; scroll-snap-type: x proximity; }
 .monitor-card { flex: 0 0 420px; padding: 20px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--ui-line); border-radius: 14px; background: var(--ui-surface); scroll-snap-align: start; min-width: 0; }
 .monitor-card h3 { margin: 0; font-size: 26px; }
 .monitor-card .menu-summary { font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
@@ -60,4 +60,39 @@ body:has(dialog[open]) { overflow: hidden; }
   .monitor-dialog-header { padding: 16px; }
   .monitor-dialog-body { padding: 0 16px 16px; }
   .monitor-dialog-footer { padding: 12px 16px 16px; }
+}
+
+/* Hall cards grow with all menu rows; adjacent cards keep their own height. */
+.hall-card { align-self: flex-start; min-height: 400px; gap: 16px; padding: 20px; border-radius: 14px; }
+.hall-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.hall-reference { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.hall-order-number { font-size: 22px; font-weight: 800; }
+.hall-received { font-size: 14px; color: var(--ui-muted); }
+.hall-table { width: 72px; min-height: 64px; flex-shrink: 0; border: 1px solid var(--ui-line); border-radius: 10px; background: var(--ui-tint); color: var(--ui-ink); text-align: center; padding: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.hall-table span { font-size: 11px; font-weight: 700; }
+.hall-table strong { font-size: 36px; line-height: 1.1; overflow-wrap: anywhere; max-width: 100%; }
+.hall-menu-list { display: flex; flex-direction: column; gap: 8px; }
+.hall-menu-row { position: relative; isolation: isolate; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 76px; padding: 16px; border: 0; border-radius: 8px; background: var(--ui-surface); color: var(--ui-ink); font: inherit; text-align: left; cursor: pointer; touch-action: pan-x pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.hall-menu-row::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--ui-tint); border-radius: 8px; transform: scaleX(0); transform-origin: left; }
+.hall-menu-row[data-holding="true"]::before { transform: scaleX(1); transition: transform 1s linear; }
+.hall-menu-row:focus-visible { outline: 3px solid var(--ui-accent); outline-offset: 3px; }
+.hall-menu-name { min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 24px; font-weight: 700; overflow-wrap: anywhere; }
+.hall-mode { font-size: 12px; color: var(--ui-accent); }
+.hall-menu-quantity { flex-shrink: 0; color: var(--ui-accent); font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.hall-menu-quantity > span { font-size: 14px; font-weight: 500; margin-left: 4px; }
+.hall-menu-row.is-complete { color: var(--ui-muted); background: var(--ui-line); cursor: default; }
+.hall-menu-row:disabled { cursor: default; }
+.ui05 .hall-menu-row.is-complete:disabled { opacity: 1; }
+.hall-hold-help, .hall-progress { font-size: 12px; color: var(--ui-muted); }
+.hall-progress { font-weight: 700; }
+.hall-menu-row.is-complete .hall-menu-quantity { color: inherit; }
+.hall-card .card-actions { gap: 12px; }
+.hall-card .card-actions .ui-button { padding-inline: 8px; min-height: 52px; font-size: 16px; }
+@media (max-width: 700px) {
+  .hall-card { padding: 16px; }
+  .hall-menu-row { padding: 12px; }
+  .hall-menu-name, .hall-menu-quantity { font-size: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hall-menu-row[data-holding="true"]::before { transition: none; }
 }
