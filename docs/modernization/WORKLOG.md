@@ -3,6 +3,18 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
+## 2026-10-03 — 관리자 화면 429 수정: 요청 제한을 로그인 POST로 좁힘(D-074), 배포 대기
+
+- 증상(사용자 제보): https://moau.store 관리자에서 테이블을 연달아 추가하다 `GET /admin/orders/table/`이
+  `429 Too Many Requests`(`server: nginx`). 원인은 `scripts/nginx_tls/10_https.conf.template`의 `/admin/` 전체
+  `limit_req`(20 r/m·burst 20). 테이블 한 개에 `/admin/` 요청 3~5개라 5~6개째에 버킷이 빈다. 앱에는 이 경로 제한 없음.
+- 변경: `/admin/login/` 정확 일치 location(POST만 세는 `bk_admin_login` 10 r/m·burst 10), 나머지 `/admin/`은
+  `bk_admin` 300 r/m·burst 100. 런북 표·D-074 갱신. 서버의 `tls/conf.d/`는 배포 때 다시 렌더링되므로 직접 고치지 않았다.
+- 검증(로컬 nginx 1.27-alpine 고정 이미지, 자체 서명 인증서, 백엔드 없음이라 통과 = 502): 수정 전 템플릿에서
+  `GET /admin/orders/table/` 25회 → 502×21, 429×4로 재현. 수정 후 `nginx -t` 통과, 같은 GET 100회 502×100,
+  `/admin/login/` GET 30회 전부 통과, POST 12회 → 502×11·429×1, `/orders/login/` POST 65회 → 502×62·429×3(변화 없음).
+- 남은 일: 커밋 push와 배포(`deploy.sh` 또는 CD, 운영 반영은 별도 승인). 배포 뒤 운영에서 테이블 연속 추가 확인.
+
 ## 2026-10-03 — 서빙 화면 기타 품목과 통계 합산(D-073)
 
 - 사용자 요청·결정: 서빙에서 메뉴판에 없는 품목이나 따로 정한 가격을 "기타"로 이름·수량·금액 입력, 정산 때 이름이 같은
