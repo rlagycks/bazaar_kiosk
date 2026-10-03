@@ -205,6 +205,11 @@ class RefusalReachesTheScreenTests(TestCase):
                 client = self.client_class()
                 login_client(client, "KITCHEN")
                 page = client.get(reverse(f"orders:{name}")).content.decode()
+                if name == "kitchen-takeout":
+                    # D-075: the menu-based takeout screen has one refusal region.
+                    self.assertIn("ui/takeout.js", page)
+                    self.assertIn('id="takeout-error" class="ui-error" role="alert"', page)
+                    continue
                 self.assertIn("ui/monitor.js", page)
                 self.assertIn('id="detail-error" class="ui-error" role="alert"', page)
                 self.assertIn('id="confirm-error" class="ui-error" role="alert"', page)

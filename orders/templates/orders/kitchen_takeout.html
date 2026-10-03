@@ -1,0 +1,76 @@
+{% load static %}
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ page_title }} | 바자회</title>
+  <link rel="stylesheet" href="{% static 'orders/ui/ui05.css' %}">
+  <link rel="stylesheet" href="{% static 'orders/ui/account.css' %}">
+  <link rel="stylesheet" href="{% static 'orders/ui/takeout.css' %}">
+</head>
+<body class="ui05">
+  <main id="takeout-page" class="takeout-page"
+    data-snapshot-url="{% url 'orders:snapshot-takeout' %}?page={{ history_page }}"
+    data-stream-url="{% url 'orders:kitchen-stream' %}"
+    data-complete-url="{% url 'orders:takeout-complete' %}"
+    data-login-url="{% url 'orders:login' %}">
+    <header class="takeout-header">
+      <p class="takeout-brand">BAZAAR / 포장 모니터링 · {{ account_name }}</p>
+      <button class="ui-button" type="button" data-account-menu-open>내 메뉴</button>
+    </header>
+    <h1>{{ page_title }}</h1>
+    <div class="takeout-toolbar">
+      <p class="takeout-description">메뉴별 남은 수량을 확인하고, 준비한 수량만큼 완료해 주세요.</p>
+      <button class="ui-button" type="button" id="takeout-reload">새로고침</button>
+    </div>
+    {% include 'orders/_practice_banner.html' %}
+    <p id="takeout-live" class="takeout-live" role="status">메뉴를 불러오는 중…</p>
+    <p id="takeout-notice" class="takeout-notice" role="status" aria-live="polite"></p>
+    <section aria-labelledby="takeout-remaining-title">
+      <div class="takeout-section-heading">
+        <h2 id="takeout-remaining-title">남은 수량 <span id="takeout-remaining-total">—</span></h2>
+        <p id="takeout-menu-count" class="takeout-help">메뉴 —종</p>
+      </div>
+      <div id="takeout-menus" class="takeout-grid" aria-busy="true">
+        <p class="takeout-empty">메뉴를 불러오는 중입니다.</p>
+      </div>
+    </section>
+    <section class="takeout-completion" aria-labelledby="takeout-selection-title" aria-busy="false" id="takeout-completion">
+      <h2 id="takeout-selection-title" tabindex="-1">이번 완료 <span id="takeout-selected-total">0개</span></h2>
+      <p id="takeout-selection-summary" class="takeout-selection-summary" aria-live="polite" aria-atomic="true">완료할 수량을 선택해 주세요.</p>
+      <div id="takeout-review-panel" class="takeout-review-panel" hidden>
+        <p id="takeout-review-message" role="status"></p>
+        <button class="ui-button" type="button" id="takeout-review" disabled>최신 내역·남은 수량을 확인했습니다</button>
+        <button class="ui-button" type="button" id="takeout-retry" aria-describedby="takeout-review-message" hidden disabled>완료 결과 다시 확인</button>
+      </div>
+      <p id="takeout-error" class="ui-error" role="alert" tabindex="-1"></p>
+      <button class="ui-button ui-button-primary takeout-submit" type="button" id="takeout-submit" disabled>선택한 수량 완료</button>
+      <p class="takeout-help">선택한 수량은 먼저 접수된 주문부터 반영됩니다. 완료한 수량만큼 남은 수량이 줄어듭니다.</p>
+    </section>
+    <section id="history" aria-labelledby="takeout-history-title">
+      <div class="takeout-section-heading">
+        <h2 id="takeout-history-title">전체 주문 내역</h2>
+        <p class="takeout-help">최근 접수순 · 전체 기간</p>
+      </div>
+      <div class="takeout-history-scroll" tabindex="0" role="region" aria-label="포장 주문 내역 표">
+        <table class="takeout-history-table">
+          <caption class="sr-only">포장 주문의 교환권 번호, 서울 기준 접수 일시, 메뉴와 주문 수량</caption>
+          <thead><tr><th scope="col">주문(교환권) · 접수 일시</th><th scope="col">메뉴 · 수량</th><th scope="col">총 수량</th></tr></thead>
+          <tbody id="takeout-history"><tr><td colspan="3">주문 내역을 불러오는 중입니다.</td></tr></tbody>
+        </table>
+      </div>
+      <nav id="takeout-pagination" class="takeout-pagination" aria-label="포장 주문 내역 페이지"></nav>
+    </section>
+    <noscript><p class="ui-error">모니터링하려면 브라우저에서 JavaScript를 허용해 주세요.</p></noscript>
+  </main>
+  {% include 'orders/_account_menu.html' %}
+  <script src="{% static 'orders/ui/auth.js' %}" data-auth-account="{{ request.auth_account.id }}" data-auth-session="{{ request.auth_session_id }}"></script>
+  <script src="{% static 'orders/ui/dom.js' %}"></script>
+  <script src="{% static 'orders/ui/kitchen_live.js' %}"></script>
+  <script src="{% static 'orders/ui/request_id.js' %}"></script>
+  <script src="{% static 'orders/ui/takeout_state.js' %}"></script>
+  <script src="{% static 'orders/ui/takeout.js' %}"></script>
+  <script src="{% static 'orders/ui/account_menu.js' %}"></script>
+</body>
+</html>

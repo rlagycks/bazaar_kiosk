@@ -5,17 +5,26 @@
   }
   function label(order) {
     if (order.status === 'CANCELLED') return '취소';
+    if (order.status === 'READY' && kind(order) === '포장' && !order.departed_at) return '포장 완료';
+    if (hallCompleted(order)) {
+      const pending = order.takeout_pending_qty ?? order.items.filter(item => item.service_mode === 'TAKEOUT')
+        .reduce((sum, item) => sum + item.qty - item.prepared_qty, 0);
+      return pending > 0 ? '식당 서빙 출발 · 포장 대기' : '서빙 출발';
+    }
     if (order.status === 'READY') return order.departed_at ? '서빙 출발' : '기존 완료 · 출발 미확인';
     const sum = totals(order);
     return sum.qty > 0 && sum.prepared === sum.qty ? '준비 완료 · 출발 대기' : '준비 중';
   }
   function kind(order) { return order.items.some(item => item.service_mode === 'DINE_IN') ? '식당' : '포장'; }
+  function hallCompleted(order) { return kind(order) === '식당' && Boolean(order.hall_completed || order.departed_at); }
   function editor(order) {
     const original = JSON.parse(JSON.stringify(order));
     const quantities = new Map(original.items.map(item => [item.id, item.prepared_qty]));
+    const editableIds = new Set(original.items.filter(item => kind(original) !== '식당' || item.service_mode === 'DINE_IN').map(item => item.id));
+    function editable(id) { return editableIds.has(id); }
     function set(id, raw) {
       const item = original.items.find(row => row.id === id);
-      if (!item || original.status === 'CANCELLED') throw new Error('수정할 수 없는 주문입니다.');
+      if (!item || !editable(id) || original.status === 'CANCELLED') throw new Error('수정할 수 없는 주문입니다.');
       if (!/^[0-9]+$/.test(String(raw))) throw new Error('준비 수량은 정수로 입력하세요.');
       const value = Number(raw);
       if (!Number.isSafeInteger(value) || value < 0 || value > item.qty) throw new Error(`준비 수량은 0~${item.qty}개로 입력하세요.`);
@@ -25,13 +34,13 @@
     function dirty() { return original.items.some(item => quantities.get(item.id) !== item.prepared_qty); }
     function payload(action) {
       const result = {action, expected_version: original.monitor_version};
-      if (action === 'progress') result.items = items().map(item => ({id: item.id, prepared_qty: item.prepared_qty}));
+      if (action === 'progress') result.items = items().filter(item => editable(item.id)).map(item => ({id: item.id, prepared_qty: item.prepared_qty}));
       return result;
     }
-    return Object.freeze({original, set, items, dirty, payload,
+    return Object.freeze({original, set, items, dirty, payload, editable,
       conflicts: latest => !latest || latest.monitor_version !== original.monitor_version});
   }
-  const api = Object.freeze({totals, label, kind, editor});
+  const api = Object.freeze({totals, label, kind, hallCompleted, editor});
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.BazaarMonitorState = api;
 })(typeof window === 'undefined' ? globalThis : window);

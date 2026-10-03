@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from django.db import transaction
 from django.utils import timezone
 
-from orders.models import Order, OrderStatus
+from orders.models import Order, OrderStatus, OrderType
 from orders.services import audit, revisions, scope
 from orders.services import status as status_service
 
@@ -99,22 +99,27 @@ def apply(order_id: int, payload: dict, *, actor, permissions) -> Order:
     if monitor_version(order, items=items) != action.expected_version:
         raise ActionConflict("다른 기기에서 주문을 변경했습니다. 새로고침 후 다시 시도해 주세요.")
 
+    hall_items = [item for item in items if item.service_mode == OrderType.DINE_IN]
+    mixed = bool(hall_items) and len(hall_items) != len(items)
+    editable = hall_items if mixed else items
     quantities = dict(action.items)
     if action.name == "progress":
-        if set(quantities) != {item.pk for item in items}:
-            raise InvalidAction("주문의 모든 품목을 빠짐없이 한 번씩 지정해 주세요.")
-        if any(quantities[item.pk] > item.qty for item in items):
+        if set(quantities) != {item.pk for item in editable}:
+            raise InvalidAction("담당 품목의 준비 수량을 빠짐없이 지정해 주세요. 혼합 주문의 포장은 포장 화면에서 처리합니다.")
+        if any(quantities[item.pk] > item.qty for item in editable):
             raise InvalidAction("준비 수량이 주문 수량을 초과합니다.")
     if order.status == OrderStatus.CANCELLED and action.name != "cancel":
         raise ActionConflict("취소된 주문은 변경할 수 없습니다.")
     if action.name == "depart":
+        if mixed and order.departed_at is not None:
+            return order  # Hall already departed; never fill its takeout lines.
         if order.status == OrderStatus.READY:
             if order.departed_at is None:
                 raise ActionConflict("기존 완료 이력에는 출발 기록이 없습니다. 재개 후 출발해 주세요.")
             return order  # A fresh-version retry of an already recorded departure.
         if order.status != OrderStatus.PREPARING or not items:
             raise ActionConflict("준비 중인 주문만 출발할 수 있습니다.")
-        quantities = {item.pk: item.qty for item in items}
+        quantities = {item.pk: item.qty for item in editable}
 
     changed = False
     previous = order.status
@@ -133,11 +138,21 @@ def apply(order_id: int, payload: dict, *, actor, permissions) -> Order:
             # must do so too, or 0 -> 1 -> 0 revives an earlier version.
             order.save(update_fields=["updated_at"])
     elif action.name == "depart":
-        status_service.change(order, OrderStatus.READY)
         order.departed_at = timezone.now()
+        if all(item.remaining_qty == 0 for item in items):
+            status_service.change(order, OrderStatus.READY)
         order.save(update_fields=["departed_at", "updated_at"])
+        if mixed:
+            audit.record_departure(order, actor)
+        changed = True
     elif action.name == "reopen":
         status_service.change(order, OrderStatus.PREPARING)
+        if order.departed_at is not None:
+            # Mixed order may already be PREPARING while takeout is pending.
+            order.departed_at = None
+            order.save(update_fields=["departed_at", "updated_at"])
+            audit.record_status(order, actor, previous=previous)
+            changed = True
     elif action.name == "cancel":
         status_service.change(order, OrderStatus.CANCELLED)
     if order.status != previous:
