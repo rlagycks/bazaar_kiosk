@@ -60,7 +60,7 @@ test('fresh zero report is empty, not an error; no phantom 100% ticket',async()=
   for(const key of Object.keys(data.payment))data.payment[key]=0;data.menu=[];data.hourly=[];
   const ui=app(()=>json(data));await flush();assert.equal(ui.get('summaryRevenue').textContent,'0원');
   assert.equal(ui.get('stats-empty').hidden,false);assert.equal(ui.get('stats-error-panel').hidden,true);
-  assert.equal(ui.get('unattributedPanel').hidden,true);assert.match(ui.get('paymentRatio').textContent,/현금 0% · 식권 0%/);
+  assert.equal(ui.get('unattributedPanel').hidden,true);assert.match(ui.get('paymentRatio').textContent,/현금 0% · 티켓 0%/);
 });
 test('initial failure never renders a false zero and retry uses same default query',async()=>{
   const ui=app(n=>n===1?Promise.reject(new TypeError('offline')):json(fixture()));await flush();

@@ -2355,3 +2355,11 @@ docs/modernization/prompts/02_REVIEW_BLUEPRINT.md에 작성된 프롬프트를
 - 포함 범위: 05안 채택/댓글 기록, 로그인·내 메뉴·서빙 UI, 관련 테스트와 CI, 인수 문서.
   PostgreSQL 26+533 및 Node 67 통과, 실제 휴대폰 viewport 검증은 위 UI-05A 기록을 따른다.
 - 게시 전 `git diff --check`와 변경 범위·검증 로그를 확인했다. 임시 실행 파일과 합성 DB는 포함하지 않는다.
+
+### 2026-10-03 — 사용자 노출 문구 “식권”을 “티켓”으로 통일
+
+- 사용자 승인 범위: 화면·오류 메시지·운영 보고서의 표시 문구만 변경한다. DB 선택지 라벨은 이미 “티켓”이다.
+- 변경 파일: `orders/templates/orders/order.html`, `b1_counter.html`, `orders/static/orders/ui/order.js`,
+  `order_state.js`, `stats.js`, `orders/services/payments.py`, `legacy_audit.py`, `scripts/test_stats_ui.cjs`.
+- 코드 식별자, API 필드(`received_ticket_amount`, `TICKET`), 마이그레이션, 과거 문서는 바꾸지 않았다.
+- 검증: Node 테스트와 `git diff --check`. 남은 위험 없음(문구 전용).

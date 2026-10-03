@@ -17,10 +17,10 @@
     get('summaryExcluded').textContent = `취소 ${s.cancelled_orders}건 · 연습 주문 제외`;
     for (const [id,key] of [['paymentCash','cash'],['paymentChange','change'],['paymentNetCash','net_cash'],['paymentTicket','ticket']]) get(id).textContent = money(p[key]);
     const percentages = state.ratio(p);
-    get('paymentRatio').textContent = `받은 현금·식권 합계 기준: 현금 ${percentages.cash}% · 식권 ${percentages.ticket}%`;
+    get('paymentRatio').textContent = `받은 현금·티켓 합계 기준: 현금 ${percentages.cash}% · 티켓 ${percentages.ticket}%`;
     get('legacyNotice').textContent = s.legacy_unsplit_orders ? `구형 수납 기록 ${s.legacy_unsplit_orders}건은 기존 결제 방식으로 해석했습니다.` : '';
     get('unattributedPanel').hidden = s.unattributed_orders === 0;
-    get('unattributedAmount').textContent = `과거 혼합 결제 ${s.unattributed_orders}건 · ${money(s.unattributed_amount)}은 현금·식권 내역에 포함되지 않습니다.`;
+    get('unattributedAmount').textContent = `과거 혼합 결제 ${s.unattributed_orders}건 · ${money(s.unattributed_amount)}은 현금·티켓 내역에 포함되지 않습니다.`;
     get('stats-empty').hidden = s.orders !== 0;
     DOM.render(get('menuTableBody'), data.menu.length ? data.menu.map(row => el('tr',{},[
       el('td',{text:row.name}),el('td',{class:'numeric',text:row.qty.toLocaleString('ko-KR')+'개'}),
