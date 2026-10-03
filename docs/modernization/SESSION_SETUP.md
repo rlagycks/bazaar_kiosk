@@ -4,7 +4,7 @@
 
 ## 현재 단계와 기준
 
-**2026-10-03 현재 — 포장 메뉴별 완료(D-075), 구현·검증 중:**
+**2026-10-03 현재 — 포장 메뉴별 완료(D-075), 구현·검증 완료, PR 리뷰 대기:**
 전용 worktree는 `/Users/gimhyochan/system/bazaar_kiosk-takeout`, 브랜치는 `ui/takeout-menu-monitor`다.
 착수 직전 조회한 `origin/develop` `d94a39b`(PR #98 포함)가 기준이며 당시 `origin/main`과 파일 트리는 같았다.
 [포장 UI 계약](UI_TAKEOUT_MONITORING.md)과 [D-075](DECISIONS.md)를 먼저 읽는다. 승인된 Figma 세 프레임은 코드 구현 기준이고
@@ -21,7 +21,7 @@ Figma 파일 자체는 변경하지 않는다. TAKEOUT 품목은 혼합 주문�
 0034는 기존 주문 데이터를 변경하지 않는다. 운영 DB 적용은 이번 범위 밖이다. 사용 후 역이행은 영수증을 지워 중복 반영을 허용할 수 있다.
 구버전 식당 출발은 혼합 주문 양쪽 품목을 채울 수도 있으므로 출발·감사·영수증을 보존하는 정방향 수정으로 복구한다.
 
-이번 승인 범위는 로컬 구현·문서·검증이다. push·PR 생성·merge·배포는 진행하지 않는다.
+이번 승인 범위는 로컬 구현·문서·검증이다. 이후 사용자 지시로 push·PR 생성이 승인됐다(아래). merge·배포는 별도 승인이 필요하다.
 테스트 실행 결과·최종 인수 상태는 총괄 담당자가 [WORKLOG](WORKLOG.md)에 기록한다. 아래 과거 수치를 이번 검증 결과로 쓰지 않는다.
 여러 담당자가 함께 작업 중이므로 다른 담당자의 미커밋 변경을 되돌리지 않는다. 문서 담당 범위는 루트 `README.md`와
 `docs/modernization/`의 `UI_TAKEOUT_MONITORING.md`·`BLUEPRINT.md`·`DECISIONS.md`·`UI_MONITORING.md`·
