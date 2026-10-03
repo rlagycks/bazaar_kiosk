@@ -163,7 +163,12 @@ def orders_collection(request: HttpRequest):
         table_number_raw = validators.text(p, "table_number")
     except validators.InvalidInput as exc:
         return HttpResponseBadRequest(str(exc))
-    if order_type == OrderType.DINE_IN and not is_takeout:
+    if order_type == OrderType.DINE_IN and is_takeout:
+        # No screen sends this pair. Left alone it reached the database with
+        # no table and came back as a 500 from the check constraint; a
+        # contradiction in the payload is the caller's to fix (PR #88 review).
+        return HttpResponseBadRequest("매장 주문(DINE_IN)에는 is_takeout을 켤 수 없습니다.")
+    if order_type == OrderType.DINE_IN:
         if not table_number_raw:
             return HttpResponseBadRequest("매장 주문은 테이블 번호가 필요합니다(포장 제외).")
         try:
@@ -184,7 +189,7 @@ def orders_collection(request: HttpRequest):
     for row in items:
         if not isinstance(row, dict):
             return HttpResponseBadRequest("menu_item_id/qty 형식 오류")
-        # D-070: a custom line carries its own name and line total instead of
+        # D-073: a custom line carries its own name and line total instead of
         # a menu id. The two shapes are not mixed in one line.
         custom = None
         if "custom_name" in row or "line_amount" in row:
@@ -236,7 +241,7 @@ def orders_collection(request: HttpRequest):
     # 7A (D-048): the total is the server's price snapshot; a short payment
     # is refused before anything is written, and the change is decided here.
     try:
-        # A custom line is one amount for the whole line (D-070).
+        # A custom line is one amount for the whole line (D-073).
         total_price = payments.order_total(
             (c.amount, 1) if c else (mi_map[mid].price, qty) for mid, qty, _, c in parsed)
         settlement = payments.settle(payment, total_price)
@@ -407,7 +412,7 @@ def order_item_progress(request: HttpRequest, item_id: int):
             order = status_service.locked(order_id)
             if not scope.may_change(order, request.auth_permissions):
                 return JsonResponse({"detail": "권한이 없습니다."}, status=403)
-            # D-070: the menu is nullable now, and PostgreSQL will not lock the
+            # D-073: the menu is nullable now, and PostgreSQL will not lock the
             # nullable side of an outer join; only the item row is locked here.
             item = (
                 OrderItem.objects.select_related("order", "menu_item")
@@ -542,7 +547,7 @@ def stats_menu_counts(request: HttpRequest):
             order__order_date=today,
             order__number_series=series_for(today),
         )
-        # D-070: a custom line counts under the menu it matched, else its name.
+        # D-073: a custom line counts under the menu it matched, else its name.
         .annotate(line_name=Coalesce(F("menu_item__name"), F("custom_name")))
         .values("line_name")
         .annotate(

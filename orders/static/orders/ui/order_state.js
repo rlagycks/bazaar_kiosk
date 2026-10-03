@@ -21,7 +21,7 @@
     let error = '';
     if (!Number.isFinite(cash) || !Number.isFinite(ticket)) error = '금액은 0~10,000,000원의 정수로 입력하세요.';
     else if (total > MAX_AMOUNT) error = '주문 합계가 너무 큽니다.';
-    else if (method === 'CASH_TICKET' && (!cash || !ticket)) error = '현금과 식권 금액을 모두 입력해 주세요.';
+    else if (method === 'CASH_TICKET' && (!cash || !ticket)) error = '현금과 티켓 금액을 모두 입력해 주세요.';
     else if (cash + ticket < total) error = won(total - cash - ticket) + '원이 부족합니다.';
     return {cash, ticket, received: cash + ticket, error,
       change: error ? 0 : Math.max(0, cash - Math.max(0, total - ticket))};
@@ -45,7 +45,7 @@
       cart.set(k, {...menu, mode, qty});
       selected.set(k, 1);
     }
-    // D-070: a custom line is a name, a quantity and one amount for the whole
+    // D-073: a custom line is a name, a quantity and one amount for the whole
     // line. It is not merged or re-counted; a wrong one is removed and entered again.
     function addCustom(mode, name, qtyText, amountText) {
       const label = String(name ?? '').trim().split(/\s+/).join(' ');

@@ -123,9 +123,9 @@ def render(figures: dict) -> str:
         f"주문 {figures['orders']:,}건을 살펴봤습니다. 이 명령은 아무것도 고치지 않습니다.",
         "",
         f"분할 수납 기록이 없는 주문: {unsplit['count']:,}건 (합계 {unsplit['amount']:,}원)",
-        f"  - 현금·식권 단일 결제라 해석할 수 있음: {unsplit['interpretable']['count']:,}건 "
+        f"  - 현금·티켓 단일 결제라 해석할 수 있음: {unsplit['interpretable']['count']:,}건 "
         f"({unsplit['interpretable']['amount']:,}원)",
-        f"  - 혼합 결제라 현금·식권으로 나눌 수 없음: {unsplit['unattributed']['count']:,}건 "
+        f"  - 혼합 결제라 현금·티켓으로 나눌 수 없음: {unsplit['unattributed']['count']:,}건 "
         f"({unsplit['unattributed']['amount']:,}원)",
         f"한쪽 수단만 기록된 주문: {figures['half_split']['count']:,}건 "
         f"(합계 {figures['half_split']['amount']:,}원, 나머지 한쪽은 0으로 읽습니다)",

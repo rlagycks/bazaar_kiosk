@@ -1,4 +1,4 @@
-"""D-070: custom ("기타") order lines entered on the serving screen.
+"""D-073: custom ("기타") order lines entered on the serving screen.
 
 Additive: two new columns with defaults and a nullable menu reference, so
 every existing row is already a valid menu line under the new constraint.
@@ -19,7 +19,7 @@ def refuse_reverse_over_custom_lines(apps, schema_editor):
     if OrderItem.objects.using(schema_editor.connection.alias).filter(line_amount__isnull=False).exists():
         raise RuntimeError(
             "0032 cannot be reversed: custom order lines exist and would lose their amounts. "
-            "Fix forward instead (D-070)."
+            "Fix forward instead (D-073)."
         )
 
 

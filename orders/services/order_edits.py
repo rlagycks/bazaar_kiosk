@@ -8,7 +8,7 @@ through here, so an admin save keeps the same promises the screens keep:
 
 * the total is the price snapshot times quantity, recomputed from the lines;
   a custom line counts its stored line total and cannot be changed, only
-  deleted and entered again (D-070);
+  deleted and entered again (D-073);
 * the money received is history and is not touched; the change is derived
   from it again, and a total the money no longer covers is refused (D-048);
 * incomplete items reopen READY; preparation alone never completes it (UI-05B);
@@ -44,7 +44,7 @@ class Line:
     # A menu item the serving screen could not sell (inactive, or not a
     # kitchen item). The admin must not add what the API refuses (PR #70).
     sellable: bool = True
-    # D-070: a custom line's whole-line amount, and whether the edit touches
+    # D-073: a custom line's whole-line amount, and whether the edit touches
     # its name, quantity or amount (refused: delete it and enter it again).
     line_amount: int | None = None
     custom_changed: bool = False

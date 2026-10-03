@@ -149,7 +149,7 @@ class OrderItemInlineFormSet(forms.BaseInlineFormSet):
                 price = int(item.unit_price or 0)
                 history = item.events.exists()
                 line_amount = item.line_amount
-                # D-070: a custom line is deleted and entered again, never
+                # D-073: a custom line is deleted and entered again, never
                 # edited; a menu line does not turn into one.
                 touched = set(form.changed_data) & set(_CUSTOM_LOCKED_FIELDS)
                 custom_changed = bool(touched) and (item.is_custom or wants_custom)
@@ -267,7 +267,7 @@ class OrderAdmin(admin.ModelAdmin):
         instances = formset.save(commit=False)
         for item in instances:
             if item.pk is None and item.menu_item_id is None:
-                # D-070: a custom line, tied to a menu by name the way the
+                # D-073: a custom line, tied to a menu by name the way the
                 # serving screen ties it. The formset already validated it.
                 item.custom_name = custom_items.clean_name(item.custom_name)
                 item.menu_item = custom_items.match_menus([item.custom_name]).get(item.custom_name)

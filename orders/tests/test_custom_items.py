@@ -1,4 +1,4 @@
-"""D-070: custom ("기타") lines entered on the serving screen.
+"""D-073: custom ("기타") lines entered on the serving screen.
 
 The serving screen can sell what the menu does not list, or a menu dish at a
 price agreed on the spot: a name, a quantity and the amount for the whole

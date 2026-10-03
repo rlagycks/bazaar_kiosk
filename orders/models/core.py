@@ -170,7 +170,7 @@ class Order(models.Model):
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
-    # D-070: a custom ("기타") line names what it sold and the serving screen
+    # D-073: a custom ("기타") line names what it sold and the serving screen
     # says what it cost for the whole line. It points at the menu whose name it
     # matched when it was taken, or at nothing.
     menu_item = models.ForeignKey(MenuItem, null=True, blank=True, on_delete=models.PROTECT,

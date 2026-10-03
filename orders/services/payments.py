@@ -120,13 +120,13 @@ def read_payment(payload: dict) -> Payment:
     if method == PaymentMethod.CASH:
         return Payment(method, _single(payload, "received_cash_amount", "받은 현금"), 0)
     if method == PaymentMethod.TICKET:
-        return Payment(method, 0, _single(payload, "received_ticket_amount", "받은 식권"))
+        return Payment(method, 0, _single(payload, "received_ticket_amount", "받은 티켓"))
     cash = parse_amount(payload.get("received_cash_amount"), "받은 현금")
-    ticket = parse_amount(payload.get("received_ticket_amount"), "받은 식권")
+    ticket = parse_amount(payload.get("received_ticket_amount"), "받은 티켓")
     if cash is None or ticket is None:
         cash, ticket = _split_legacy_pair(payload.get("received_amount"))
     if not cash or not ticket:
-        raise AmountError("현금과 식권 금액을 모두 입력하세요.")
+        raise AmountError("현금과 티켓 금액을 모두 입력하세요.")
     return Payment(method, cash, ticket)
 
 
@@ -148,7 +148,7 @@ def _split_legacy_pair(raw) -> tuple[int | None, int | None]:
     parts = [part.strip() for part in raw.split("+")]
     if len(parts) != 2 or not all(parts):
         return None, None
-    return parse_amount(parts[0], "받은 현금"), parse_amount(parts[1], "받은 식권")
+    return parse_amount(parts[0], "받은 현금"), parse_amount(parts[1], "받은 티켓")
 
 
 def order_total(lines: Iterable[tuple[int, int]]) -> int:

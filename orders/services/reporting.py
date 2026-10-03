@@ -26,7 +26,7 @@ Now:
 * **Menu.** Grouped by menu id. The name shown is the menu's current name
   because no name snapshot exists yet (D-008 open); the amount is the price
   the line was sold at.
-* **Custom lines (D-070).** A "기타" line tied to a menu when it was taken
+* **Custom lines (D-073).** A "기타" line tied to a menu when it was taken
   counts in that menu's row, and the row says how much of it was custom
   (`custom_qty`, `custom_amount`) so "30개 정가 + 3개 기타 2만원" reads off
   one row. An unmatched custom line gets a row of its own per name, with no
@@ -148,12 +148,12 @@ _UNATTRIBUTED = _LEGACY_UNSPLIT & Q(payment_method=PaymentMethod.CASH_TICKET)
 # Lines sold before unit prices were recorded count towards quantity and
 # contribute nothing to the amount. Written out rather than relying on Sum
 # skipping NULL products.
-# A custom line's amount is its own line total (D-070).
+# A custom line's amount is its own line total (D-073).
 LINE_AMOUNT = Coalesce(F("line_amount"), F("qty") * Coalesce(F("unit_price"), Value(0)))
 
 
 def _menu_rows(lines) -> list[dict]:
-    """One row per menu, plus one per unmatched custom name (D-070).
+    """One row per menu, plus one per unmatched custom name (D-073).
 
     One query grouped by menu, unmatched name and whether the line is custom;
     the custom part of a menu is folded into its row here."""

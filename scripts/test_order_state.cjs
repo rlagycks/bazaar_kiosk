@@ -50,7 +50,7 @@ test('cash, ticket surplus, mixed payment, shortage and invalid input follow set
   }
 });
 
-test('D-070: custom lines count their line total and are removed, not re-counted', () => {
+test('D-073: custom lines count their line total and are removed, not re-counted', () => {
   const order = createOrder();
   order.add('DINE_IN', {id: 1, name: '삼계탕', price: 10000});
   const line = order.addCustom('TAKEOUT', '  삼계   탕 ', '3', '20,000');
@@ -64,7 +64,7 @@ test('D-070: custom lines count their line total and are removed, not re-counted
   assert.equal(order.total(), 10000);
 });
 
-test('D-070: a custom line needs a name, a quantity of 1-99 and a whole-won amount', () => {
+test('D-073: a custom line needs a name, a quantity of 1-99 and a whole-won amount', () => {
   const order = createOrder();
   for (const [name, qty, amountText, message] of [
     [' ', '1', '1000', /품목명/], ['가'.repeat(101), '1', '1000', /100자/],

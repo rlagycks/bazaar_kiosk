@@ -15,7 +15,7 @@
   // and every place this label appears already shows the number beside it.
   const tableName = order => (model.kind(order) === '포장' ? '포장 교환권' : '테이블 ' + (order.table?.number ?? '미지정'));
   const clock = value => value ? new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false}) : '—';
-  // D-070: a custom line is named as entered and marked so the kitchen knows it.
+  // D-073: a custom line is named as entered and marked so the kitchen knows it.
   const itemName = item => (item.is_custom ? '기타 · ' : '') + item.menu_item_name;
   const menuSummary = order => order.items.map(item => `${modeName(item)} ${itemName(item)} ${item.qty}`).join(' · ');
   const notice = text => { byId('monitor-notice').textContent = text; };

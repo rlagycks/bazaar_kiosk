@@ -45,7 +45,7 @@ def monitor_version(order: Order, *, items=None) -> str:
     source = {
         "order": {field.attname: getattr(order, field.attname)
                   for field in Order._meta.concrete_fields},
-        # D-070: a custom line's name and amount are not here on purpose. They
+        # D-073: a custom line's name and amount are not here on purpose. They
         # never change in place (delete and re-enter changes the pk list), and
         # leaving them out keeps every existing version token valid.
         "items": [[item.pk, item.menu_item_id, item.qty, item.prepared_qty,

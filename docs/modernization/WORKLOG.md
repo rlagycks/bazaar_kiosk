@@ -3,7 +3,7 @@
 각 항목은 새 세션에서도 이해할 수 있도록 짧되 충분하게 작성합니다. 최신
 항목이 위에 오도록 합니다.
 
-## 2026-10-03 — 서빙 화면 기타 품목과 통계 합산(D-070)
+## 2026-10-03 — 서빙 화면 기타 품목과 통계 합산(D-073)
 
 - 사용자 요청·결정: 서빙에서 메뉴판에 없는 품목이나 따로 정한 가격을 "기타"로 이름·수량·금액 입력, 정산 때 이름이 같은
   메뉴에 합산("삼계탕 30개 + 기타 3개 2만원 = 삼계탕 총액"). 금액은 줄 합계, 모니터에 올림, 별도 상한 없음, 수정은 삭제 후
@@ -23,11 +23,112 @@
 - 검증: 격리 PostgreSQL 전체 `scripts/test_postgres.py` 651개(34+617) 통과(리뷰 반영 후), `makemigrations --check` 변경 없음,
   `manage.py check` 이상 없음, Node 104개 통과. 실기기·브라우저 화면 확인은 하지 않았다.
 - 독립 리뷰(MEDIUM 1·LOW 5, 차단 없음): M1 — 0032 역이행이 매칭된 기타 줄의 금액을 조용히 지우던 것을, 기타 줄이 있으면
-  스키마 변경 전에 거부하는 가드로 막고 정방향 전용 규칙을 D-070에 적었다. L1 매칭 후보를 주방 메뉴로 한정, L2 미매칭 이름
+  스키마 변경 전에 거부하는 가드로 막고 정방향 전용 규칙을 D-073에 적었다. L1 매칭 후보를 주방 메뉴로 한정, L2 미매칭 이름
   통계 행을 매칭과 같은 비교로 묶고 지문의 이름 공백 정리, L3 모니터 버전에서 기타 필드를 뺀 이유를 주석으로 남겼다.
   L4(정렬이 Python 코드포인트 순)·L5(`line_amount: null`만 붙은 메뉴 줄도 기타 경로로 400)는 그대로 둔다.
+- develop 병합: #90·#92·#94 이후 develop을 브랜치에 병합했다. #92가 D-070~D-072(배포)를 먼저 써서 이 결정은 D-073으로
+  번호를 바꿨다(코드 주석·문서·테스트 포함).
 - 남은 위험: 기타 줄이 생긴 뒤에는 이전 앱으로 롤백 불가(정방향 수정만). 이름 매칭은 저장 시점 한 번이라 오타는
   미매칭 행으로 남는다(관리자에서 삭제 후 재입력).
+
+## 2026-09-23 — CD를 OIDC + IAM 역할 + SSM으로 전환(D-072), 코드 쪽 완료·AWS 설정 대기
+
+- 사용자 지시: "CD를 OIDC IAM 롤 방식으로 설정하자 … 내가 설정할 거랑 너가 진행할 거 … 정리".
+- 호스트 확인: SSM 에이전트 실행 중, AWS CLI 2.33 설치됨, 인스턴스 역할 없음(IMDS `iam/info` 404). 운영자 PC의
+  AWS CLI에는 자격 증명이 없어 AWS 쪽 생성은 사용자가 콘솔에서 한다(런북의 JSON).
+- 변경: `deploy.yml`(ssh 단계 제거, `id-token: write`, `configure-aws-credentials` v6.3.0 SHA 고정, Parameter Store
+  스테이징·SSM 실행·결과 대기·항상 삭제), `ssm_deploy.sh`(신규), `init_github_secrets.sh`(ssh 배포 키 옵션 제거),
+  런북 "CD 경로"·"새 호스트에서 처음부터", D-072.
+- 검증: YAML 파싱, `bash -n`, SSM에 넘길 명령 문자열을 `sh`로 실행해 `runuser`가 받는 인자가 의도대로인지 확인.
+  실제 SSM 실행은 AWS 설정 뒤.
+
+## 2026-09-23 — 12A1 첫 배포: https://moau.store (ssh 수동, CD 꺼짐)
+
+- 사용자 제공·결정: 도메인 `moau.store`(A → 새 EIP `43.201.151.63`, 80/443 전체 개방), 22번은 운영자 주소만, 인증서
+  연락처 `hyochan0220@gmail.com`, 행사 공용 비밀번호 지정(평문은 기록하지 않음), 행사일 2026-10-09, 첫 배포는 ssh로,
+  다음 배포부터 CD(OIDC + IAM 역할 방식 희망).
+- 호스트: 새 인스턴스(이전 IP와 호스트 키 다름). 관리 키 세션 안에서 `/etc/ssh/ssh_host_ed25519_key.pub` 지문
+  `SHA256:RWb7FqFY…73co`로 확인. t4g.small, AL2023, 8 GB.
+- 순서: 브랜치 push → GitHub `production` 변수 `BK_DOMAIN` → `server_setup.sh` → clone → 비밀값 5개를 메모리에서 생성해
+  GitHub 환경 비밀과 호스트(`install_config.sh`)에 같은 값으로 등록(행사 비밀번호 해시는 Django `check_password`로 확인
+  뒤 등록, 출력·파일 없음) → staging 인증서 → 실제 인증서 → `deploy.sh --yes phase-12a1-deploy-prep`.
+- 실제 호스트에서 드러나 고친 것(커밋 3개): (1) AL2023 buildx 0.12로는 `compose build` 불가 → buildx 0.37.1 체크섬
+  고정 설치 (2) 첫 설치에서 `issue_cert.sh`가 app 없이 https 설정을 reload하다 `host not found in upstream "app"` →
+  app이 없으면 프록시를 멈추고 `deploy.sh`에 맡김 (3) 비밀값 파일 0600이 컨테이너 사용자(app 10001, postgres 70)에게
+  안 읽혀 `SECRET_KEY_FILE ... Permission denied` → 파일 0444, 디렉터리 0700(이전 `make_secrets.sh`도 같은 결함,
+  Docker Desktop이 권한을 무시해 로컬에서 안 보였다).
+- 결과(외부 확인): http → 301 https, https 200, 인증서 Let's Encrypt(YE2) `CN=moau.store` 만료 2026-12-22,
+  HSTS 300, `X-Frame-Options: DENY`, nosniff, csrftoken Secure, `/admin/` 302, 정적 파일 200. migration 0001–0031 적용.
+  배포 뒤 여유 디스크 4976 MB.
+- 남은 일: 관리자 계정(`createsuperuser`, 대화형)과 행사일 2026-10-09 등록(관리자 화면이 유일한 스위치 — 등록 안 하면
+  모든 주문이 연습 번호), 운영자 계정 등록, `production` 환경 보호 규칙(브랜치 main·승인자) 미설정, 저장소 수준의
+  옛 비밀 `DATABASE_URL`·`SECRET_KEY`(2025-09, 어떤 워크플로도 참조 안 함) 정리, CD를 OIDC+SSM으로 전환,
+  EC2 부하 측정(D-067), 실기기 확인(V-BROWSER), PR #92 병합과 develop → main 릴리스(현재 운영은 브랜치 배포).
+
+## 2026-09-23 — 12A1: 비밀값을 GitHub에서 주입(D-071), Amazon Linux 2023 대응, 8 GB 디스크 가드
+
+- 사용자 제공: EC2 t4g.small, EIP `43.203.101.122`, 관리 키 `segwang_youth.pem`, SSH 개방. 사용자 결정: 모든 비밀값을
+  GitHub Actions에서 관리·주입(D-071), 디스크는 8 GB 유지 + 정리 로직(B안).
+- 호스트 확인(관리 키로 읽기 전용 접속): Amazon Linux 2023.12(aarch64), `ec2-user`, 1.8 GB RAM, 루트 8 GB(1.7 GB 사용),
+  docker·git 미설치, python3 3.9. dnf 저장소에 docker 25(buildx 포함)·certbot 2.6(`certbot-renew.timer` 포함, 비활성)·
+  gettext 있음, compose 플러그인 없음. 로컬에서는 pem 권한만 644→400으로 바꿨다. 이후 22번 연결이 시간 초과로 바뀌어
+  (SG 변경 또는 접속 주소 변경 추정, 미확인) 호스트에서의 스크립트 시험은 하지 못했다.
+- 변경: `install_config.sh`(신규, 호스트 수신·검증·DB 비밀번호 가드), `init_github_secrets.sh`(신규, `make_secrets.sh` 대체),
+  `deploy.yml`(설정 주입 단계, `config_only` 입력, 비밀값은 `production` 환경), `server_setup.sh`(AL2023·dnf, compose v5.5.1
+  체크섬 고정, 갱신 타이머 활성), `lib.sh`/`deploy.sh`(디스크 가드·정리, 배포마다 프록시 설정 렌더링·reload),
+  인증서 유무 판정을 root 전용 `live/` 대신 `renewal/<도메인>.conf`로(기존 `-r` 검사는 `ec2-user`에서 항상 실패했을 것),
+  런북·D-071·`.env.prod.example`.
+- 검증: 스크립트 7개 `bash -n`, 워크플로 YAML 파싱. `install_config.sh` 시나리오(macOS bash 3.2, 가짜 docker): 신규 설치
+  권한 0600/0700, 재실행 무변경, 볼륨 있을 때 DB 비밀번호 변경 거부(기존 값 유지), 볼륨 없으면 허용, docker 조회 실패 시
+  거부, `.env`의 `${}`·`$( )`·비 BK 키·필수 키 누락 거부, 알 수 없는/중복/누락 항목·약한 비밀번호·잘못된 base64 거부,
+  임시 디렉터리 정리. 시험 중 BSD grep이 빈 대안 `(|…)`을 오류로 처리해 검증이 통과로 읽히던 결함을 찾아 고쳤다
+  (grep 상태 2도 거부). GNU 환경(AL2023)에서의 실행, 실제 워크플로 실행, `server_setup.sh` 실행은 하지 않았다.
+- 독립 보안 리뷰: CRITICAL/HIGH 0, MEDIUM 2, LOW 2. 반영: 7개 파일 교체 중 실패 시 바뀐 파일 목록 출력(재실행으로 수렴),
+  DB 비밀번호 가드를 docker 볼륨 라벨 조회 대신 호스트 파일 비교로(라벨이 바뀌면 가드가 조용히 꺼지던 결합 제거),
+  `BK_HSTS_MAX_AGE` 숫자 검사. 수용: 매 배포마다 비밀값이 ssh로 재전송되는 것(D-071의 교환 조건).
+- 다음: 사용자 — DNS·도메인, 22번 정책, `production` 환경 생성. 이후 승인 받아 비밀값 등록 → 서버 세팅 → `config_only`
+  → 인증서 → 첫 배포 → EC2 부하 측정(D-067).
+
+## 2026-09-23 — 운영 준비: 보안 점검(차단 없음)과 12A1 배포 준비(스크립트만, 실행 안 함)
+
+- 사용자 지시: "키랑 올라가면 안 되는 것들 그리고 보안상 문제가 될 수 있는 것들 검증 진행하고 문제없으면 배포 준비";
+  "보안 도구 받지 말고 너가 스캔"; "cd도 스크립트 준비만, 아직 올리진 말고"; 대상은 AWS·도메인·https·nginx.
+- 점검(도구 없이 직접): 추적 파일·git 이력에 비밀값·`.env`·키 파일 없음(`.env.example`만). 설정: `DEBUG` 명시 필수,
+  운영에서 `SECRET_KEY`/`JWT_SIGNING_KEY`(50자↑, 서로 다름)/`ALLOWED_HOSTS`/`CSRF_TRUSTED_ORIGINS`/`EVENT_PASSWORD_HASH`
+  없으면 시작 거부를 `check --deploy`로 재확인(경고는 W004·W008 둘뿐). 쿠키 HttpOnly·Secure·Strict, JWT HS256,
+  CSRF 미들웨어 활성·`csrf_exempt` 0, `mark_safe`/`|safe`/raw SQL 문자열 조립/`innerHTML`/`eval` 0, 민감값 로깅 0,
+  예외 보고 필터가 PIN·해시를 가림. 의존성: Django 5.2.17, PyJWT 2.14.0, psycopg 3.3.5, uvicorn 0.53.0, h11 0.16.0(요청
+  스머글링 수정판), whitenoise 6.10.0. 컨테이너: 비루트, DB·앱 미발행, 앱 DB 역할 권한 축소, 이미지 digest 고정.
+- 차단 사항 없음. 12A1로 미뤄져 있던 것(HSTS·리다이렉트·프록시 하드닝·관리자 로그인 제한)과 `.dockerignore` 부재,
+  Docker 로그 무제한을 이번 배포 준비에서 닫았다.
+- 배포 준비(D-070): `compose.tls.yaml`, `scripts/nginx_tls/` 템플릿, `scripts/deploy/`(server_setup·make_secrets·
+  issue_cert·render_nginx·deploy), `.github/workflows/deploy.yml`(수동·잠금), `.env.prod.example`, `.dockerignore`,
+  [DEPLOY_RUNBOOK](DEPLOY_RUNBOOK.md). 실제 호스트·DNS·배포 실행은 하지 않았다.
+- 사용자 지시(추가): "불필요한 브랜치 정리하고 main을 배포로 돌리고 저기에 PR 머지되는 걸 트리거로 CD" → `deploy.yml`을
+  `main` push(=PR 병합) 트리거로, 수동 실행은 되돌리기용으로; `deploy.sh` 기본 ref `main`; 런북·D-070에 브랜치 흐름 기록.
+  병합된 PR의 원격 브랜치 20개는 삭제 대상으로 목록화(삭제 실행은 사용자).
+- 검증: 스크립트 `bash -n` 6개 통과; `render_nginx.sh` 부트스트랩·전체 모드 동작(인증서 없으면 전체 모드 거부);
+  렌더링한 설정을 자체 서명 인증서와 함께 `nginx:1.27-alpine`에서 `nginx -t` 통과; `compose config` 병합 결과 proxy만
+  80/443 발행; `make_secrets.sh`의 PBKDF2 해시가 `parse_password_hash`·`check_password`를 통과; `.dockerignore` 적용 뒤
+  `docker build --target proxy` 성공(정적 파일·include 파일 존재); 격리 PostgreSQL 599개 통과.
+- 독립 리뷰: CRITICAL/HIGH 0, MEDIUM 1, LOW 5. MEDIUM: `lib.sh`가 `.env`를 `source`해 값 안의 `$( )`가 실행될 수
+  있었음 → `BK_KEY=VALUE` 줄만 읽는 파서로 교체. LOW 반영: 갱신 훅에 `nginx -t` 선행, manifest 404 location에도
+  HSTS, 워크플로의 `BK_DEPLOY_DIR` 문자 검사, origin에 없는 커밋이 있으면 배포 거부, `/etc/letsencrypt` 전체 마운트
+  범위를 주석·런북에 명시(단일 도메인 전제).
+
+## 2026-09-23 — 운영 준비 전 정리: 모순 주문 payload 400, LISTEN 재접속 테스트
+
+- 사용자: "2, 4, 5번 진행하자, 그리고 이제 운영 준비". PR #88 리뷰가 짚은 기존 문제와 PR #86 리뷰의 미검증 경로를
+  닫는다. 브랜치 `phase-11-hardening`(develop `f735ca2` 기준, worktree `bazaar_kiosk-11`).
+- API: `order_type=DINE_IN`에 `is_takeout=true`를 보내면 테이블 없이 DB 제약에 걸려 500이 나던 것을 400
+  "매장 주문(DINE_IN)에는 is_takeout을 켤 수 없습니다"로. 화면은 이 조합을 보내지 않는다. 테스트 1개.
+- 허브: LISTEN 성공 뒤 서버가 연결을 끊는 경우(`pg_terminate_backend`)를 테스트로 고정 — 리스너가 한 번 실패하고
+  다시 붙은 뒤, 폴링 5 s 설정에서 변경이 2 s 안에 도착한다. 코드 변경 없음.
+- 검증: 격리 PostgreSQL 632개(31+601) 통과, Node 99개 통과.
+- 독립 리뷰: APPROVE — CRITICAL/HIGH/MEDIUM 0, LOW 2(모두 이번 변경 이전부터 있던 사항). ① `is_takeout`을 `bool()`로
+  읽어 화면 밖 호출자가 문자열 `"false"`를 보내면 참으로 읽힌다(화면은 JSON 불리언만 보냄). ② 재접속 테스트의
+  `(1, True)` 단언은 두 번째 연결도 실패하면 소음이 될 수 있다(로컬 PG에서는 3회 반복 무결). 둘 다 기록만 하고 두었다.
+
 ## 2026-09-23 — 포장을 교환권 방식으로(D-069): 번호표 필수·점유 규칙 제거
 
 - 사용자 설명: 포장은 결제 후 교환권을 받아 교환하는 곳에서 음식과 바꾸는 구조이고 서빙이 찾아가지 않는다.
@@ -2380,3 +2481,11 @@ docs/modernization/prompts/02_REVIEW_BLUEPRINT.md에 작성된 프롬프트를
 - 포함 범위: 05안 채택/댓글 기록, 로그인·내 메뉴·서빙 UI, 관련 테스트와 CI, 인수 문서.
   PostgreSQL 26+533 및 Node 67 통과, 실제 휴대폰 viewport 검증은 위 UI-05A 기록을 따른다.
 - 게시 전 `git diff --check`와 변경 범위·검증 로그를 확인했다. 임시 실행 파일과 합성 DB는 포함하지 않는다.
+
+### 2026-10-03 — 사용자 노출 문구 “식권”을 “티켓”으로 통일
+
+- 사용자 승인 범위: 화면·오류 메시지·운영 보고서의 표시 문구만 변경한다. DB 선택지 라벨은 이미 “티켓”이다.
+- 변경 파일: `orders/templates/orders/order.html`, `b1_counter.html`, `orders/static/orders/ui/order.js`,
+  `order_state.js`, `stats.js`, `orders/services/payments.py`, `legacy_audit.py`, `scripts/test_stats_ui.cjs`.
+- 코드 식별자, API 필드(`received_ticket_amount`, `TICKET`), 마이그레이션, 과거 문서는 바꾸지 않았다.
+- 검증: Node 테스트와 `git diff --check`. 남은 위험 없음(문구 전용).

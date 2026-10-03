@@ -60,7 +60,7 @@ test('fresh zero report is empty, not an error; no phantom 100% ticket',async()=
   for(const key of Object.keys(data.payment))data.payment[key]=0;data.menu=[];data.hourly=[];
   const ui=app(()=>json(data));await flush();assert.equal(ui.get('summaryRevenue').textContent,'0원');
   assert.equal(ui.get('stats-empty').hidden,false);assert.equal(ui.get('stats-error-panel').hidden,true);
-  assert.equal(ui.get('unattributedPanel').hidden,true);assert.match(ui.get('paymentRatio').textContent,/현금 0% · 식권 0%/);
+  assert.equal(ui.get('unattributedPanel').hidden,true);assert.match(ui.get('paymentRatio').textContent,/현금 0% · 티켓 0%/);
 });
 test('initial failure never renders a false zero and retry uses same default query',async()=>{
   const ui=app(n=>n===1?Promise.reject(new TypeError('offline')):json(fixture()));await flush();
@@ -104,7 +104,7 @@ test('multiple dates with the same hour stay distinct in chart and accessible ta
   assert.equal(ui.get('hourlyChart').children[1].querySelector('div').style.height,'0px');
 });
 
-test('D-070: a menu sold partly as custom lines shows its total and both parts; unmatched names are 기타 rows',async()=>{
+test('D-073: a menu sold partly as custom lines shows its total and both parts; unmatched names are 기타 rows',async()=>{
   const data=fixture();
   data.menu=[{menu_item_id:1,name:'삼계탕',qty:33,amount:320000,custom_qty:3,custom_amount:20000},
     {menu_item_id:null,name:'떡꼬치',qty:2,amount:5000,custom_qty:2,custom_amount:5000},
@@ -115,7 +115,7 @@ test('D-070: a menu sold partly as custom lines shows its total and both parts; 
     ['삼계탕','33개','320,000원'],['└ 정가','30개','300,000원'],['└ 기타','3개','20,000원'],
     ['기타 · 떡꼬치','2개','5,000원'],['Meal','1개','5,000원']]);
 });
-test('D-070: a malformed custom part is refused like any other figure',()=>{
+test('D-073: a malformed custom part is refused like any other figure',()=>{
   const data=fixture();data.menu[0].custom_qty='3';
   assert.throws(()=>state.validate(data));
 });

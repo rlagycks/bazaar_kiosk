@@ -189,7 +189,7 @@ test('shorthand transfers focus at first ticket digit and remaining typing enter
   assert.equal(ui.posts[0].payload.payment_method, 'CASH_TICKET');
 });
 
-test('D-070: a custom line posts its name, quantity and line total, and only removes', async () => {
+test('D-073: a custom line posts its name, quantity and line total, and only removes', async () => {
   const ui = await app(saved, {custom: true});
   assert.equal(ui.get('custom-names').children[0].attrs.value, '떡볶이');
   await ui.input('custom-name', '  삼계탕 '); await ui.input('custom-qty', '3'); await ui.input('custom-amount', '20,000');
@@ -211,7 +211,7 @@ test('D-070: a custom line posts its name, quantity and line total, and only rem
   ]);
 });
 
-test('D-070: an incomplete custom line is explained and nothing is added', async () => {
+test('D-073: an incomplete custom line is explained and nothing is added', async () => {
   const ui = await app(saved, {custom: true});
   await ui.input('custom-name', '떡꼬치');
   await ui.click(ui.get('btn-custom-add'));

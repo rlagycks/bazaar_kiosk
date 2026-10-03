@@ -11,7 +11,7 @@
   const labels = {DINE_IN: '홀', TAKEOUT: '포장'};
   const won = n => n.toLocaleString('ko-KR') + '원';
   const payInputs = ['cash-in', 'cash-mixed', 'ticket-mixed'];
-  // D-070: the custom-line form is optional markup; the controller works without it.
+  // D-073: the custom-line form is optional markup; the controller works without it.
   const customInputs = ['custom-name', 'custom-qty', 'custom-amount'].filter(id => byId(id));
   let mode = 'DINE_IN';
   let saving = false;
@@ -89,7 +89,7 @@
     const mixed = method() === 'CASH_TICKET';
     byId('single-amount-row').hidden = mixed;
     byId('mixed-amount-row').hidden = !mixed;
-    byId('single-amount-label').textContent = method() === 'TICKET' ? '받은 식권 금액' : '받은 현금';
+    byId('single-amount-label').textContent = method() === 'TICKET' ? '받은 티켓 금액' : '받은 현금';
     const payment = settlement();
     byId('total-amount').textContent = won(order.total());
     byId('change-amount').textContent = won(payment.change);
@@ -169,7 +169,7 @@
       const data = await response.json();
       menus.clear();
       (data.items || []).forEach(menu => menus.set(String(menu.id), menu));
-      // Suggest menu names so a custom line ties to its menu in the report (D-070).
+      // Suggest menu names so a custom line ties to its menu in the report (D-073).
       if (byId('custom-names')) DOM.render(byId('custom-names'), [...menus.values()].map(menu => DOM.el('option', {attrs: {value: menu.name}})));
       renderMenus();
     } catch (error) {
