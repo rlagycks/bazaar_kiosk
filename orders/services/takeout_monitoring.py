@@ -214,15 +214,14 @@ def complete(payload, *, actor, permissions):
                 changed = True
         if not changed:
             continue
-        all_done = all(i.remaining_qty == 0 for i in grouped[order.pk])
-        hall = any(i.service_mode == OrderType.DINE_IN for i in grouped[order.pk])
-        if all_done and (not hall or order.departed_at is not None):
-            previous = order.status
-            status_service.change(order, OrderStatus.READY)
-            audit.record_status(order, actor, previous=previous)
-            completed.append(order.pk)
-        else:
+        # D-076: the same reconciliation as every other line writer.
+        previous = order.status
+        if not status_service.sync_from_items(order, actor):
             order.save(update_fields=["updated_at"])
+        if order.status != previous:
+            audit.record_status(order, actor, previous=previous)
+        if order.status == OrderStatus.READY:
+            completed.append(order.pk)
     result = {"completed_qty": sum(quantities.values()), "completed_orders": completed}
     receipt.result = result
     receipt.save(update_fields=["result"])

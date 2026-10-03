@@ -36,6 +36,9 @@ def serialize(order, mode):
     if mode == scope.HALL:
         data["takeout_pending_qty"] = sum(i["remaining_qty"] for i in data["items"] if i["service_mode"] == OrderType.TAKEOUT)
         data["hall_completed"] = order.departed_at is not None
+        # D-076: the detail shows the takeout lines read-only; cards and
+        # progress stay on the hall lines.
+        data["takeout_items"] = [i for i in data["items"] if i["service_mode"] == OrderType.TAKEOUT]
         data["items"] = [i for i in data["items"] if i["service_mode"] == OrderType.DINE_IN]
     return data
 

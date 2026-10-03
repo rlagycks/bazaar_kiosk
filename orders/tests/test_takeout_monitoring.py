@@ -284,17 +284,16 @@ class TakeoutMonitoringTests(TransactionTestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, "READY")
 
-    def test_mixed_takeout_then_hall_and_preparation_is_not_departure(self):
+    def test_mixed_takeout_then_hall_preparation_completes_automatically(self):
+        """D-076: preparing every quantity is the departure."""
         order, hall, client = self.mixed()
         self.assertEqual(self.send(self.body((self.menu, 2))).status_code, 200)
         self.assertEqual(self.hall_action(order, client, "progress", items=[{"id": hall.pk, "prepared_qty": 3}]).status_code, 200)
         order.refresh_from_db()
-        self.assertEqual(order.status, "PREPARING")
-        self.assertIsNone(order.departed_at)
-        self.assertEqual(self.hall_action(order, client).status_code, 200)
-        order.refresh_from_db()
         self.assertEqual(order.status, "READY")
-
+        self.assertIsNotNone(order.departed_at)
+        self.assertTrue(order.events.filter(kind="DEPARTED", actor__name="hall").exists())
+        self.assertTrue(order.events.filter(kind="STATUS", to_status="READY", actor__name="hall").exists())
     def test_hall_cannot_edit_takeout_via_either_progress_endpoint_or_force_ready(self):
         order, hall, client = self.mixed()
         takeout = order.items.get(service_mode="TAKEOUT")
@@ -365,16 +364,88 @@ class TakeoutMonitoringTests(TransactionTestCase):
         pure_hall.items.update(service_mode="DINE_IN", prepared_qty=1)
         status_service.sync_from_items(pure_hall)
         pure_hall.refresh_from_db()
-        self.assertEqual(pure_hall.status, "PREPARING")  # hall departure stays explicit
+        self.assertEqual(pure_hall.status, "READY")  # D-076: all prepared is departed
+        self.assertIsNotNone(pure_hall.departed_at)
         ready = self.order((self.menu, 1), status="READY")
         ready.items.update(prepared_qty=1)
         OrderItem.objects.create(order=ready, menu_item=self.other, qty=1, prepared_qty=1,
                                  unit_price=9000, service_mode="DINE_IN")
-        status_service.sync_from_items(ready)  # became mixed without a hall departure
+        status_service.sync_from_items(ready)  # became mixed, all prepared: stays READY
         ready.refresh_from_db()
-        self.assertEqual(ready.status, "PREPARING")
+        self.assertEqual((ready.status, ready.departed_at), ("READY", None))  # no invented time
+        not_ready = self.order((self.menu, 1), status="READY")
+        not_ready.items.update(prepared_qty=1)
+        OrderItem.objects.create(order=not_ready, menu_item=self.other, qty=1, prepared_qty=0,
+                                 unit_price=9000, service_mode="DINE_IN")
+        status_service.sync_from_items(not_ready)  # became mixed with hall work left
+        not_ready.refresh_from_db()
+        self.assertEqual((not_ready.status, not_ready.departed_at), ("PREPARING", None))
         cancelled = self.order((self.menu, 1), status="CANCELLED")
         cancelled.items.update(prepared_qty=1)
         status_service.sync_from_items(cancelled)
         cancelled.refresh_from_db()
         self.assertEqual(cancelled.status, "CANCELLED")
+
+    # ---- D-076: all quantities prepared completes the order automatically -----
+
+    def test_hall_preparation_alone_departs_the_hall_part_of_a_mixed_order(self):
+        order, hall, client = self.mixed()
+        self.assertEqual(self.hall_action(order, client, "progress", items=[{"id": hall.pk, "prepared_qty": 3}]).status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, "PREPARING")  # takeout still waiting
+        self.assertIsNotNone(order.departed_at)
+        self.assertEqual(order.events.filter(kind="DEPARTED").count(), 1)
+        self.assertEqual(monitoring_snapshot.read(("HALL_MONITOR",), mode="HALL")["orders"], [])
+        self.assertEqual(self.send(self.body((self.menu, 2))).status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, "READY")
+        self.assertEqual(order.events.filter(kind="DEPARTED").count(), 1)
+
+    def test_pure_hall_order_completes_when_the_last_quantity_is_prepared(self):
+        order = self.order((self.menu, 2))
+        item = order.items.get()
+        item.service_mode = "DINE_IN"
+        item.save(update_fields=["service_mode"])
+        client = Client()
+        login_client(client, "HALL_MONITOR")
+        self.assertEqual(self.hall_action(order, client, "progress", items=[{"id": item.pk, "prepared_qty": 1}]).status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual((order.status, order.departed_at), ("PREPARING", None))
+        self.assertEqual(self.hall_action(order, client, "progress", items=[{"id": item.pk, "prepared_qty": 2}]).status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, "READY")
+        self.assertIsNotNone(order.departed_at)
+        # Lowering a quantity reopens it and clears the departure.
+        self.assertEqual(self.hall_action(order, client, "progress", items=[{"id": item.pk, "prepared_qty": 1}]).status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual((order.status, order.departed_at), ("PREPARING", None))
+
+    def test_legacy_item_progress_completes_a_pure_hall_order_and_tells_screens(self):
+        order = self.order((self.menu, 1))
+        item = order.items.get()
+        item.service_mode = "DINE_IN"
+        item.save(update_fields=["service_mode"])
+        client = Client()
+        login_client(client, "HALL_MONITOR")
+        before = revisions.current()
+        self.assertEqual(client.patch(reverse("orders:order-item-progress", args=[item.pk]),
+                                      {"prepared_qty": 1}, content_type="application/json").status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, "READY")
+        self.assertIsNotNone(order.departed_at)
+        self.assertGreater(revisions.current(), before)
+
+    def test_a_legacy_ready_order_is_not_given_an_invented_departure(self):
+        order = self.order((self.menu, 1), status="READY")
+        order.items.update(service_mode="DINE_IN", prepared_qty=1)
+        self.assertFalse(status_service.sync_from_items(order))
+        order.refresh_from_db()
+        self.assertEqual((order.status, order.departed_at), ("READY", None))
+
+    def test_hall_detail_shows_takeout_lines_read_only_while_cards_stay_hall_only(self):
+        order, hall, client = self.mixed()
+        row = monitoring_snapshot.read(("HALL_MONITOR",), mode="HALL")["orders"][0]
+        self.assertEqual([i["id"] for i in row["items"]], [hall.pk])
+        takeout = order.items.get(service_mode="TAKEOUT")
+        self.assertEqual([(i["id"], i["qty"], i["prepared_qty"]) for i in row["takeout_items"]], [(takeout.pk, 2, 0)])
+        self.assertEqual(row["takeout_pending_qty"], 2)

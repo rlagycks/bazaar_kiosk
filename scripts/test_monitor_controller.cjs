@@ -270,3 +270,15 @@ test('mixed takeout row never starts a hold write',async()=>{
   assert.equal(row.dataset.action,undefined);
   await ui.fire(row,'pointerdown');await ui.advance(1000);assert.equal(ui.posts.length,0);
 });
+
+test('hall-only detail lists takeout lines read-only; the card stays hall-only',async()=>{
+  const ui=app();
+  ui.snapshot({...baseOrder(),takeout_pending_qty:2,takeout_items:[{id:9,menu_item_name:'포장 메뉴',qty:2,prepared_qty:0,service_mode:'TAKEOUT'}]});
+  assert.doesNotMatch(ui.get('waiting-orders').textContent,/포장 메뉴/);
+  await ui.open();
+  assert.match(ui.get('detail-items').textContent,/포장 · 포장 메뉴 · 주문 2개/);
+  assert.match(ui.get('detail-items').textContent,/포장 수량은 포장 모니터링에서 처리합니다/);
+  assert.equal(ui.get('prepared-9'),null);
+  await ui.input('2');await ui.click(ui.get('save-progress'));
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.posts[0].body.items)),[{id:7,prepared_qty:2}]);
+});

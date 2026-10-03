@@ -51,7 +51,8 @@ class AuditTrailTests(TestCase):
             ("CREATED", "serving", "", "PREPARING", None),
             ("PROGRESS", "both-monitors", "", "", 1),
             ("PROGRESS", "both-monitors", "", "", 2),
-            ("STATUS", "both-monitors", "PREPARING", "CANCELLED", None),
+            ("STATUS", "both-monitors", "PREPARING", "READY", None),  # D-076
+            ("STATUS", "both-monitors", "READY", "CANCELLED", None),
         ])
 
     def test_a_no_op_change_leaves_no_event(self):

@@ -268,14 +268,15 @@ class AdminOrderEditTests(TestCase):
         self.item.refresh_from_db()
         self.assertEqual(self.item.prepared_qty, 1)
 
-    def test_admin_reducing_qty_to_prepared_does_not_automatically_complete(self):
+    def test_admin_reducing_qty_to_prepared_completes_the_order(self):
+        """D-076: every quantity prepared is completion, whichever writer."""
         self.item.qty = 2
         self.item.prepared_qty = 1
         self.item.save(update_fields=["qty", "prepared_qty"])
         response = self.client.post(self.change_url(), self.form(self.existing(qty=1)))
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(self.reload().status, "PREPARING")
-        self.assertIsNone(self.reload().departed_at)
+        self.assertEqual(self.reload().status, "READY")
+        self.assertIsNotNone(self.reload().departed_at)
 
     def test_items_of_a_cancelled_order_cannot_be_edited(self):
         Order.objects.filter(pk=self.order.pk).update(status=OrderStatus.CANCELLED)
