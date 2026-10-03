@@ -3,6 +3,7 @@
   'use strict';
   const MAX_QTY = 99;
   const MAX_AMOUNT = 10000000;
+  const NAME_MAX = 100;
   const key = (mode, id) => mode + ':' + id;
   const won = value => value.toLocaleString('ko-KR');
 
@@ -31,6 +32,7 @@
     const selected = new Map();
     let attemptKey = null;
     let fingerprint = null;
+    let customSeq = 0;
     function select(mode, id, qty) {
       if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) throw new Error('수량은 1~99개로 선택해 주세요.');
       selected.set(key(mode, id), qty);
@@ -43,10 +45,26 @@
       cart.set(k, {...menu, mode, qty});
       selected.set(k, 1);
     }
+    // D-070: a custom line is a name, a quantity and one amount for the whole
+    // line. It is not merged or re-counted; a wrong one is removed and entered again.
+    function addCustom(mode, name, qtyText, amountText) {
+      const label = String(name ?? '').trim().split(/\s+/).join(' ');
+      if (!label) throw new Error('기타 품목명을 입력해 주세요.');
+      if (label.length > NAME_MAX) throw new Error('기타 품목명은 100자 이하여야 합니다.');
+      const qty = amount(qtyText);
+      if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) throw new Error('수량은 1~99개로 입력해 주세요.');
+      if (!String(amountText ?? '').trim()) throw new Error('기타 품목의 합계 금액을 입력해 주세요.');
+      const lineAmount = amount(amountText);
+      if (!Number.isFinite(lineAmount)) throw new Error('금액은 0~10,000,000원의 정수로 입력하세요.');
+      const id = 'custom-' + (++customSeq);
+      cart.set(key(mode, id), {id, name: label, qty, lineAmount, custom: true, mode});
+      return {id, name: label, qty, lineAmount};
+    }
     function change(mode, id, delta) {
       const k = key(mode, id);
       const row = cart.get(k);
       if (!row) return;
+      if (row.custom) throw new Error('기타 품목은 수량을 바꿀 수 없습니다. 지우고 다시 담아 주세요.');
       const qty = row.qty + delta;
       if (qty > MAX_QTY) throw new Error('수량은 99개 이하여야 합니다.');
       if (qty <= 0) cart.delete(k); else cart.set(k, {...row, qty});
@@ -57,7 +75,8 @@
       cart.forEach(row => { counts[row.mode] += row.qty; });
       return counts;
     }
-    function total() { return items().reduce((sum, row) => sum + row.price * row.qty, 0); }
+    const lineTotal = row => row.custom ? row.lineAmount : row.price * row.qty;
+    function total() { return items().reduce((sum, row) => sum + lineTotal(row), 0); }
     function attempt(payload) {
       const next = JSON.stringify(payload);
       if (!attemptKey || fingerprint !== next) {
@@ -67,7 +86,7 @@
       return attemptKey;
     }
     function reset() { cart.clear(); selected.clear(); attemptKey = fingerprint = null; }
-    return Object.freeze({select, selection, add, change, items, counts, total, attempt, reset,
+    return Object.freeze({select, selection, add, addCustom, change, items, counts, total, lineTotal, attempt, reset,
       remove: (mode, id) => cart.delete(key(mode, id))});
   }
   const api = Object.freeze({createOrder, payment, amount});

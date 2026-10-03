@@ -6,6 +6,7 @@ from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest, Http4
 from django.views.decorators.http import require_http_methods
 from django.db import IntegrityError, transaction
 from django.db.models import Sum, F, IntegerField
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from orders.models import (
@@ -15,7 +16,7 @@ from orders.models import (
 from orders.services import allocate_floor_order_no, series_for, idempotency
 from orders.services import status as status_service
 from orders.roles import MONITOR_PERMISSIONS, ORDER_READ_PERMISSIONS, SERVING_PERMISSIONS, STATS_PERMISSIONS
-from orders.services import audit, payments, queues, reporting, revisions, scope, snapshots
+from orders.services import audit, custom_items, payments, queues, reporting, revisions, scope, snapshots
 from orders.views import selectors, serializers, validators
 from orders.views.guards import require_api_permissions
 
@@ -178,18 +179,30 @@ def orders_collection(request: HttpRequest):
     # 아이템 파싱/검증
     if not isinstance(items, list) or not items:
         return HttpResponseBadRequest("items 배열이 필요합니다.")
-    parsed: List[tuple[int, int, str]] = []
+    parsed: List[tuple[int | None, int, str, custom_items.CustomLine | None]] = []
     id_list: List[int] = []
     for row in items:
         if not isinstance(row, dict):
             return HttpResponseBadRequest("menu_item_id/qty 형식 오류")
-        try:
-            mid = payments.parse_amount(row.get("menu_item_id"), "메뉴")
-            qty = payments.parse_qty(row.get("qty"))
-        except payments.AmountError as exc:
-            return HttpResponseBadRequest(str(exc))
-        if mid is None:
-            return HttpResponseBadRequest("menu_item_id/qty 형식 오류")
+        # D-070: a custom line carries its own name and line total instead of
+        # a menu id. The two shapes are not mixed in one line.
+        custom = None
+        if "custom_name" in row or "line_amount" in row:
+            if row.get("menu_item_id") is not None:
+                return HttpResponseBadRequest("메뉴와 기타 품목을 한 줄에 함께 보낼 수 없습니다.")
+            try:
+                custom = custom_items.read_line(row)
+            except custom_items.CustomLineError as exc:
+                return HttpResponseBadRequest(str(exc))
+            mid, qty = None, custom.qty
+        else:
+            try:
+                mid = payments.parse_amount(row.get("menu_item_id"), "메뉴")
+                qty = payments.parse_qty(row.get("qty"))
+            except payments.AmountError as exc:
+                return HttpResponseBadRequest(str(exc))
+            if mid is None:
+                return HttpResponseBadRequest("menu_item_id/qty 형식 오류")
         # 9 (PR #75 code review): these two reached `.upper()` unguarded, so
         # `"mode": 5` in one item ended the whole request in a 500.
         try:
@@ -200,18 +213,18 @@ def orders_collection(request: HttpRequest):
             return HttpResponseBadRequest(str(exc))
         if mode not in (OrderType.DINE_IN, OrderType.TAKEOUT):
             return HttpResponseBadRequest("mode/service_mode 값이 유효하지 않습니다.")
-        parsed.append((mid, qty, mode))
-        id_list.append(mid)
+        parsed.append((mid, qty, mode, custom))
+        if mid is not None:
+            id_list.append(mid)
 
     mi_map = {m.id: m for m in MenuItem.objects.filter(id__in=id_list, is_active=True)}
     if len(mi_map) != len(set(id_list)):
         return HttpResponseBadRequest("비활성 또는 존재하지 않는 메뉴가 포함되어 있습니다.")
 
     # 스코프별 허용 메뉴
-    for mid, _, mode in parsed:
-        m = mi_map[mid]
-        if not m.visible_kitchen:
-            return HttpResponseBadRequest("주방 메뉴만 선택 가능합니다.")
+    if any(not m.visible_kitchen for m in mi_map.values()):
+        return HttpResponseBadRequest("주방 메뉴만 선택 가능합니다.")
+    custom_menus = custom_items.match_menus([c.name for _, _, _, c in parsed if c])
 
     try:
         source_raw = validators.upper(p, "source", default=OrderSource.COUNTER)
@@ -223,7 +236,9 @@ def orders_collection(request: HttpRequest):
     # 7A (D-048): the total is the server's price snapshot; a short payment
     # is refused before anything is written, and the change is decided here.
     try:
-        total_price = payments.order_total((mi_map[mid].price, qty) for mid, qty, _ in parsed)
+        # A custom line is one amount for the whole line (D-070).
+        total_price = payments.order_total(
+            (c.amount, 1) if c else (mi_map[mid].price, qty) for mid, qty, _, c in parsed)
         settlement = payments.settle(payment, total_price)
     except (payments.AmountError, payments.PaymentRefused) as exc:
         return HttpResponseBadRequest(str(exc))
@@ -252,12 +267,14 @@ def orders_collection(request: HttpRequest):
             item_objects = [
                 OrderItem(
                     order=order,
-                    menu_item=mi_map[mid],
+                    menu_item=custom_menus.get(c.name) if c else mi_map[mid],
                     qty=qty,
-                    unit_price=mi_map[mid].price,
+                    unit_price=None if c else mi_map[mid].price,
+                    custom_name=c.name if c else "",
+                    line_amount=c.amount if c else None,
                     service_mode=mode,
                 )
-                for mid, qty, mode in parsed
+                for mid, qty, mode, c in parsed
             ]
             OrderItem.objects.bulk_create(item_objects, batch_size=len(item_objects) or 1)
 
@@ -390,9 +407,11 @@ def order_item_progress(request: HttpRequest, item_id: int):
             order = status_service.locked(order_id)
             if not scope.may_change(order, request.auth_permissions):
                 return JsonResponse({"detail": "권한이 없습니다."}, status=403)
+            # D-070: the menu is nullable now, and PostgreSQL will not lock the
+            # nullable side of an outer join; only the item row is locked here.
             item = (
                 OrderItem.objects.select_related("order", "menu_item")
-                .select_for_update()
+                .select_for_update(of=("self",))
                 .get(id=item_id)
             )
             if status_service.is_closed(order):
@@ -523,16 +542,18 @@ def stats_menu_counts(request: HttpRequest):
             order__order_date=today,
             order__number_series=series_for(today),
         )
-        .values("menu_item__name")
+        # D-070: a custom line counts under the menu it matched, else its name.
+        .annotate(line_name=Coalesce(F("menu_item__name"), F("custom_name")))
+        .values("line_name")
         .annotate(
             qty_sum=Sum("qty"),
-            amount=Sum(F("qty") * F("unit_price"), output_field=IntegerField()),
+            amount=Sum(reporting.LINE_AMOUNT, output_field=IntegerField()),
         )
-        .order_by("-qty_sum", "menu_item__name")
+        .order_by("-qty_sum", "line_name")
     )
 
     data = [
-        {"name": r["menu_item__name"], "qty": r["qty_sum"], "amount": r["amount"] or 0}
+        {"name": r["line_name"], "qty": r["qty_sum"], "amount": r["amount"] or 0}
         for r in qs
     ]
     return JsonResponse({"items": data}, status=200)

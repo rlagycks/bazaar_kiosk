@@ -4,7 +4,7 @@ from django.contrib import admin
 
 from django.db import transaction
 
-from orders.services import audit, order_edits, revisions
+from orders.services import audit, custom_items, order_edits, revisions
 from orders.services import status as status_service
 
 from .models import Account, Table, MenuItem, Order, OrderItem, OrderEvent, EventDay
@@ -122,6 +122,9 @@ class MenuItemAdmin(MarksTheBoard, admin.ModelAdmin):
 # here at all -- numbering, payment and the audit trail belong to the serving
 # screen.
 
+_CUSTOM_LOCKED_FIELDS = ("menu_item", "custom_name", "line_amount", "qty")
+
+
 class OrderItemInlineFormSet(forms.BaseInlineFormSet):
     def clean(self):
         # Ours first: Django's own check also refuses deleting a line that an
@@ -139,20 +142,40 @@ class OrderItemInlineFormSet(forms.BaseInlineFormSet):
             item = form.instance
             deleting = bool(data.get("DELETE"))
             sellable = True
+            line_amount = None
+            custom_changed = False
+            wants_custom = bool(data.get("custom_name")) or data.get("line_amount") is not None
             if item.pk:
                 price = int(item.unit_price or 0)
                 history = item.events.exists()
+                line_amount = item.line_amount
+                # D-070: a custom line is deleted and entered again, never
+                # edited; a menu line does not turn into one.
+                touched = set(form.changed_data) & set(_CUSTOM_LOCKED_FIELDS)
+                custom_changed = bool(touched) and (item.is_custom or wants_custom)
             else:
-                if deleting or not data.get("menu_item"):
+                if deleting:
                     continue
-                menu = data["menu_item"]
-                price = int(menu.price or 0)
+                menu = data.get("menu_item")
+                if menu and wants_custom:
+                    raise forms.ValidationError("메뉴와 기타 품목 중 하나만 입력해 주세요.")
+                if menu:
+                    price = int(menu.price or 0)
+                    sellable = bool(menu.is_active and menu.visible_kitchen)
+                elif wants_custom:
+                    try:
+                        custom = custom_items.read_line(data)
+                    except custom_items.CustomLineError as exc:
+                        raise forms.ValidationError(str(exc))
+                    price, line_amount = 0, custom.amount
+                else:
+                    raise forms.ValidationError("메뉴를 고르거나 기타 품목명과 금액을 입력해 주세요.")
                 history = False
-                sellable = bool(menu.is_active and menu.visible_kitchen)
             lines.append(order_edits.Line(
                 unit_price=price, qty=int(data.get("qty") or 0),
                 prepared_qty=int(item.prepared_qty or 0) if item.pk else 0,
                 deleting=deleting, has_history=history, sellable=sellable,
+                line_amount=line_amount, custom_changed=custom_changed,
             ))
         try:
             order_edits.check_lines(self.instance, lines)
@@ -164,7 +187,7 @@ class OrderItemInline(admin.TabularInline):
     model = OrderItem
     formset = OrderItemInlineFormSet
     extra = 0
-    fields = ("menu_item", "qty", "service_mode", "unit_price", "prepared_qty")
+    fields = ("menu_item", "custom_name", "line_amount", "qty", "service_mode", "unit_price", "prepared_qty")
     readonly_fields = ("unit_price", "prepared_qty")
     autocomplete_fields = ("menu_item",)
 
@@ -243,7 +266,13 @@ class OrderAdmin(admin.ModelAdmin):
     def save_formset(self, request, form, formset, change):
         instances = formset.save(commit=False)
         for item in instances:
-            if item.pk is None or item.unit_price is None:
+            if item.pk is None and item.menu_item_id is None:
+                # D-070: a custom line, tied to a menu by name the way the
+                # serving screen ties it. The formset already validated it.
+                item.custom_name = custom_items.clean_name(item.custom_name)
+                item.menu_item = custom_items.match_menus([item.custom_name]).get(item.custom_name)
+                item.unit_price = None
+            elif item.pk is None or (item.unit_price is None and not item.is_custom):
                 item.unit_price = item.menu_item.price  # the snapshot, taken now
             item.save()
         for item in formset.deleted_objects:

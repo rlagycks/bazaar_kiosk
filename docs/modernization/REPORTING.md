@@ -31,6 +31,9 @@
   `unattributed_amount`로 건수와 금액을 드러내 `cash + ticket`이 매출보다 적은 이유를 말한다(PR #71 DB 리뷰).
 - 단가가 없는 옛 품목 줄은 수량에만 들어가고 금액에는 0으로 들어간다.
 - 메뉴 줄은 `menu_item_id`로 묶고 판매 시점 단가로 금액을 낸다. 응답에 `menu_item_id`를 포함한다.
+- 기타 줄(D-070)은 입력된 줄 합계가 금액이다. 저장 시점에 메뉴에 묶인 기타 줄은 그 메뉴 행의 `qty`·`amount`에
+  합쳐지고 `custom_qty`·`custom_amount`로 그중 기타 몫을 보인다(정가 몫 = 전체 − 기타). 묶이지 않은 기타 줄은
+  `menu_item_id: null`인 이름별 행이 된다. 메뉴 행 금액의 합은 매출과 같다.
 
 ## 응답 (`GET /orders/api/stats/dashboard/`)
 
@@ -39,7 +42,7 @@ period  : start_date, end_date, floor, basis("event_day"|"today"|"explicit"), la
 summary : orders, items, revenue, cancelled_orders, legacy_unsplit_orders,
           unattributed_orders, unattributed_amount
 payment : cash, ticket, change, net_cash, cash_ratio, ticket_ratio
-menu    : [{menu_item_id, name, qty, amount}]
+menu    : [{menu_item_id(기타 미매칭은 null), name, qty, amount, custom_qty, custom_amount}]
 hourly  : [{date("YYYY-MM-DD", 서울), hour("HH:MM", 서울), orders, revenue}]
 ```
 

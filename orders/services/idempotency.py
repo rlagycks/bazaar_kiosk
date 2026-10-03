@@ -62,6 +62,10 @@ def fingerprint(payload: dict) -> str:
             str(item.get("menu_item_id")),
             str(item.get("qty")),
             str(item.get("mode") or item.get("service_mode") or "").upper(),
+            # D-070: only custom lines add these, so a menu line's digest is
+            # what it was before custom lines existed.
+            *(("custom", " ".join(str(item.get("custom_name") or "").split()), str(item.get("line_amount")))
+              if "custom_name" in item or "line_amount" in item else ()),
         )
         for item in (raw_items if isinstance(raw_items, list) else [])
         if isinstance(item, dict)

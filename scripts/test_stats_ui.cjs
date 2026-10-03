@@ -103,3 +103,19 @@ test('multiple dates with the same hour stay distinct in chart and accessible ta
   }
   assert.equal(ui.get('hourlyChart').children[1].querySelector('div').style.height,'0px');
 });
+
+test('D-070: a menu sold partly as custom lines shows its total and both parts; unmatched names are 기타 rows',async()=>{
+  const data=fixture();
+  data.menu=[{menu_item_id:1,name:'삼계탕',qty:33,amount:320000,custom_qty:3,custom_amount:20000},
+    {menu_item_id:null,name:'떡꼬치',qty:2,amount:5000,custom_qty:2,custom_amount:5000},
+    {menu_item_id:2,name:'Meal',qty:1,amount:5000,custom_qty:0,custom_amount:0}];
+  const ui=app(()=>json(data));await flush();
+  const rows=ui.get('menuTableBody').children.map(row=>row.children.slice(0,3).map(cell=>cell.textContent));
+  assert.deepEqual(rows,[
+    ['삼계탕','33개','320,000원'],['└ 정가','30개','300,000원'],['└ 기타','3개','20,000원'],
+    ['기타 · 떡꼬치','2개','5,000원'],['Meal','1개','5,000원']]);
+});
+test('D-070: a malformed custom part is refused like any other figure',()=>{
+  const data=fixture();data.menu[0].custom_qty='3';
+  assert.throws(()=>state.validate(data));
+});
