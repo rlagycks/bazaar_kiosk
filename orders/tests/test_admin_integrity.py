@@ -305,7 +305,7 @@ class AdminOrderEditTests(TestCase):
         self.assertEqual(set(OrderAdmin.fields) - set(OrderAdmin.readonly_fields), {"status", "note"})
         from orders.admin import OrderItemInline
         self.assertEqual(set(OrderItemInline.fields) - set(OrderItemInline.readonly_fields),
-                         {"menu_item", "qty", "service_mode"})
+                         {"menu_item", "custom_name", "line_amount", "qty", "service_mode"})
 
     def test_a_change_form_post_holds_the_order_row_from_the_first_read(self):
         """The validation and the write have to see one order: the kitchen

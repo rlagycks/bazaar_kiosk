@@ -22,9 +22,19 @@
     get('unattributedPanel').hidden = s.unattributed_orders === 0;
     get('unattributedAmount').textContent = `과거 혼합 결제 ${s.unattributed_orders}건 · ${money(s.unattributed_amount)}은 현금·티켓 내역에 포함되지 않습니다.`;
     get('stats-empty').hidden = s.orders !== 0;
-    DOM.render(get('menuTableBody'), data.menu.length ? data.menu.map(row => el('tr',{},[
-      el('td',{text:row.name}),el('td',{class:'numeric',text:row.qty.toLocaleString('ko-KR')+'개'}),
-      el('td',{class:'numeric',text:money(row.amount)}),el('td',{text:dates(period)})])) : emptyRow(4));
+    const menuRow = (name, qty, amount, extra = '') => el('tr',{class:extra},[
+      el('td',{text:name}),el('td',{class:'numeric',text:qty.toLocaleString('ko-KR')+'개'}),
+      el('td',{class:'numeric',text:money(amount)}),el('td',{text:extra ? '' : dates(period)})]);
+    // D-073: a menu sold partly as custom lines shows its total, then the two
+    // parts under it; an unmatched custom name is its own "기타" row.
+    DOM.render(get('menuTableBody'), data.menu.length ? data.menu.flatMap(row => {
+      const customQty = row.custom_qty || 0, customAmount = row.custom_amount || 0;
+      if (row.menu_item_id == null && customQty) return [menuRow('기타 · ' + row.name, row.qty, row.amount)];
+      if (!customQty) return [menuRow(row.name, row.qty, row.amount)];
+      return [menuRow(row.name, row.qty, row.amount),
+        menuRow('└ 정가', row.qty - customQty, row.amount - customAmount, 'menu-part'),
+        menuRow('└ 기타', customQty, customAmount, 'menu-part')];
+    }) : emptyRow(4));
     const max = data.hourly.reduce((value,row)=>Math.max(value,row.revenue),0);
     const hourLabel = row => (period.start_date !== period.end_date ? row.date + ' · ' : '') + row.hour;
     DOM.render(get('hourlyChart'), data.hourly.length ? data.hourly.map(row => {

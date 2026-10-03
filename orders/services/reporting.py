@@ -26,6 +26,11 @@ Now:
 * **Menu.** Grouped by menu id. The name shown is the menu's current name
   because no name snapshot exists yet (D-008 open); the amount is the price
   the line was sold at.
+* **Custom lines (D-073).** A "기타" line tied to a menu when it was taken
+  counts in that menu's row, and the row says how much of it was custom
+  (`custom_qty`, `custom_amount`) so "30개 정가 + 3개 기타 2만원" reads off
+  one row. An unmatched custom line gets a row of its own per name, with no
+  menu id. Its amount is the line total the serving screen entered.
 """
 
 from __future__ import annotations
@@ -40,6 +45,7 @@ from django.utils import timezone
 from orders.models import (
     EventDay, FloorChoices, NumberSeries, Order, OrderItem, OrderStatus, PaymentMethod,
 )
+from orders.services.custom_items import match_key
 
 REVENUE_STATUSES = (OrderStatus.PREPARING, OrderStatus.READY)
 
@@ -142,7 +148,45 @@ _UNATTRIBUTED = _LEGACY_UNSPLIT & Q(payment_method=PaymentMethod.CASH_TICKET)
 # Lines sold before unit prices were recorded count towards quantity and
 # contribute nothing to the amount. Written out rather than relying on Sum
 # skipping NULL products.
-_LINE_AMOUNT = F("qty") * Coalesce(F("unit_price"), Value(0))
+# A custom line's amount is its own line total (D-073).
+LINE_AMOUNT = Coalesce(F("line_amount"), F("qty") * Coalesce(F("unit_price"), Value(0)))
+
+
+def _menu_rows(lines) -> list[dict]:
+    """One row per menu, plus one per unmatched custom name (D-073).
+
+    One query grouped by menu, unmatched name and whether the line is custom;
+    the custom part of a menu is folded into its row here."""
+    rows: dict[tuple, dict] = {}
+    grouped = (
+        lines.annotate(
+            is_custom=Case(When(line_amount__isnull=False, then=Value(True)), default=Value(False)),
+            unmatched_name=Case(When(menu_item__isnull=True, then=F("custom_name")), default=Value("")),
+        )
+        .values("menu_item_id", "menu_item__name", "unmatched_name", "is_custom")
+        .annotate(qty_sum=Sum("qty"), amount=Sum(LINE_AMOUNT, output_field=IntegerField()))
+    )
+    for group in grouped:
+        menu_id = group["menu_item_id"]
+        # Unmatched names group the way matching compares them (PR review L2).
+        key = (menu_id, "" if menu_id else match_key(group["unmatched_name"]))
+        row = rows.setdefault(key, {
+            "menu_item_id": menu_id,
+            "name": group["menu_item__name"] if menu_id else group["unmatched_name"],
+            "qty": 0, "amount": 0, "custom_qty": 0, "custom_amount": 0,
+        })
+        if not menu_id:
+            # Spellings that compare equal share a row; the name shown is the
+            # first in sort order, so the same data always reads the same.
+            row["name"] = min(row["name"], group["unmatched_name"])
+        qty, amount = group["qty_sum"] or 0, group["amount"] or 0
+        row["qty"] += qty
+        row["amount"] += amount
+        if group["is_custom"]:
+            row["custom_qty"] += qty
+            row["custom_amount"] += amount
+    return sorted(rows.values(),
+                  key=lambda row: (-row["qty"], row["name"], row["menu_item_id"] or 0))
 
 
 def dashboard(period: Period, floor: str = "") -> dict:
@@ -173,16 +217,9 @@ def dashboard(period: Period, floor: str = "") -> dict:
         cancelled=Count("id", filter=Q(status=OrderStatus.CANCELLED)),
     )
 
-    menu = [
-        {"menu_item_id": row["menu_item_id"], "name": row["menu_item__name"],
-         "qty": row["qty_sum"], "amount": row["amount"] or 0}
-        for row in OrderItem.objects.filter(order__in=orders)
-        .values("menu_item_id", "menu_item__name")
-        .annotate(qty_sum=Sum("qty"), amount=Sum(_LINE_AMOUNT, output_field=IntegerField()))
-        .order_by("-qty_sum", "menu_item__name", "menu_item_id")
-    ]
-    # Every line belongs to exactly one menu row (the FK is not nullable), so
-    # the item count is the menu group summed, not a query of its own.
+    menu = _menu_rows(OrderItem.objects.filter(order__in=orders))
+    # Every line belongs to exactly one menu row, so the item count is the
+    # menu group summed, not a query of its own.
     item_count = sum(row["qty"] for row in menu)
 
     # TruncHour with a tzinfo returns the hour already in that zone. Keep its

@@ -11,6 +11,8 @@
   const labels = {DINE_IN: '홀', TAKEOUT: '포장'};
   const won = n => n.toLocaleString('ko-KR') + '원';
   const payInputs = ['cash-in', 'cash-mixed', 'ticket-mixed'];
+  // D-073: the custom-line form is optional markup; the controller works without it.
+  const customInputs = ['custom-name', 'custom-qty', 'custom-amount'].filter(id => byId(id));
   let mode = 'DINE_IN';
   let saving = false;
   let loading = false;
@@ -19,7 +21,10 @@
   function settlement() { return state.payment(method(), ...payInputs.map(value), order.total()); }
   function notice(text) { byId('order-notice').textContent = text; }
   function fail(text) { byId('save-error').textContent = text; byId('save-error').focus(); }
-  function hasDraft() { return order.items().length > 0 || ['table-number', ...payInputs].some(id => value(id).trim()); }
+  function hasDraft() {
+    return order.items().length > 0 || ['table-number', ...payInputs].some(id => value(id).trim())
+      || ['custom-name', 'custom-amount'].some(id => byId(id) && value(id).trim());
+  }
   function canLeave() {
     if (saving) return false;
     return !hasDraft() || window.confirm('저장하지 않은 주문이 있습니다. 나가면 입력 내용이 사라집니다. 이동할까요?');
@@ -52,6 +57,13 @@
   function renderCart() {
     DOM.render(byId('cart-items'), order.items().map(row => {
       const data = {id: row.id, mode: row.mode};
+      if (row.custom) {
+        return DOM.el('article', {class: 'order-item', data}, [
+          DOM.el('div', {class: 'cart-heading'}, [DOM.el('strong', {text: labels[row.mode] + ' · 기타 · ' + row.name}), DOM.el('span', {text: won(row.lineAmount)})]),
+          DOM.el('div', {class: 'quantity-controls'}, [DOM.el('span', {class: 'ui-muted', text: row.qty + '개 합계'}),
+            button('삭제', 'remove', data, '기타 ' + row.name + ' 삭제', 'remove')]),
+        ]);
+      }
       return DOM.el('article', {class: 'order-item', data}, [
         DOM.el('div', {class: 'cart-heading'}, [DOM.el('strong', {text: labels[row.mode] + ' · ' + row.name}), DOM.el('span', {text: won(row.price * row.qty)})]),
         DOM.el('div', {class: 'quantity-controls'}, [button('−', 'dec', data, row.name + ' 수량 줄이기', 'step'), DOM.el('output', {text: row.qty, attrs: {'aria-label': row.name + ' 주문 수량'}}),
@@ -94,6 +106,7 @@
   function reset() {
     order.reset();
     ['table-number', ...payInputs].forEach(id => { byId(id).value = ''; });
+    resetCustomInputs();
     document.querySelector('input[name="pay"][value="CASH"]').checked = true;
     mode = 'DINE_IN'; byId('mode-hint').textContent = '홀 · 수량을 선택한 뒤 담아 주세요';
     renderMenus(); renderCart();
@@ -120,7 +133,9 @@
     const payload = {floor: 'B1', order_type: hasHall ? 'DINE_IN' : 'TAKEOUT', is_takeout: !hasHall,
       payment_method: method(), received_amount: payment.received,
       received_cash_amount: payment.cash, received_ticket_amount: payment.ticket,
-      table_number: table, note: '', items: items.map(row => ({menu_item_id: row.id, qty: row.qty, mode: row.mode}))};
+      table_number: table, note: '', items: items.map(row => (row.custom
+        ? {custom_name: row.name, qty: row.qty, line_amount: row.lineAmount, mode: row.mode}
+        : {menu_item_id: row.id, qty: row.qty, mode: row.mode}))};
     const requestId = order.attempt(payload);
     setBusy(true); byId('save-error').textContent = '';
     try {
@@ -154,6 +169,8 @@
       const data = await response.json();
       menus.clear();
       (data.items || []).forEach(menu => menus.set(String(menu.id), menu));
+      // Suggest menu names so a custom line ties to its menu in the report (D-073).
+      if (byId('custom-names')) DOM.render(byId('custom-names'), [...menus.values()].map(menu => DOM.el('option', {attrs: {value: menu.name}})));
       renderMenus();
     } catch (error) {
       DOM.render(byId('menu-grid'), [DOM.el('p', {class: 'ui-error', text: '메뉴를 불러오지 못했습니다. 연결을 확인해 주세요.'}), button('다시 불러오기', 'retry', {})]);
@@ -189,6 +206,20 @@
     byId('mode-hint').textContent = labels[mode] + ' · 수량을 선택한 뒤 담아 주세요';
     renderMenus(); updateSummary();
   });
+  function resetCustomInputs() {
+    customInputs.forEach(id => { byId(id).value = id === 'custom-qty' ? '1' : ''; });
+  }
+  function addCustom() {
+    if (saving) return;
+    try {
+      const line = order.addCustom(mode, value('custom-name'), value('custom-qty'), value('custom-amount'));
+      resetCustomInputs();
+      notice(`${labels[mode]} · 기타 ${line.name} ${line.qty}개 ${won(line.lineAmount)}을 담았습니다.`);
+      renderCart();
+      byId('custom-name').focus({preventScroll: true});
+    } catch (error) { notice(error.message); }
+  }
+  if (byId('btn-custom-add')) byId('btn-custom-add').addEventListener('click', addCustom);
   byId('btn-checkout').addEventListener('click', () => {
     byId('save-error').textContent = ''; renderCart(); dialog.showModal(); byId('table-number').focus();
   });
@@ -213,5 +244,5 @@
     }
   }));
   document.querySelectorAll('input[name="pay"]').forEach(input => input.addEventListener('change', updatePayment));
-  renderCart(); loadMenus();
+  resetCustomInputs(); renderCart(); loadMenus();
 })();

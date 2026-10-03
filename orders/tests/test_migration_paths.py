@@ -36,6 +36,7 @@ M28 = ("orders", "0028_change_revision")
 M29 = ("orders", "0029_revision_generation")
 M30 = ("orders", "0030_order_departed_at")
 M31 = ("orders", "0031_takeout_voucher")
+M32 = ("orders", "0032_orderitem_custom_line")
 
 
 class MigrationPathTests(TestCase):
@@ -210,7 +211,7 @@ class MigrationPathTests(TestCase):
         self.assert_sequence_absent()
         executor = MigrationExecutor(self.connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
-        leaf = M31
+        leaf = M32
         self.assert_head(leaf)
         apps = MigrationExecutor(self.connection).loader.project_state([leaf]).apps
         self.assert_orders_tables_empty(apps)
@@ -735,6 +736,58 @@ class MigrationPathTests(TestCase):
             self.migrate(M30)
         self.assert_database_error(caught.exception, "23514", "orders_table_rule")
         self.assert_head(M31)
+
+    def dine_in_line(self, apps, **line):
+        """An order with one line, written through the historical models."""
+        db = self.connection.alias
+        table = apps.get_model("orders", "Table").objects.using(db).create(number=7)
+        order = apps.get_model("orders", "Order").objects.using(db).create(
+            floor="B1", order_type="DINE_IN", source="ORDER", table_id=table.pk,
+            total_price=5000, received_amount=5000, payment_method="CASH",
+            received_cash_amount=5000, received_ticket_amount=0,
+        )
+        return apps.get_model("orders", "OrderItem").objects.using(db).create(order_id=order.pk, qty=1, **line)
+
+    def test_0032_keeps_every_line_a_menu_line_and_reverses_cleanly(self):
+        apps = self.migrate(M31)
+        menu = apps.get_model("orders", "MenuItem").objects.using(self.connection.alias).create(name="Meal", price=5000)
+        self.dine_in_line(apps, menu_item_id=menu.pk, unit_price=5000)
+        before = self.snapshot(apps)
+        new = self.migrate(M32)
+        self.assert_head(M32)
+        item = new.get_model("orders", "OrderItem").objects.using(self.connection.alias).get()
+        self.assertEqual((item.menu_item_id, item.custom_name, item.line_amount), (menu.pk, "", None))
+        self.migrate(M31)
+        self.assert_head(M31)
+        self.assertEqual(self.snapshot(apps), before)
+
+    def test_0032_refuses_a_line_that_is_neither_shape(self):
+        apps = self.migrate(M32)
+        with self.assertRaises(IntegrityError) as caught:
+            self.dine_in_line(apps, custom_name="떡")
+        self.assert_database_error(caught.exception, "23514", "orderitem_menu_or_custom")
+
+    def test_0032_does_not_reverse_over_any_custom_line(self):
+        """Matched or not: reversing would drop the only record of the amount
+        (PR review M1). The refusal comes before any schema change."""
+        for matched in (False, True):
+            with self.subTest(matched=matched):
+                apps = self.migrate(M32)
+                db = self.connection.alias
+                menu = (apps.get_model("orders", "MenuItem").objects.using(db).create(name="떡꼬치", price=3000)
+                        if matched else None)
+                line = self.dine_in_line(apps, menu_item_id=menu.pk if menu else None,
+                                         custom_name="떡꼬치", line_amount=5000)
+                before = self.snapshot(apps)
+                with self.assertRaisesRegex(RuntimeError, "cannot be reversed"):
+                    self.migrate(M31)
+                self.assert_head(M32)
+                self.assertEqual(self.snapshot(apps), before)
+                OrderItem = apps.get_model("orders", "OrderItem")
+                OrderItem.objects.using(db).filter(pk=line.pk).delete()
+                apps.get_model("orders", "Order").objects.using(db).all().delete()
+                apps.get_model("orders", "Table").objects.using(db).all().delete()
+                apps.get_model("orders", "MenuItem").objects.using(db).all().delete()
 
     def test_0031_does_not_reverse_over_takeout_rows_sharing_a_tag(self):
         """The other constraint reversal restores: one tag, two live orders."""

@@ -2,7 +2,7 @@
 # ${BK_DOMAIN} and ${BK_HSTS_MAX_AGE} are substituted, every other "$" is
 # nginx's own. The locations mirror scripts/nginx_prod.conf (the plain-HTTP
 # candidate this file replaces on a real host); the differences are TLS, the
-# HSTS header, and request limits on the two login pages.
+# HSTS header, and request limits on the login pages and the admin site.
 #
 # HSTS: BK_HSTS_MAX_AGE starts small (see .env.prod.example). Raise it only
 # after the domain has served https for a while without a wrong-certificate
@@ -13,10 +13,25 @@
 # from hammering the login *page* or the admin site, which Django's own admin
 # does not throttle. The rates are per client address; at a venue where many
 # phones share one NAT address, that address is the whole event, so the login
-# zone is deliberately generous and the admin zone is the tight one.
+# zone is deliberately generous.
+#
+# The admin site has two zones because only one of its requests guesses a
+# password. A tight zone on all of /admin/ counted every page an operator
+# opened while signed in -- the add form, its jsi18n, the save, the redirect
+# -- and twenty of those ran out after five or six tables on moau.store
+# (2026-10-03). So the tight limit is the login POST alone, and the rest of
+# the admin site, which needs a session already, gets a limit that only stops
+# a script.
+
+# An empty key is not counted: a GET of the login form passes freely.
+map $request_method $bk_admin_login_key {
+    POST    $binary_remote_addr;
+    default "";
+}
 
 limit_req_zone $binary_remote_addr zone=bk_login:1m rate=60r/m;
-limit_req_zone $binary_remote_addr zone=bk_admin:1m rate=20r/m;
+limit_req_zone $bk_admin_login_key zone=bk_admin_login:1m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=bk_admin:1m rate=300r/m;
 limit_req_status 429;
 
 server {
@@ -83,8 +98,19 @@ server {
         proxy_read_timeout 60s;
     }
 
+    # An exact match, so it wins over /admin/ below; the ?next= query string
+    # does not take part in location matching.
+    location = /admin/login/ {
+        limit_req zone=bk_admin_login burst=10 nodelay;
+        include /etc/nginx/bk_proxy_headers.conf;
+        add_header Strict-Transport-Security "max-age=${BK_HSTS_MAX_AGE}" always;
+        proxy_pass http://app:8000;
+        proxy_http_version 1.1;
+        proxy_read_timeout 60s;
+    }
+
     location /admin/ {
-        limit_req zone=bk_admin burst=20 nodelay;
+        limit_req zone=bk_admin burst=100 nodelay;
         include /etc/nginx/bk_proxy_headers.conf;
         add_header Strict-Transport-Security "max-age=${BK_HSTS_MAX_AGE}" always;
         proxy_pass http://app:8000;

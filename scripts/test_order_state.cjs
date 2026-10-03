@@ -49,3 +49,27 @@ test('cash, ticket surplus, mixed payment, shortage and invalid input follow set
     assert.ok(Number.isNaN(amount(value)), value);
   }
 });
+
+test('D-073: custom lines count their line total and are removed, not re-counted', () => {
+  const order = createOrder();
+  order.add('DINE_IN', {id: 1, name: '삼계탕', price: 10000});
+  const line = order.addCustom('TAKEOUT', '  삼계   탕 ', '3', '20,000');
+  assert.deepEqual(line, {id: 'custom-1', name: '삼계 탕', qty: 3, lineAmount: 20000});
+  assert.equal(order.total(), 30000);
+  assert.deepEqual(order.counts(), {DINE_IN: 1, TAKEOUT: 3});
+  assert.throws(() => order.change('TAKEOUT', 'custom-1', 1), /지우고 다시/);
+  order.addCustom('TAKEOUT', '서비스', '1', '0');
+  assert.equal(order.items().length, 3);
+  order.remove('TAKEOUT', 'custom-1');
+  assert.equal(order.total(), 10000);
+});
+
+test('D-073: a custom line needs a name, a quantity of 1-99 and a whole-won amount', () => {
+  const order = createOrder();
+  for (const [name, qty, amountText, message] of [
+    [' ', '1', '1000', /품목명/], ['가'.repeat(101), '1', '1000', /100자/],
+    ['떡', '0', '1000', /1~99/], ['떡', '100', '1000', /1~99/], ['떡', '1', '', /합계 금액/],
+    ['떡', '1', '1.5', /정수/], ['떡', '1', '-1', /정수/],
+  ]) assert.throws(() => order.addCustom('DINE_IN', name, qty, amountText), message);
+  assert.equal(order.items().length, 0);
+});

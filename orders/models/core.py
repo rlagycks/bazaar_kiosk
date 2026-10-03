@@ -170,18 +170,48 @@ class Order(models.Model):
 
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
-    menu_item = models.ForeignKey(MenuItem, on_delete=models.PROTECT, related_name="order_items")
+    # D-073: a custom ("기타") line names what it sold and the serving screen
+    # says what it cost for the whole line. It points at the menu whose name it
+    # matched when it was taken, or at nothing.
+    menu_item = models.ForeignKey(MenuItem, null=True, blank=True, on_delete=models.PROTECT,
+                                  related_name="order_items")
     qty = models.PositiveIntegerField()
     unit_price = models.PositiveIntegerField(blank=True, null=True)
+    custom_name = models.CharField(max_length=100, blank=True, default="", verbose_name="기타 품목명")
+    line_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name="기타 줄 합계")
     service_mode = models.CharField(max_length=10, choices=OrderType.choices, default=OrderType.DINE_IN)
     prepared_qty = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ["id"]
         indexes = [models.Index(fields=["order", "menu_item"]), models.Index(fields=["order", "id"])]
+        constraints = [
+            # A menu line has a menu and no line amount; a custom line has a
+            # name and a line amount, and a menu only if its name matched one.
+            models.CheckConstraint(
+                name="orderitem_menu_or_custom",
+                condition=(
+                    Q(line_amount__isnull=True, custom_name="", menu_item__isnull=False)
+                    | (Q(line_amount__isnull=False) & ~Q(custom_name=""))
+                ),
+                violation_error_message="품목은 메뉴 품목이거나, 이름과 금액이 있는 기타 품목이어야 합니다.",
+            ),
+        ]
+
+    @property
+    def is_custom(self) -> bool:
+        return self.line_amount is not None
+
+    @property
+    def display_name(self) -> str:
+        if self.is_custom:
+            return self.custom_name
+        return self.menu_item.name if self.menu_item_id else ""
 
     @property
     def line_total(self) -> int:
+        if self.is_custom:
+            return int(self.line_amount)
         return int(self.qty) * int(self.unit_price or 0)
 
     @property
