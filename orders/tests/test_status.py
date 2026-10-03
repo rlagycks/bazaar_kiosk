@@ -143,12 +143,13 @@ class CancelledOrdersAreClosedTests(StatusFixture, TestCase):
 
 @override_settings(**AUTH_SETTINGS)
 class ItemProgressDrivesStatusTests(StatusFixture, TestCase):
-    def test_finishing_every_item_stays_preparing_until_explicit_departure(self):
+    def test_finishing_every_item_completes_and_records_departure(self):
+        """D-076: no separate departure step once everything is prepared."""
         order, item = self.make_order(qty=2)
         self.assertEqual(self.progress(item, {"done": True}).status_code, 200)
         order.refresh_from_db()
-        self.assertEqual(order.status, PREPARING)
-        self.assertIsNone(order.departed_at)
+        self.assertEqual(order.status, "READY")
+        self.assertIsNotNone(order.departed_at)
 
     def test_undoing_an_item_puts_the_order_back_to_preparing(self):
         """The user allowed READY -> PREPARING, and this is the same move made

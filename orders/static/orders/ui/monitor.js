@@ -155,13 +155,15 @@
     byId('detail-meta').textContent = `${order.is_practice ? '연습 · ' : ''}${number(order)} · ${model.kind(order)} · ${clock(order.created_at)} 접수`;
     byId('detail-status').textContent = model.label(order) + (order.departed_at ? ` · 출발 기록 ${clock(order.departed_at)}` : '');
     byId('detail-note').textContent = order.note || '';
-    DOM.render(byId('detail-items'), draft.items().map(item => {
+    const readOnly = item => el('section', {class: 'detail-item'}, [
+      el('h3', {text: `${modeName(item)} · ${itemName(item)} · 주문 ${item.qty}개`}),
+      el('p', {text: `준비 ${item.prepared_qty} / ${item.qty}개 · 남은 ${item.qty - item.prepared_qty}개`}),
+      el('p', {class: 'ui-muted', text: '포장 수량은 포장 모니터링에서 처리합니다'}),
+    ]);
+    // D-076: a hall-only screen gets the takeout lines separately, read-only.
+    DOM.render(byId('detail-items'), [...draft.items().map(item => {
       const id = 'prepared-' + item.id;
-      if (!draft.editable(item.id)) return el('section', {class: 'detail-item'}, [
-        el('h3', {text: `${modeName(item)} · ${itemName(item)} · 주문 ${item.qty}개`}),
-        el('p', {text: `준비 ${item.prepared_qty} / ${item.qty}개 · 남은 ${item.qty - item.prepared_qty}개`}),
-        el('p', {class: 'ui-muted', text: '포장 수량은 포장 모니터링에서 처리합니다'}),
-      ]);
+      if (!draft.editable(item.id)) return readOnly(item);
       return el('section', {class: 'detail-item'}, [
         el('h3', {text: `${modeName(item)} · ${itemName(item)} · 주문 ${item.qty}개`}),
         el('div', {class: 'prepared-control'}, [el('label', {text: '준비 수량', attrs: {for: id}}),
@@ -171,7 +173,7 @@
           el('button', {class: 'ui-button', text: '+', attrs: {type: 'button', 'aria-label': itemName(item) + ' 준비 수량 늘리기'}, data: {step: '1', 'item-id': item.id}})]),
         el('p', {class: 'ui-muted', text: `남은 ${item.qty - item.prepared_qty}개`, attrs: {id: 'remaining-' + item.id}}),
       ]);
-    }));
+    }), ...(draft.original.takeout_items || []).map(readOnly)]);
     byId('detail-error').textContent = '';
     updateControls();
   }

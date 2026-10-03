@@ -82,7 +82,9 @@
     byId('cart-title').textContent = '담은 메뉴 · ' + (counts.DINE_IN + counts.TAKEOUT) + '개';
     byId('order-summary').textContent = `홀 ${counts.DINE_IN}개 · 포장 ${counts.TAKEOUT}개 / 총 ${won(order.total())}`;
     byId('btn-checkout').disabled = saving || !order.items().length;
-    byId('table-help').textContent = counts.DINE_IN ? '홀·혼합 주문은 식당 테이블 번호를 입력하세요.' : '포장만 주문할 때는 비워 두세요. 주문 번호가 교환권입니다.';
+    // Takeout-only orders have no table: hide the field rather than ask to leave it empty.
+    byId('table-field').hidden = !counts.DINE_IN;
+    byId('table-help').textContent = counts.DINE_IN ? '홀·혼합 주문은 식당 테이블 번호를 입력하세요.' : '포장 주문은 테이블 번호가 필요 없습니다. 주문 번호가 교환권입니다.';
     updatePayment();
   }
   function updatePayment() {
@@ -242,7 +244,8 @@
     (pickedMenu() ? byId('custom-qty') : byId('custom-name')).focus({preventScroll: true});
   });
   byId('btn-checkout').addEventListener('click', () => {
-    byId('save-error').textContent = ''; renderCart(); dialog.showModal(); byId('table-number').focus();
+    byId('save-error').textContent = ''; renderCart(); dialog.showModal();
+    (byId('table-field').hidden ? document.querySelector('input[name="pay"]:checked') : byId('table-number')).focus();
   });
   byId('btn-back').addEventListener('click', closeCheckout);
   dialog.addEventListener('cancel', event => { event.preventDefault(); closeCheckout(); });

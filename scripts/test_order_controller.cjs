@@ -30,7 +30,7 @@ async function app(respond, {custom = false} = {}) {
   add(document, 'p', 'order-summary'); add(document, 'button', 'btn-checkout');
   const checkout = add(document, 'dialog', 'checkout', {class: 'checkout'});
   for (const id of ['btn-back', 'btn-submit', 'btn-reset']) add(checkout, 'button', id);
-  add(checkout, 'input', 'table-number');
+  const tableField = add(checkout, 'label', 'table-field'); tableField.hidden = true; add(tableField, 'input', 'table-number');
   for (const id of ['cart-title', 'cart-items', 'table-help', 'total-amount', 'change-amount', 'payment-error', 'save-error']) add(checkout, 'div', id);
   for (const value of ['CASH', 'TICKET', 'CASH_TICKET']) {
     const radio = add(checkout, 'input', '', {name: 'pay', value, type: 'radio'});
@@ -250,4 +250,20 @@ test('D-073: switching back to direct input asks for a name again', async () => 
   await ui.input('custom-amount', '1000');
   await ui.click(ui.get('btn-custom-add'));
   assert.match(ui.get('order-notice').textContent, /품목명/);
+});
+
+test('takeout-only checkout hides the table field; any hall line shows it again',async()=>{
+  const ui=await app();
+  await ui.click(ui.document.querySelector('.menu-tab[data-mode="TAKEOUT"]'));
+  await ui.click(ui.get('menu-grid').querySelector('[data-action="add"]'));
+  await ui.click(ui.get('btn-checkout'));
+  assert.equal(ui.get('table-field').hidden,true);
+  assert.match(ui.get('table-help').textContent,/필요 없습니다/);
+  assert.equal(ui.document.activeElement,ui.document.querySelector('input[name="pay"]:checked'));
+  await ui.click(ui.get('btn-back'));
+  await ui.click(ui.document.querySelector('.menu-tab[data-mode="DINE_IN"]'));
+  await ui.click(ui.get('menu-grid').querySelector('[data-action="add"]'));
+  await ui.click(ui.get('btn-checkout'));
+  assert.equal(ui.get('table-field').hidden,false);
+  assert.equal(ui.document.activeElement,ui.get('table-number'));
 });
