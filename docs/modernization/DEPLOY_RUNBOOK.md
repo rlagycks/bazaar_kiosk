@@ -212,7 +212,7 @@ docker compose -f compose.prod.yaml -f compose.tls.yaml exec app python manage.p
 | 항목 | 처리 |
 | --- | --- |
 | `check --deploy` W004(HSTS)·W008(HTTPS 리다이렉트) | 프록시에서 처리: 80→301 https, HSTS 헤더. Django 설정은 그대로(프록시가 종단) |
-| 관리자 화면 `/admin/` 로그인에 실패 제한 없음 | 프록시 `limit_req`(주소당 20 r/m, burst 20). 로그인 페이지도 60 r/m·burst 60 |
+| 관리자 화면 `/admin/` 로그인에 실패 제한 없음 | 프록시 `limit_req`: `/admin/login/` POST만 주소당 10 r/m·burst 10, 나머지 `/admin/`은 300 r/m·burst 100(D-074, 처음 20 r/m·burst 20은 운영자 작업을 막았다). 로그인 페이지 60 r/m·burst 60 |
 | `server_tokens`, 요청 제한 | TLS 템플릿에 포함 |
 | `.dockerignore` 없음 | 추가. 이미지에 들어간 적은 없으나 컨텍스트에서 `.git`·`secrets/`·`.env` 제외 |
 | Docker 로그 무제한 | 오버레이에서 json-file 10 MB×5 |
