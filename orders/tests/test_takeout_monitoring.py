@@ -370,10 +370,9 @@ class TakeoutMonitoringTests(TransactionTestCase):
         ready.items.update(prepared_qty=1)
         OrderItem.objects.create(order=ready, menu_item=self.other, qty=1, prepared_qty=1,
                                  unit_price=9000, service_mode="DINE_IN")
-        status_service.sync_from_items(ready)  # became mixed; its prepared hall part departs
+        status_service.sync_from_items(ready)  # became mixed, all prepared: stays READY
         ready.refresh_from_db()
-        self.assertEqual(ready.status, "READY")
-        self.assertIsNotNone(ready.departed_at)
+        self.assertEqual((ready.status, ready.departed_at), ("READY", None))  # no invented time
         not_ready = self.order((self.menu, 1), status="READY")
         not_ready.items.update(prepared_qty=1)
         OrderItem.objects.create(order=not_ready, menu_item=self.other, qty=1, prepared_qty=0,
@@ -435,6 +434,13 @@ class TakeoutMonitoringTests(TransactionTestCase):
         self.assertEqual(order.status, "READY")
         self.assertIsNotNone(order.departed_at)
         self.assertGreater(revisions.current(), before)
+
+    def test_a_legacy_ready_order_is_not_given_an_invented_departure(self):
+        order = self.order((self.menu, 1), status="READY")
+        order.items.update(service_mode="DINE_IN", prepared_qty=1)
+        self.assertFalse(status_service.sync_from_items(order))
+        order.refresh_from_db()
+        self.assertEqual((order.status, order.departed_at), ("READY", None))
 
     def test_hall_detail_shows_takeout_lines_read_only_while_cards_stay_hall_only(self):
         order, hall, client = self.mixed()

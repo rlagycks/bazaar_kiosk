@@ -120,7 +120,9 @@ def sync_from_items(order: Order, actor=None) -> bool:
     status, departed_at = order.status, order.departed_at
     if hall and any(item.prepared_qty < item.qty for item in hall):
         departed_at = None
-    elif hall and departed_at is None:
+    elif hall and departed_at is None and status != OrderStatus.READY:
+        # An already READY order without one predates UI-05B: stamping "now"
+        # would invent a departure time (PR #103 review).
         departed_at = timezone.now()
     if pending and status == OrderStatus.READY:
         status = OrderStatus.PREPARING
