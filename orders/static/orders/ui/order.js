@@ -12,7 +12,7 @@
   const won = n => n.toLocaleString('ko-KR') + '원';
   const payInputs = ['cash-in', 'cash-mixed', 'ticket-mixed'];
   // D-073: the custom-line form is optional markup; the controller works without it.
-  const customInputs = ['custom-name', 'custom-qty', 'custom-amount'].filter(id => byId(id));
+  const customInputs = ['custom-menu', 'custom-name', 'custom-qty', 'custom-amount'].filter(id => byId(id));
   let mode = 'DINE_IN';
   let saving = false;
   let loading = false;
@@ -23,7 +23,7 @@
   function fail(text) { byId('save-error').textContent = text; byId('save-error').focus(); }
   function hasDraft() {
     return order.items().length > 0 || ['table-number', ...payInputs].some(id => value(id).trim())
-      || ['custom-name', 'custom-amount'].some(id => byId(id) && value(id).trim());
+      || ['custom-menu', 'custom-name', 'custom-amount'].some(id => byId(id) && value(id).trim());
   }
   function canLeave() {
     if (saving) return false;
@@ -169,8 +169,7 @@
       const data = await response.json();
       menus.clear();
       (data.items || []).forEach(menu => menus.set(String(menu.id), menu));
-      // Suggest menu names so a custom line ties to its menu in the report (D-073).
-      if (byId('custom-names')) DOM.render(byId('custom-names'), [...menus.values()].map(menu => DOM.el('option', {attrs: {value: menu.name}})));
+      renderCustomMenus();
       renderMenus();
     } catch (error) {
       DOM.render(byId('menu-grid'), [DOM.el('p', {class: 'ui-error', text: '메뉴를 불러오지 못했습니다. 연결을 확인해 주세요.'}), button('다시 불러오기', 'retry', {})]);
@@ -208,18 +207,40 @@
   });
   function resetCustomInputs() {
     customInputs.forEach(id => { byId(id).value = id === 'custom-qty' ? '1' : ''; });
+    syncCustomMenu();
+  }
+  // A custom line picked from the menu list carries that menu's exact name, so
+  // the report always folds it into the menu (D-073). "직접 입력" types a name.
+  function renderCustomMenus() {
+    if (!byId('custom-menu')) return;
+    const picked = value('custom-menu');
+    DOM.render(byId('custom-menu'), [DOM.el('option', {text: '직접 입력 (메뉴에 없는 품목)', attrs: {value: ''}}),
+      ...[...menus.values()].map(menu => DOM.el('option', {text: menu.name, attrs: {value: String(menu.id)}}))]);
+    byId('custom-menu').value = menus.has(picked) ? picked : '';
+    syncCustomMenu();
+  }
+  function pickedMenu() { return byId('custom-menu') ? menus.get(value('custom-menu')) : undefined; }
+  function syncCustomMenu() {
+    if (!byId('custom-name-row')) return;
+    const menu = pickedMenu();
+    byId('custom-name-row').hidden = Boolean(menu);
+    if (menu) byId('custom-name').value = '';
   }
   function addCustom() {
     if (saving) return;
     try {
-      const line = order.addCustom(mode, value('custom-name'), value('custom-qty'), value('custom-amount'));
+      const line = order.addCustom(mode, pickedMenu()?.name ?? value('custom-name'), value('custom-qty'), value('custom-amount'));
       resetCustomInputs();
       notice(`${labels[mode]} · 기타 ${line.name} ${line.qty}개 ${won(line.lineAmount)}을 담았습니다.`);
       renderCart();
-      byId('custom-name').focus({preventScroll: true});
+      byId(byId('custom-menu') ? 'custom-menu' : 'custom-name').focus({preventScroll: true});
     } catch (error) { notice(error.message); }
   }
   if (byId('btn-custom-add')) byId('btn-custom-add').addEventListener('click', addCustom);
+  if (byId('custom-menu')) byId('custom-menu').addEventListener('change', () => {
+    syncCustomMenu();
+    (pickedMenu() ? byId('custom-qty') : byId('custom-name')).focus({preventScroll: true});
+  });
   byId('btn-checkout').addEventListener('click', () => {
     byId('save-error').textContent = ''; renderCart(); dialog.showModal(); byId('table-number').focus();
   });

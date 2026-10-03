@@ -28,6 +28,10 @@
 .custom-item p { font-size: 13px; }
 .custom-figures { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
 .custom-item label.field, .checkout label.field { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--ui-control-border); border-radius: 8px; font-size: 13px; color: var(--ui-muted); }
+.custom-item label.field[hidden] { display: none; }
+.custom-item .field select { appearance: none; -webkit-appearance: none; color: var(--ui-ink); font: inherit; font-size: 18px; font-weight: 700; border: 0; background: transparent; width: 100%; min-width: 0; min-height: 36px; padding: 0 28px 0 0; cursor: pointer; }
+.custom-select { position: relative; }
+.custom-select::after { content: "▾"; position: absolute; right: 14px; bottom: 16px; font-size: 18px; color: var(--ui-muted); pointer-events: none; }
 .custom-item .field input, .checkout .field input { color: var(--ui-ink); font-size: 20px; font-weight: 700; border: 0; background: transparent; width: 100%; min-width: 0; min-height: 30px; padding: 0; }
 .cart-title { font-size: 18px; }
 .order-items { display: flex; flex-direction: column; gap: 8px; }
