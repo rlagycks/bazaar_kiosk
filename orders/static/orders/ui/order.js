@@ -77,7 +77,7 @@
     const mixed = method() === 'CASH_TICKET';
     byId('single-amount-row').hidden = mixed;
     byId('mixed-amount-row').hidden = !mixed;
-    byId('single-amount-label').textContent = method() === 'TICKET' ? '받은 식권 금액' : '받은 현금';
+    byId('single-amount-label').textContent = method() === 'TICKET' ? '받은 티켓 금액' : '받은 현금';
     const payment = settlement();
     byId('total-amount').textContent = won(order.total());
     byId('change-amount').textContent = won(payment.change);
