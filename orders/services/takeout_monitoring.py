@@ -7,6 +7,11 @@ work has been marked done, per menu (user decision 2026-10-03). A new order,
 hall progress on a mixed order or a status change elsewhere does not refuse a
 batch; another device completing the same takeout work does. Mixed orders
 contribute only TAKEOUT lines; hall departure remains explicit.
+
+D-077: menus and allocation read only orders received today, so an order left
+PREPARING from a rehearsal or an earlier day can no longer absorb today's
+completions. The token names the day, so a batch read before midnight is
+refused after it. History reads every day unless narrowed to one.
 """
 from __future__ import annotations
 
@@ -19,7 +24,7 @@ from django.utils import timezone
 
 from orders.models import FloorChoices, MenuItem, NumberSeries, Order, OrderItem, OrderStatus, OrderType, TakeoutCompletionRequest
 from orders.roles import TAKEOUT_MONITOR
-from orders.services import audit, custom_items, idempotency, revisions, snapshots
+from orders.services import audit, custom_items, idempotency, revisions, snapshots, workday
 from orders.services import status as status_service
 from orders.services.monitoring_actions import ActionConflict, InvalidAction
 from orders.services.monitoring_snapshot import HISTORY_PAGE_SIZE, MAX_PAGE_NUMBER
@@ -36,7 +41,12 @@ def item_key(item):
     return "custom:" + hashlib.sha256(custom_items.match_key(item.custom_name).encode()).hexdigest()
 
 
-def completion_version(generation):
+def pending(day=None):
+    """Today's takeout work (D-077)."""
+    return workday.current(visible().filter(status=OrderStatus.PREPARING), day)
+
+
+def completion_version(generation, day=None):
     """Takeout quantity marked done, per menu key, over every takeout line.
 
     Completing only ever raises these sums, and the sums do not move when an
@@ -50,7 +60,7 @@ def completion_version(generation):
         key = f"menu:{menu_id}" if menu_id is not None else \
             "custom:" + hashlib.sha256(custom_items.match_key(name).encode()).hexdigest()
         done[key] = done.get(key, 0) + int(total or 0)
-    source = [generation, sorted(done.items())]
+    source = [generation, (day or workday.today()).isoformat(), sorted(done.items())]
     return hashlib.sha256(json.dumps(source, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -85,7 +95,7 @@ def _prefetched(query):
     return query.prefetch_related(Prefetch("items", queryset=OrderItem.objects.select_related("menu_item").order_by("id")))
 
 
-def read(permissions, *, page=1, since=None):
+def read(permissions, *, page=1, since=None, day=None):
     if TAKEOUT_MONITOR not in permissions:
         raise PermissionError("포장 모니터링 권한이 필요합니다.")
     if type(page) is not int or not 1 <= page <= MAX_PAGE_NUMBER:
@@ -95,25 +105,31 @@ def read(permissions, *, page=1, since=None):
     with transaction.atomic():
         snapshots._isolate(True)
         generation, revision = revisions.state()
-        version = snapshots.version_from(revision, (*permissions, "representation=takeout-v1", f"page={page}"), generation=generation)
+        # One "today" for the version, the menus and the token (D-077).
+        today = workday.today()
+        cursor_scope = (*permissions, "representation=takeout-v1", f"page={page}",
+                 f"today={today}", f"date={day or 'all'}")
+        version = snapshots.version_from(revision, cursor_scope, generation=generation)
         cursor = snapshots.CURSOR_ABSENT if not since else (
             snapshots.CURSOR_ACCEPTED if snapshots._same_lineage_and_scope(since, version) else snapshots.CURSOR_REJECTED)
         unchanged = since == version
-        pending = list(_prefetched(visible().filter(status=OrderStatus.PREPARING)).order_by("id"))
-        menus = menus_for(pending)
-        history_total = visible().count()
+        waiting = list(_prefetched(pending(today)).order_by("id"))
+        menus = menus_for(waiting)
+        history = visible() if day is None else workday.received_on(visible(), day)
+        history_total = history.count()
         pages = (history_total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE
         orders = []
         if not unchanged and page <= pages:
             offset = (page - 1) * HISTORY_PAGE_SIZE
-            orders = [history_order(o) for o in _prefetched(visible()).order_by("-created_at", "-id")[offset:offset + HISTORY_PAGE_SIZE]]
+            orders = [history_order(o) for o in _prefetched(history).order_by("-created_at", "-id")[offset:offset + HISTORY_PAGE_SIZE]]
         return {"version": version, "unchanged": unchanged, "cursor": cursor,
-                "orders": [], "count": 0, "total": len(pending), "has_more": False, "complete": True,
+                "orders": [], "count": 0, "total": len(waiting), "has_more": False, "complete": True,
                 "menus": [] if unchanged else menus,
                 "remaining_total": sum(row["remaining_qty"] for row in menus),
-                "completion_version": completion_version(generation),
+                "completion_version": completion_version(generation, today),
                 "history": {"orders": orders, "total": history_total, "page": page, "pages": pages,
-                            "has_previous": page > 1 and pages > 0, "has_next": page < pages}}
+                            "has_previous": page > 1 and pages > 0, "has_next": page < pages,
+                            "date": day.isoformat() if day else None}}
 
 
 def stream_digest():
@@ -126,8 +142,9 @@ Use the same menu/history projections as the screen, without a queue cutoff.
     with transaction.atomic():
         snapshots._isolate(isolated)
         orders = list(_prefetched(visible()).order_by("id"))
-        pending = [o for o in orders if o.status == OrderStatus.PREPARING]
-        body = {"menus": menus_for(pending), "history": [history_order(o) for o in orders],
+        start, end = workday.bounds(workday.today())
+        waiting = [o for o in orders if o.status == OrderStatus.PREPARING and start <= o.created_at < end]
+        body = {"menus": menus_for(waiting), "history": [history_order(o) for o in orders],
                 "completion_version": completion_version(revisions.state()[0])}
         return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
@@ -178,7 +195,7 @@ def complete(payload, *, actor, permissions):
             raise ActionConflict("같은 요청 ID로 다른 완료 요청을 보낼 수 없습니다.")
         return receipt.result
     # Lock the order before examining its lines, as every other order writer does.
-    orders = list(visible().filter(status=OrderStatus.PREPARING).select_for_update().order_by("id"))
+    orders = list(pending().select_for_update().order_by("id"))
     items = list(OrderItem.objects.filter(order_id__in=[o.pk for o in orders]).select_for_update().order_by("order_id", "id"))
     grouped = {o.pk: [] for o in orders}
     for item in items:

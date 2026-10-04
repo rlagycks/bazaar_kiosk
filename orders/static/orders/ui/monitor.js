@@ -88,14 +88,16 @@
     [...data.history.orders, ...data.orders].forEach(order => orders.set(order.id, order));
     DOM.render(byId('waiting-orders'), data.orders.length ? data.orders.map(card) : el('p', {class: 'monitor-empty', text: '미완료 주문이 없습니다.'}));
     byId('waiting-orders').setAttribute('aria-busy', 'false');
-    byId('waiting-title').textContent = `미완료 주문 ${data.total}건`;
+    byId('waiting-title').textContent = `오늘 미완료 주문 ${data.total}건`;
     byId('queue-warning').textContent = data.has_more ? `대기 ${data.total}건 중 오래된 ${data.count}건을 표시합니다. 나머지 주문은 앞 주문을 처리하면 나타납니다.` : '';
     byId('history-title').textContent = `전체 주문 내역 ${data.history.total}건`;
     DOM.render(byId('history-orders'), data.history.orders.length ? data.history.orders.map(row) : el('tr', {}, [el('td', {attrs: {colspan: '6'}, text: '이 페이지에 주문이 없습니다.'})]));
     const history = data.history, links = [];
-    if (history.has_previous) links.push(el('a', {class: 'ui-button', text: '이전', attrs: {href: `?page=${Math.min(history.page - 1, history.pages)}#history`}}));
+    // D-077: a page link keeps the history's day filter.
+    const historyHref = number => `?page=${number}${page.dataset.historyDate ? '&date=' + encodeURIComponent(page.dataset.historyDate) : ''}#history`;
+    if (history.has_previous) links.push(el('a', {class: 'ui-button', text: '이전', attrs: {href: historyHref(Math.min(history.page - 1, history.pages))}}));
     links.push(el('span', {class: 'ui-muted', text: `${history.page} / ${Math.max(1, history.pages)} 페이지 · 페이지당 50건`}));
-    if (history.has_next) links.push(el('a', {class: 'ui-button', text: '다음', attrs: {href: `?page=${history.page + 1}#history`}}));
+    if (history.has_next) links.push(el('a', {class: 'ui-button', text: '다음', attrs: {href: historyHref(history.page + 1)}}));
     DOM.render(byId('history-pagination'), links);
     fresh = !awaitingWriteRead;
     if (detail.open && draft) {

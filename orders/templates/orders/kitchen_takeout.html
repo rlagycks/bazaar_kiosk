@@ -11,7 +11,7 @@
 </head>
 <body class="ui05">
   <main id="takeout-page" class="takeout-page"
-    data-snapshot-url="{% url 'orders:snapshot-takeout' %}?page={{ history_page }}"
+    data-snapshot-url="{% url 'orders:snapshot-takeout' %}?page={{ history_page }}{% if history_date %}&amp;date={{ history_date }}{% endif %}"
     data-stream-url="{% url 'orders:kitchen-stream' %}"
     data-complete-url="{% url 'orders:takeout-complete' %}"
     data-login-url="{% url 'orders:login' %}">
@@ -46,12 +46,18 @@
       </div>
       <p id="takeout-error" class="ui-error" role="alert" tabindex="-1"></p>
       <button class="ui-button ui-button-primary takeout-submit" type="button" id="takeout-submit" disabled>선택한 수량 완료</button>
-      <p class="takeout-help">선택한 수량은 먼저 접수된 주문부터 반영됩니다. 완료한 수량만큼 남은 수량이 줄어듭니다.</p>
+      <p class="takeout-help">남은 수량은 오늘 접수된 주문만 셉니다. 선택한 수량은 먼저 접수된 주문부터 반영됩니다. 완료한 수량만큼 남은 수량이 줄어듭니다.</p>
     </section>
     <section id="history" aria-labelledby="takeout-history-title">
       <div class="takeout-section-heading">
         <h2 id="takeout-history-title">전체 주문 내역</h2>
-        <p class="takeout-help">최근 접수순 · 전체 기간</p>
+        <p class="takeout-help">최근 접수순 · {% if history_date %}{{ history_date }} 접수{% else %}전체 기간{% endif %}</p>
+        <form class="history-filter" method="get" action="#history" aria-label="주문 내역 날짜">
+        <label for="history-date">접수일</label>
+        <input id="history-date" type="date" name="date" value="{{ history_date }}">
+        <button class="ui-button" type="submit">보기</button>
+        {% if history_date %}<a class="ui-button" href="?#history">전체 기간</a>{% endif %}
+      </form>
       </div>
       <div class="takeout-history-scroll" tabindex="0" role="region" aria-label="포장 주문 내역 표">
         <table class="takeout-history-table">
