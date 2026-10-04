@@ -142,10 +142,11 @@ Use the same menu/history projections as the screen, without a queue cutoff.
     with transaction.atomic():
         snapshots._isolate(isolated)
         orders = list(_prefetched(visible()).order_by("id"))
-        start, end = workday.bounds(workday.today())
+        today = workday.today()
+        start, end = workday.bounds(today)
         waiting = [o for o in orders if o.status == OrderStatus.PREPARING and start <= o.created_at < end]
         body = {"menus": menus_for(waiting), "history": [history_order(o) for o in orders],
-                "completion_version": completion_version(revisions.state()[0])}
+                "completion_version": completion_version(revisions.state()[0], today)}
         return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
