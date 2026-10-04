@@ -61,24 +61,3 @@ DATABASE_URL이 누락되거나 PostgreSQL URL이 아니면 시작이 실패합�
 모두 PostgreSQL에서 실행하며 SQLite skip 경로는 없습니다. CI도 같은 명령을 사용합니다.
 [전환 범위·남은 결정](docs/modernization/POSTGRES_ONLY.md)에 기존 DB 파일과 마이그레이션 보존,
 영속 개발 DB·일회용 테스트 DB 구분, 운영 인수 한계를 기록했습니다.
-
-## 현대화 워크플로
-
-[현대화 가이드](docs/modernization/README.md)부터 시작하세요. 이 가이드에는 다음 내용이
-있습니다.
-
-- 저장소별 기준 상태 및 위험 목록
-- 모델 공통 세션 안내와 과거 설정 기록
-- 안전한 Git 복구 전략
-- 여러 세션에 걸친 구축 블루프린트
-- 분석, 계획 검토, 구현 및 최종 감사를 위해 바로 붙여 넣을 수 있는 프롬프트
-- 원활한 인수인계를 위한 결정 사항 및 작업 로그 템플릿
-
-에이전트는 코드를 변경하기 전에 [AGENTS.md](AGENTS.md)를 읽어야 합니다.
-
-## 배포 준비 (12A1)
-
-운영 배포 구성과 절차는 [docs/modernization/DEPLOY_RUNBOOK.md](docs/modernization/DEPLOY_RUNBOOK.md)를 따른다.
-`compose.prod.yaml` 위에 `compose.tls.yaml`을 얹고, 호스트에서 `scripts/deploy/`의 스크립트로 준비·배포한다.
-설정·비밀값의 원본은 GitHub `production` 환경이며 배포 워크플로가 매번 호스트에 주입한다(D-071).
-실제 호스트 생성과 배포 실행은 별도 승인이다.
