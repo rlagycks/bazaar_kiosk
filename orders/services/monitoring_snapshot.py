@@ -1,6 +1,8 @@
 """UI-05B: waiting work and all-status history from one PostgreSQL instant.
 
-History includes every date and status, newest first, in fixed 50-row pages.
+Waiting work is only orders received today in Asia/Seoul (D-077). History
+includes every date and status unless narrowed to one day, newest first, in
+fixed 50-row pages.
 An out-of-range page stays empty and retains its requested page number;
 clients can return to min(page - 1, pages) when has_previous is true.
 Only truncating the waiting queue makes complete false. History pagination
@@ -17,7 +19,7 @@ from django.db import connection, transaction
 
 from orders.models import FloorChoices, OrderStatus, OrderType
 from orders.roles import HALL_MONITOR, TAKEOUT_MONITOR
-from orders.services import queues, revisions, scope, snapshots
+from orders.services import queues, revisions, scope, snapshots, workday
 from orders.views import selectors, serializers
 
 
@@ -44,7 +46,7 @@ def serialize(order, mode):
 
 
 def read(permissions, *, mode: str = "ALL", page: int = 1,
-         since: str | None = None) -> dict:
+         since: str | None = None, day=None) -> dict:
     """Authorize, narrow before either limit, and fully serialize atomically.
 
 The HTTP guard supplies freshly checked server permissions. STATS never
@@ -73,8 +75,12 @@ must let this function own its transaction to preserve the read contract.
         generation, value = revisions.state()
         # Keep the common generation:value:digest form, but this representation
         # cannot be confused with waiting-only, another page, or another mode.
+        # D-077: the waiting list is today's, so the version must move at
+        # midnight even when no row did; the history filter is part of scope.
+        today = workday.today()
         cursor_scope = (*held, f"representation={REPRESENTATION_VERSION}",
-                        f"mode={mode}", f"page={page}")
+                        f"mode={mode}", f"page={page}", f"today={today}",
+                        f"date={day or 'all'}")
         version = snapshots.version_from(value, cursor_scope, generation=generation)
         cursor = snapshots.CURSOR_ABSENT
         if since:
@@ -90,7 +96,7 @@ must let this function own its transaction to preserve the read contract.
             status="", types=[],
         )
         visible = scope.visible(visible, required)
-        waiting = visible.filter(status=OrderStatus.PREPARING)
+        waiting = workday.current(visible.filter(status=OrderStatus.PREPARING), today)
         if mode == scope.HALL:
             waiting = waiting.filter(departed_at__isnull=True)
         if unchanged:
@@ -103,14 +109,15 @@ must let this function own its transaction to preserve the read contract.
             waiting_total = queue.total
             has_more = queue.has_more
 
-        history_total = visible.count()
+        history = visible if day is None else workday.received_on(visible, day)
+        history_total = history.count()
         pages = (history_total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE
         history_orders = []
         if not unchanged and page <= pages:
             offset = (page - 1) * HISTORY_PAGE_SIZE
             history_orders = [
                 serialize(order, mode)
-                for order in visible.order_by("-created_at", "-id")[offset:offset + HISTORY_PAGE_SIZE]
+                for order in history.order_by("-created_at", "-id")[offset:offset + HISTORY_PAGE_SIZE]
             ]
 
         # No model instances or lazy relation reads may leave this block.
@@ -130,5 +137,6 @@ must let this function own its transaction to preserve the read contract.
                 "pages": pages,
                 "has_previous": page > 1 and pages > 0,
                 "has_next": page < pages,
+                "date": day.isoformat() if day else None,
             },
         }

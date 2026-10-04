@@ -11,7 +11,8 @@
 </head>
 <body class="ui05">
   <main id="monitor-page" class="monitor-page" data-scope="{{ mode_scope }}"
-    data-snapshot-url="{% url 'orders:snapshot-monitoring' %}?scope={{ mode_scope }}&amp;page={{ history_page }}"
+    data-snapshot-url="{% url 'orders:snapshot-monitoring' %}?scope={{ mode_scope }}&amp;page={{ history_page }}{% if history_date %}&amp;date={{ history_date }}{% endif %}"
+    data-history-date="{{ history_date }}"
     data-stream-url="{% url 'orders:kitchen-stream' %}"
     data-action-url="{% url 'orders:monitor-order-action' 0 %}"
     data-login-url="{% url 'orders:login' %}">
@@ -28,13 +29,19 @@
     <p id="live-status" class="ui-muted" role="status">주문을 불러오는 중…</p>
     <p id="monitor-notice" class="monitor-notice" role="status" aria-live="polite"></p>
     <section aria-labelledby="waiting-title">
-      <div class="monitor-section-heading"><h2 id="waiting-title">미완료 주문</h2><span class="ui-muted">오래된 주문부터 →</span></div>
+      <div class="monitor-section-heading"><h2 id="waiting-title">미완료 주문</h2><span class="ui-muted">오늘 접수 · 오래된 주문부터 →</span></div>
       <p id="queue-warning" class="ui-error" role="status"></p>
       <div id="waiting-orders" class="waiting-orders" tabindex="0" role="region" aria-label="미완료 주문 가로 목록" aria-busy="true"><p class="monitor-empty">주문을 불러오는 중입니다.</p></div>
       <p class="monitor-help">완료 = 모든 음식 준비 후 서빙 출발 · 완료 주문은 아래 내역에 남습니다.</p>
     </section>
     <section id="history" aria-labelledby="history-title">
-      <div class="monitor-section-heading"><h2 id="history-title">전체 주문 내역</h2><span class="ui-muted">최근 접수순 ↓ · 전체 기간</span></div>
+      <div class="monitor-section-heading"><h2 id="history-title">전체 주문 내역</h2><span class="ui-muted">최근 접수순 ↓ · {% if history_date %}{{ history_date }} 접수{% else %}전체 기간{% endif %}</span></div>
+      <form class="history-filter" method="get" action="#history" aria-label="주문 내역 날짜">
+        <label for="history-date">접수일</label>
+        <input id="history-date" type="date" name="date" value="{{ history_date }}">
+        <button class="ui-button" type="submit">보기</button>
+        {% if history_date %}<a class="ui-button" href="?#history">전체 기간</a>{% endif %}
+      </form>
       <div class="history-scroll" tabindex="0" role="region" aria-label="전체 주문 내역 표">
         <table class="history-table">
           <caption class="sr-only">준비 중·서빙 출발·취소를 포함한 전체 주문 내역</caption>

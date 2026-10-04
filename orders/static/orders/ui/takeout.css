@@ -66,3 +66,5 @@
   .takeout-section-heading { flex-wrap: wrap; }
   .takeout-history-table th, .takeout-history-table td { padding: 16px; }
 }
+.history-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+.history-filter input { min-height: 44px; padding: 0 12px; border: 1px solid var(--ui-line); border-radius: 12px; background: var(--ui-surface); color: var(--ui-ink); }

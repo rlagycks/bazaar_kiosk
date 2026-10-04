@@ -10,10 +10,10 @@ const {fakeDocument} = require('./fake_document.cjs');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const baseOrder = () => ({id:1, order_no:1, created_at:'2026-09-22T01:00:00Z', status:'PREPARING', monitor_version:'v1', table:{number:12},
   items:[{id:7,menu_item_name:'<img src=x onerror=alert(1)>',qty:3,prepared_qty:0,service_mode:'DINE_IN'}]});
-function app(respond = async () => new Response(JSON.stringify({id:1}))) {
+function app(respond = async () => new Response(JSON.stringify({id:1})), pageAttrs = {}) {
   const document = fakeDocument();
   const add = (parent, tag, id, attrs={}) => parent.append(document.create(tag, {id,...attrs}));
-  const page = add(document, 'main', 'monitor-page', {'data-action-url':'/orders/api/orders/0/monitoring','data-login-url':'/orders/login/'});
+  const page = add(document, 'main', 'monitor-page', {'data-action-url':'/orders/api/orders/0/monitoring','data-login-url':'/orders/login/',...pageAttrs});
   for (const id of ['waiting-orders','waiting-title','queue-warning','history-title','history-pagination','live-status','monitor-notice']) add(page,'div',id);
   add(page,'tbody','history-orders'); add(page,'button','reload-orders');
   const detail = add(document,'dialog','order-detail'), confirm = add(document,'dialog','confirm-action');
@@ -107,6 +107,12 @@ test('failed read disables mutation and out-of-range page can return directly',(
   assert.equal(ui.get('history-pagination').querySelector('a').attrs.href,'?page=2#history');
   ui.callbacks.onStatus({lastError:'offline',running:true,applied:{at:Date.now()}});
   assert.equal(ui.get('waiting-orders').querySelector('[data-action="depart"]').disabled,true);
+});
+test('history page links keep the day filter (D-077)',()=>{
+  const ui=app(undefined,{'data-history-date':'2026-10-04'});ui.snapshot(baseOrder(),{page:2,pages:3,has_previous:true,has_next:true});
+  const hrefs=ui.get('history-pagination').querySelectorAll('a').map(a=>a.attrs.href);
+  assert.deepEqual([...hrefs],['?page=1&date=2026-10-04#history','?page=3&date=2026-10-04#history']);
+  assert.match(ui.get('waiting-title').textContent,/^오늘 미완료 주문 1건$/);
 });
 test('status reports preserve card nodes, draft focus and last applied time',async()=>{
   const ui=app();ui.snapshot();await ui.open();await ui.input('1');ui.get('prepared-7').focus();
