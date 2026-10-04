@@ -311,9 +311,13 @@ def _scope_view(permissions):
     # per-screen polling had no such hole -- the global version always moved --
     # so leaving them out would make the hub a regression at exactly the
     # boundary the queue bound was written for.
+    # D-077: monitors show only today's waiting work, so midnight changes
+    # what they draw without any row changing; the day makes it a change.
+    from orders.services import workday
     body = json.dumps(
         {"orders": [serializers.order(o) for o in taken.orders],
-         "total": taken.total, "complete": taken.complete},
+         "total": taken.total, "complete": taken.complete,
+         "today": workday.today().isoformat()},
         separators=(",", ":"), sort_keys=True,
     )
     digest = hashlib.blake2s(body.encode("utf-8"), digest_size=16).hexdigest()

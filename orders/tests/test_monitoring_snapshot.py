@@ -129,12 +129,12 @@ class MonitoringSnapshotTests(TransactionTestCase):
         self.assertEqual(set(data), {"version", "unchanged", "cursor", "orders", "count",
                                     "total", "has_more", "complete", "history"})
         self.assertEqual(set(data["history"]), {"orders", "total", "page", "pages",
-                                                "has_previous", "has_next"})
+                                                "has_previous", "has_next", "date"})
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["history"]["page"], 1)
         self.assertEqual(data["cursor"], "absent")
 
-    def test_waiting_oldest_first_history_all_statuses_newest_first_and_all_dates(self):
+    def test_waiting_today_oldest_first_history_all_statuses_newest_first_and_all_dates(self):
         old = self.make_order()
         ready = self.make_order(status="READY")
         cancelled = self.make_order(status="CANCELLED")
@@ -144,10 +144,11 @@ class MonitoringSnapshotTests(TransactionTestCase):
             created_at=stamp - timedelta(days=400), order_date=(stamp - timedelta(days=400)).date())
         Order.objects.exclude(pk=old.pk).update(created_at=stamp)
         data = self.read()
-        self.assertEqual(self.ids(data["orders"]), [old.pk, recent.pk])
+        # D-077: an order left PREPARING from an earlier day is history only.
+        self.assertEqual(self.ids(data["orders"]), [recent.pk])
         self.assertEqual(self.ids(data["history"]["orders"]),
                          [recent.pk, cancelled.pk, ready.pk, old.pk])
-        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["total"], 1)
         self.assertEqual(data["history"]["total"], 4)
 
     def test_history_exact_pages_and_navigation_do_not_make_waiting_incomplete(self):
@@ -170,14 +171,16 @@ class MonitoringSnapshotTests(TransactionTestCase):
     def test_empty_and_out_of_range_pages_have_exact_totals_and_distinct_cursors(self):
         empty = self.read()
         self.assertEqual(empty["history"], {"orders": [], "total": 0, "page": 1,
-                                           "pages": 0, "has_previous": False, "has_next": False})
+                                           "pages": 0, "has_previous": False, "has_next": False,
+                                           "date": None})
         self.make_many(51, status="CANCELLED")
         first = self.read()
         outside = self.read(page=1000000, since=first["version"])
         self.assertFalse(outside["unchanged"])
         self.assertEqual(outside["cursor"], "rejected")
         self.assertEqual(outside["history"], {"orders": [], "total": 51, "page": 1000000,
-                                             "pages": 2, "has_previous": True, "has_next": False})
+                                             "pages": 2, "has_previous": True, "has_next": False,
+                                             "date": None})
         self.assertTrue(self.read(page=1000000, since=outside["version"])["unchanged"])
         self.assertFalse(self.read(page=2, since=outside["version"])["unchanged"])
 

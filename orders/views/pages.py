@@ -4,7 +4,7 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from orders.models import NumberSeries
-from orders.services import series_for
+from orders.services import series_for, workday
 from orders.roles import HALL_MONITOR, SERVING, STATS, TAKEOUT_MONITOR
 from .guards import require_permissions
 
@@ -37,7 +37,13 @@ def _history_context(request):
         page = int(request.GET.get("page", "1"))
     except ValueError:
         page = 1
-    return {"history_page": max(1, min(page, 1_000_000))}
+    # D-077: an optional one-day history filter; an invalid value shows every day.
+    try:
+        day = workday.parse_day(request.GET.get("date"))
+    except ValueError:
+        day = None
+    return {"history_page": max(1, min(page, 1_000_000)),
+            "history_date": day.isoformat() if day else ""}
 
 @ensure_csrf_cookie
 @require_permissions(SERVING)

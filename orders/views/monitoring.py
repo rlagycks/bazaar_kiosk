@@ -5,6 +5,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.http import require_http_methods
 
 from orders.services import monitoring_snapshot as snapshot_service
+from orders.services import workday
 from orders.views.guards import require_api_permissions
 
 
@@ -12,7 +13,7 @@ from orders.views.guards import require_api_permissions
 @require_api_permissions()
 @require_http_methods(["GET"])
 def monitoring_snapshot(request: HttpRequest):
-    """GET scope=HALL|TAKEOUT|ALL&page=1&since=<opaque version>."""
+    """GET scope=HALL|TAKEOUT|ALL&page=1&date=YYYY-MM-DD&since=<opaque version>."""
     mode = request.GET.get("scope", "ALL")
     raw_page = request.GET.get("page", "1")
     # Bound parsing as well as the value: arbitrarily long integers should
@@ -20,9 +21,13 @@ def monitoring_snapshot(request: HttpRequest):
     if not raw_page.isascii() or not raw_page.isdecimal() or len(raw_page) > 7:
         return JsonResponse({"detail": "page는 1~1000000의 정수여야 합니다."}, status=400)
     try:
+        day = workday.parse_day(request.GET.get("date"))
+    except ValueError as exc:
+        return JsonResponse({"detail": str(exc)}, status=400)
+    try:
         data = snapshot_service.read(
             request.auth_permissions, mode=mode, page=int(raw_page),
-            since=request.GET.get("since") or None,
+            since=request.GET.get("since") or None, day=day,
         )
     except ValueError:
         return JsonResponse({"detail": "scope는 HALL, TAKEOUT, ALL이고 page는 1~1000000이어야 합니다."}, status=400)
