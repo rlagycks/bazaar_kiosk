@@ -15,9 +15,14 @@
     if (!data.summary || !data.payment || !Array.isArray(data.menu) || !Array.isArray(data.hourly)) bad();
     for (const key of ['orders','items','revenue','cancelled_orders','legacy_unsplit_orders','unattributed_orders','unattributed_amount']) if (!count(data.summary[key])) bad();
     for (const key of ['cash','ticket','change','net_cash']) if (!count(data.payment[key],key === 'net_cash')) bad();
-    for (const row of data.menu) if (!row || typeof row.name !== 'string' || !count(row.qty) || !count(row.amount)) bad();
-    // D-073: the custom part of a row, when the server sends it.
-    for (const row of data.menu) for (const key of ['custom_qty', 'custom_amount']) if (row[key] !== undefined && !count(row[key])) bad();
+    // D-079: the hall and takeout tables are drawn from menu_by_mode.
+    const sides = data.menu_by_mode;
+    if (!sides || !Array.isArray(sides.DINE_IN) || !Array.isArray(sides.TAKEOUT)) bad();
+    for (const row of [...data.menu, ...sides.DINE_IN, ...sides.TAKEOUT]) {
+      if (!row || typeof row.name !== 'string' || !count(row.qty) || !count(row.amount)) bad();
+      // D-073: the custom part of a row, when the server sends it.
+      for (const key of ['custom_qty', 'custom_amount']) if (row[key] !== undefined && !count(row[key])) bad();
+    }
     for (const row of data.hourly) if (!row || !day(row.date) || typeof row.hour !== 'string' || !/^([01]\d|2[0-3]):00$/.test(row.hour) || !count(row.orders) || !count(row.revenue)) bad();
     return data;
   }

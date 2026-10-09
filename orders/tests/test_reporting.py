@@ -171,6 +171,35 @@ class DashboardArithmeticTests(TestCase):
         self.assertEqual(data["summary"]["items"], 3)
         self.assertEqual(data["menu"], [{"menu_item_id": self.meal.id, "name": "Meal", "qty": 3, "amount": 0, "custom_qty": 0, "custom_amount": 0}])
 
+    def test_menu_rows_are_also_split_into_hall_and_takeout(self):
+        """D-079: one menu sold both ways is one row in `menu` and one row in
+        each side of `menu_by_mode`. Custom lines split the same way, and the
+        two sides add up to the combined rows."""
+        order = self.order([(self.meal, 2, 5000)])
+        OrderItem.objects.create(order=order, menu_item=self.meal, qty=1, unit_price=5000, service_mode="TAKEOUT")
+        OrderItem.objects.create(order=order, menu_item=self.soup, qty=3, unit_price=2000, service_mode="TAKEOUT")
+        OrderItem.objects.create(order=order, custom_name="떡꼬치", line_amount=3000, qty=2, service_mode="TAKEOUT")
+        # A mode the screens no longer send counts as hall, the way 0014
+        # backfilled unknown modes and the field defaults.
+        OrderItem.objects.create(order=order, menu_item=self.soup, qty=1, unit_price=2000, service_mode="BOOTH")
+        cancelled = self.order([(self.soup, 5, 2000)], status="CANCELLED")
+        cancelled.items.update(service_mode="TAKEOUT")
+
+        def row(menu, qty, amount):
+            return {"menu_item_id": menu.id, "name": menu.name, "qty": qty, "amount": amount,
+                    "custom_qty": 0, "custom_amount": 0}
+        custom = {"menu_item_id": None, "name": "떡꼬치", "qty": 2, "amount": 3000,
+                  "custom_qty": 2, "custom_amount": 3000}
+        data = self.dashboard()
+        self.assertEqual(data["menu_by_mode"], {
+            "DINE_IN": [row(self.meal, 2, 10000), row(self.soup, 1, 2000)],
+            "TAKEOUT": [row(self.soup, 3, 6000), custom, row(self.meal, 1, 5000)],
+        })
+        self.assertEqual(data["menu"], [row(self.soup, 4, 8000), row(self.meal, 3, 15000), custom])
+        for key in ("qty", "amount"):
+            self.assertEqual(sum(r[key] for rows in data["menu_by_mode"].values() for r in rows),
+                             sum(r[key] for r in data["menu"]))
+
     def test_the_report_is_a_fixed_number_of_queries(self):
         """Adding a day's worth of orders must not add queries (PR #71)."""
         from orders.services import reporting
@@ -188,6 +217,7 @@ class DashboardArithmeticTests(TestCase):
         self.assertEqual(data["payment"], {"cash": 0, "ticket": 0, "change": 0, "net_cash": 0,
                                            "cash_ratio": 0.0, "ticket_ratio": 0.0})
         self.assertEqual((data["menu"], data["hourly"]), ([], []))
+        self.assertEqual(data["menu_by_mode"], {"DINE_IN": [], "TAKEOUT": []})
 
     def test_floor_filter_is_validated(self):
         self.assertEqual(self.client.get(reverse("orders:stats-dashboard"), {"floor": "F9"}).status_code, 400)
