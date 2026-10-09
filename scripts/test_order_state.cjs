@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {createOrder, payment, amount} = require('../orders/static/orders/ui/order_state.js');
+const {createOrder, payment, amount, changeText} = require('../orders/static/orders/ui/order_state.js');
 
 test('selecting a quantity does not add it; hall and takeout remain separate', () => {
   const order = createOrder();
@@ -48,6 +48,27 @@ test('cash, ticket surplus, mixed payment, shortage and invalid input follow set
   for (const value of ['-1', '1.5', '1e3', '10000001', 'NaN']) {
     assert.ok(Number.isNaN(amount(value)), value);
   }
+});
+
+test('D-078: ticket surplus goes back as tickets; cash change counts only cash', () => {
+  const ticket = payment('TICKET', '15000', '', '', 11000);
+  assert.deepEqual([ticket.change, ticket.ticketChange], [0, 4000]);
+  const both = payment('CASH_TICKET', '', '1000', '6000', 5000);
+  assert.deepEqual([both.change, both.ticketChange], [1000, 1000]);
+  const covered = payment('CASH_TICKET', '', '3000', '3000', 5000);
+  assert.deepEqual([covered.change, covered.ticketChange], [1000, 0]);
+  assert.equal(payment('CASH', '15000', '', '', 11000).ticketChange, 0);
+  assert.equal(payment('TICKET', '4000', '', '', 5000).ticketChange, 0);
+});
+
+test('D-078: change text names how much goes back and in which form', () => {
+  const text = (...args) => changeText(args[0], payment(...args));
+  assert.equal(text('CASH', '15000', '', '', 11000), '4,000원');
+  assert.equal(text('TICKET', '15000', '', '', 11000), '티켓 4,000원');
+  assert.equal(text('CASH_TICKET', '', '1000', '6000', 5000), '현금 1,000원 · 티켓 1,000원');
+  assert.equal(text('CASH_TICKET', '', '10000', '5000', 11000), '현금 4,000원');
+  assert.equal(text('TICKET', '5000', '', '', 5000), '0원');
+  assert.equal(text('TICKET', '4000', '', '', 5000), '0원');
 });
 
 test('D-073: custom lines count their line total and are removed, not re-counted', () => {

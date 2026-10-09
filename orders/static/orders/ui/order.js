@@ -94,7 +94,7 @@
     byId('single-amount-label').textContent = method() === 'TICKET' ? '받은 티켓 금액' : '받은 현금';
     const payment = settlement();
     byId('total-amount').textContent = won(order.total());
-    byId('change-amount').textContent = won(payment.change);
+    byId('change-amount').textContent = state.changeText(method(), payment);
     byId('payment-error').textContent = payment.error;
     byId('btn-submit').textContent = saving ? '주문 저장 중…' : won(order.total()) + ' · 주문 저장';
     byId('btn-submit').disabled = saving || !order.items().length || Boolean(payment.error);
