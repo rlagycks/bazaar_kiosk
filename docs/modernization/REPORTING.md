@@ -34,6 +34,9 @@
 - 기타 줄(D-073)은 입력된 줄 합계가 금액이다. 저장 시점에 메뉴에 묶인 기타 줄은 그 메뉴 행의 `qty`·`amount`에
   합쳐지고 `custom_qty`·`custom_amount`로 그중 기타 몫을 보인다(정가 몫 = 전체 − 기타). 묶이지 않은 기타 줄은
   `menu_item_id: null`인 이름별 행이 된다. 메뉴 행 금액의 합은 매출과 같다.
+- 홀·포장 구분(D-079): `menu_by_mode`는 같은 메뉴 행을 품목 줄의 `service_mode`별로 한 번 더 낸다. 혼합 주문은
+  줄마다 자기 쪽에 들어간다. 화면이 더는 보내지 않는 값(과거 `BOOTH` 등)은 0014 backfill·필드 기본값과 같이 홀로
+  본다. 두 쪽을 더하면 `menu`와 같다. 같은 그룹 쿼리에 `service_mode`만 더해 쿼리 수는 3개 그대로다.
 
 ## 응답 (`GET /orders/api/stats/dashboard/`)
 
@@ -43,6 +46,7 @@ summary : orders, items, revenue, cancelled_orders, legacy_unsplit_orders,
           unattributed_orders, unattributed_amount
 payment : cash, ticket, change, net_cash, cash_ratio, ticket_ratio
 menu    : [{menu_item_id(기타 미매칭은 null), name, qty, amount, custom_qty, custom_amount}]
+menu_by_mode : {DINE_IN: [menu와 같은 행], TAKEOUT: [menu와 같은 행]}   # D-079
 hourly  : [{date("YYYY-MM-DD", 서울), hour("HH:MM", 서울), orders, revenue}]
 ```
 

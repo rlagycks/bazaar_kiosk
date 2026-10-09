@@ -83,6 +83,13 @@ class StatsPageTests(TestCase):
         self.assertEqual(by_id["stats-status"]["role"], "status")
         self.assertIn("periodLabel", by_id)
 
+    def test_hall_and_takeout_menu_sales_have_their_own_tables(self):
+        """D-079: stats.js draws into these; the combined table is gone."""
+        _, elements = self.page()
+        ids = {attrs["id"] for _, attrs in elements.tags if "id" in attrs}
+        self.assertLessEqual({"menuDineInBody", "menuDineInTotal", "menuTakeoutBody", "menuTakeoutTotal"}, ids)
+        self.assertNotIn("menuTableBody", ids)
+
     def test_shared_assets_load_before_the_extracted_stats_controller(self):
         _, elements = self.page()
         styles = {link.get("href") for link in elements.find("link") if link.get("rel") == "stylesheet"}

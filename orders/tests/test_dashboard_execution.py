@@ -52,7 +52,7 @@ class DashboardExecutionTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(set(data), {"period", "summary", "payment", "menu", "hourly"})
+        self.assertEqual(set(data), {"period", "summary", "payment", "menu", "menu_by_mode", "hourly"})
         self.assertEqual(data["period"], {
             "start_date": "2025-10-18", "end_date": "2025-10-18", "floor": "B1",
             "basis": "explicit", "label": "",
