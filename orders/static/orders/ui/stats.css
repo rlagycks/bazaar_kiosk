@@ -31,6 +31,13 @@
 .hourly-label { color: var(--ui-muted); font-size: 14px; }
 .hourly-details summary { cursor: pointer; padding: 10px 0; font-weight: 700; }
 .menu-sales { min-width: 0; display: grid; gap: 16px; }
+.menu-sales-total { margin-left: 8px; font-size: 16px; font-weight: 400; color: var(--ui-muted); white-space: nowrap; }
+/* D-079: the hall and takeout tables share column widths so their figures line up. */
+.menu-sales table { table-layout: fixed; }
+.menu-sales th:nth-child(1) { width: 40%; }
+.menu-sales th:nth-child(2) { width: 15%; }
+.menu-sales th:nth-child(3) { width: 20%; }
+.menu-sales th:nth-child(4) { width: 25%; }
 .stats-page table { border-collapse: collapse; width: 100%; min-width: 640px; text-align: left; }
 .stats-page th { background: var(--ui-tint); font-size: 14px; }
 .stats-page td { background: var(--ui-surface); overflow-wrap: anywhere; }

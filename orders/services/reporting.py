@@ -31,6 +31,9 @@ Now:
   (`custom_qty`, `custom_amount`) so "30개 정가 + 3개 기타 2만원" reads off
   one row. An unmatched custom line gets a row of its own per name, with no
   menu id. Its amount is the line total the serving screen entered.
+* **Hall and takeout (D-079).** `menu_by_mode` repeats the menu rows for each
+  side, by the line's own service mode, so a mixed order's hall and takeout
+  lines land on their own sides. `menu` stays the combined view.
 """
 
 from __future__ import annotations
@@ -43,7 +46,7 @@ from django.db.models.functions import Coalesce, Greatest, TruncHour
 from django.utils import timezone
 
 from orders.models import (
-    EventDay, FloorChoices, NumberSeries, Order, OrderItem, OrderStatus, PaymentMethod,
+    EventDay, FloorChoices, NumberSeries, Order, OrderItem, OrderStatus, OrderType, PaymentMethod,
 )
 from orders.services.custom_items import match_key
 
@@ -152,41 +155,57 @@ _UNATTRIBUTED = _LEGACY_UNSPLIT & Q(payment_method=PaymentMethod.CASH_TICKET)
 LINE_AMOUNT = Coalesce(F("line_amount"), F("qty") * Coalesce(F("unit_price"), Value(0)))
 
 
-def _menu_rows(lines) -> list[dict]:
-    """One row per menu, plus one per unmatched custom name (D-073).
+def _add_group(rows: dict[tuple, dict], group: dict) -> None:
+    """Fold one grouped line into its menu row, creating the row if needed."""
+    menu_id = group["menu_item_id"]
+    # Unmatched names group the way matching compares them (PR review L2).
+    key = (menu_id, "" if menu_id else match_key(group["unmatched_name"]))
+    row = rows.setdefault(key, {
+        "menu_item_id": menu_id,
+        "name": group["menu_item__name"] if menu_id else group["unmatched_name"],
+        "qty": 0, "amount": 0, "custom_qty": 0, "custom_amount": 0,
+    })
+    if not menu_id:
+        # Spellings that compare equal share a row; the name shown is the
+        # first in sort order, so the same data always reads the same.
+        row["name"] = min(row["name"], group["unmatched_name"])
+    qty, amount = group["qty_sum"] or 0, group["amount"] or 0
+    row["qty"] += qty
+    row["amount"] += amount
+    if group["is_custom"]:
+        row["custom_qty"] += qty
+        row["custom_amount"] += amount
 
-    One query grouped by menu, unmatched name and whether the line is custom;
-    the custom part of a menu is folded into its row here."""
-    rows: dict[tuple, dict] = {}
+
+def _sorted_rows(rows: dict[tuple, dict]) -> list[dict]:
+    return sorted(rows.values(),
+                  key=lambda row: (-row["qty"], row["name"], row["menu_item_id"] or 0))
+
+
+def _menu_rows(lines) -> tuple[list[dict], dict[str, list[dict]]]:
+    """One row per menu, plus one per unmatched custom name (D-073), for the
+    whole period and again for each side, hall and takeout (D-079).
+
+    One query grouped by menu, unmatched name, whether the line is custom and
+    the line's service mode; the custom part of a menu and the two sides are
+    folded into their rows here."""
+    combined: dict[tuple, dict] = {}
+    by_mode: dict[str, dict[tuple, dict]] = {OrderType.DINE_IN.value: {}, OrderType.TAKEOUT.value: {}}
     grouped = (
         lines.annotate(
             is_custom=Case(When(line_amount__isnull=False, then=Value(True)), default=Value(False)),
             unmatched_name=Case(When(menu_item__isnull=True, then=F("custom_name")), default=Value("")),
         )
-        .values("menu_item_id", "menu_item__name", "unmatched_name", "is_custom")
+        .values("menu_item_id", "menu_item__name", "unmatched_name", "is_custom", "service_mode")
         .annotate(qty_sum=Sum("qty"), amount=Sum(LINE_AMOUNT, output_field=IntegerField()))
     )
     for group in grouped:
-        menu_id = group["menu_item_id"]
-        # Unmatched names group the way matching compares them (PR review L2).
-        key = (menu_id, "" if menu_id else match_key(group["unmatched_name"]))
-        row = rows.setdefault(key, {
-            "menu_item_id": menu_id,
-            "name": group["menu_item__name"] if menu_id else group["unmatched_name"],
-            "qty": 0, "amount": 0, "custom_qty": 0, "custom_amount": 0,
-        })
-        if not menu_id:
-            # Spellings that compare equal share a row; the name shown is the
-            # first in sort order, so the same data always reads the same.
-            row["name"] = min(row["name"], group["unmatched_name"])
-        qty, amount = group["qty_sum"] or 0, group["amount"] or 0
-        row["qty"] += qty
-        row["amount"] += amount
-        if group["is_custom"]:
-            row["custom_qty"] += qty
-            row["custom_amount"] += amount
-    return sorted(rows.values(),
-                  key=lambda row: (-row["qty"], row["name"], row["menu_item_id"] or 0))
+        # A mode the screens no longer send is hall, the way 0014 backfilled
+        # unknown modes and the field defaults.
+        side = OrderType.TAKEOUT.value if group["service_mode"] == OrderType.TAKEOUT else OrderType.DINE_IN.value
+        _add_group(combined, group)
+        _add_group(by_mode[side], group)
+    return _sorted_rows(combined), {side: _sorted_rows(rows) for side, rows in by_mode.items()}
 
 
 def dashboard(period: Period, floor: str = "") -> dict:
@@ -217,7 +236,7 @@ def dashboard(period: Period, floor: str = "") -> dict:
         cancelled=Count("id", filter=Q(status=OrderStatus.CANCELLED)),
     )
 
-    menu = _menu_rows(OrderItem.objects.filter(order__in=orders))
+    menu, menu_by_mode = _menu_rows(OrderItem.objects.filter(order__in=orders))
     # Every line belongs to exactly one menu row, so the item count is the
     # menu group summed, not a query of its own.
     item_count = sum(row["qty"] for row in menu)
@@ -254,5 +273,6 @@ def dashboard(period: Period, floor: str = "") -> dict:
             "ticket_ratio": totals["ticket"] / received if received else 0.0,
         },
         "menu": menu,
+        "menu_by_mode": menu_by_mode,
         "hourly": hourly,
     }

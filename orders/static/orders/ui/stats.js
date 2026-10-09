@@ -27,14 +27,21 @@
       el('td',{class:'numeric',text:money(amount)}),el('td',{text:extra ? '' : dates(period)})]);
     // D-073: a menu sold partly as custom lines shows its total, then the two
     // parts under it; an unmatched custom name is its own "기타" row.
-    DOM.render(get('menuTableBody'), data.menu.length ? data.menu.flatMap(row => {
+    const menuRows = rows => rows.length ? rows.flatMap(row => {
       const customQty = row.custom_qty || 0, customAmount = row.custom_amount || 0;
       if (row.menu_item_id == null && customQty) return [menuRow('기타 · ' + row.name, row.qty, row.amount)];
       if (!customQty) return [menuRow(row.name, row.qty, row.amount)];
       return [menuRow(row.name, row.qty, row.amount),
         menuRow('└ 정가', row.qty - customQty, row.amount - customAmount, 'menu-part'),
         menuRow('└ 기타', customQty, customAmount, 'menu-part')];
-    }) : emptyRow(4));
+    }) : emptyRow(4);
+    // D-079: hall and takeout are separate tables, each headed by its own totals.
+    for (const [side, body, total] of [['DINE_IN','menuDineInBody','menuDineInTotal'],['TAKEOUT','menuTakeoutBody','menuTakeoutTotal']]) {
+      const rows = data.menu_by_mode[side];
+      DOM.render(get(body), menuRows(rows));
+      const qty = rows.reduce((sum,row)=>sum+row.qty,0), amount = rows.reduce((sum,row)=>sum+row.amount,0);
+      get(total).textContent = qty.toLocaleString('ko-KR') + '개 · ' + money(amount);
+    }
     const max = data.hourly.reduce((value,row)=>Math.max(value,row.revenue),0);
     const hourLabel = row => (period.start_date !== period.end_date ? row.date + ' · ' : '') + row.hour;
     DOM.render(get('hourlyChart'), data.hourly.length ? data.hourly.map(row => {

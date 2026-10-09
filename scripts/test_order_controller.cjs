@@ -191,6 +191,17 @@ test('shorthand transfers focus at first ticket digit and remaining typing enter
   assert.equal(ui.posts[0].payload.payment_method, 'CASH_TICKET');
 });
 
+test('D-078: a ticket-only surplus is shown as ticket change', async () => {
+  const ui = await app(saved); await ui.draft();
+  assert.equal(ui.get('change-amount').textContent, '1,000원');
+  const ticket = ui.document.querySelector('input[name="pay"][value="TICKET"]');
+  ticket.checked = true; await ticket.dispatch('change');
+  assert.equal(ui.get('change-amount').textContent, '티켓 1,000원');
+  await ui.submit();
+  assert.equal(ui.posts[0].payload.payment_method, 'TICKET');
+  assert.equal(ui.posts[0].payload.received_ticket_amount, 5000);
+});
+
 test('D-073: a custom line posts its name, quantity and line total, and only removes', async () => {
   const ui = await app(saved, {custom: true});
   const options = ui.get('custom-menu').children;

@@ -10,7 +10,7 @@ numbers. The rules now (BK-R014, BK-R030):
   client figure;
 * received < total is refused (D-048: "아예 저장 거부");
 * the change is computed here and stored with the order (D-048: "저장한다").
-  Ticket surplus is not change -- tickets are not refunded in cash.
+  Ticket surplus is not cash change -- it goes back as tickets (D-078).
 """
 
 import uuid
