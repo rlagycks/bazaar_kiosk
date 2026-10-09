@@ -23,8 +23,18 @@
     else if (total > MAX_AMOUNT) error = '주문 합계가 너무 큽니다.';
     else if (method === 'CASH_TICKET' && (!cash || !ticket)) error = '현금과 티켓 금액을 모두 입력해 주세요.';
     else if (cash + ticket < total) error = won(total - cash - ticket) + '원이 부족합니다.';
+    // D-078: tickets pay first. Cash beyond the rest is cash change; a ticket
+    // surplus goes back as tickets and never as cash.
     return {cash, ticket, received: cash + ticket, error,
-      change: error ? 0 : Math.max(0, cash - Math.max(0, total - ticket))};
+      change: error ? 0 : Math.max(0, cash - Math.max(0, total - ticket)),
+      ticketChange: error ? 0 : Math.max(0, ticket - total)};
+  }
+
+  function changeText(method, settled) {
+    const parts = [];
+    if (settled.change) parts.push((method === 'CASH' ? '' : '현금 ') + won(settled.change) + '원');
+    if (settled.ticketChange) parts.push('티켓 ' + won(settled.ticketChange) + '원');
+    return parts.join(' · ') || '0원';
   }
 
   function createOrder(makeId) {
@@ -89,7 +99,7 @@
     return Object.freeze({select, selection, add, addCustom, change, items, counts, total, lineTotal, attempt, reset,
       remove: (mode, id) => cart.delete(key(mode, id))});
   }
-  const api = Object.freeze({createOrder, payment, amount});
+  const api = Object.freeze({createOrder, payment, amount, changeText});
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.BazaarOrderState = api;
 })(typeof window === 'undefined' ? globalThis : window);

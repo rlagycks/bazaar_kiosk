@@ -11,10 +11,9 @@ Every amount passes through here now, and the rules are the user's (D-048):
   ten-digit sale;
 * the total is the server's own price snapshot times quantity;
 * received < total is refused outright, not warned about;
-* the change is decided here and stored with the order. Ticket surplus is
-  not change: tickets are not refunded in cash. That last rule is an agent
-  reading of the existing screen, not a user decision, and is recorded as
-  such in docs/modernization/PAYMENTS.md.
+* the change is decided here and stored with the order. It is cash change
+  only: a ticket surplus goes back as tickets, never as cash (D-078, the
+  user's rule; the order screen shows it, nothing stores it).
 """
 
 from __future__ import annotations
@@ -163,7 +162,8 @@ def settle(payment: Payment, total: int) -> Settlement:
     """Refuse a short payment; otherwise say how much cash goes back.
 
     Tickets pay first, cash covers the rest, and only cash beyond that rest
-    is change. A ticket worth more than the order is simply used up.
+    is change. A ticket surplus goes back as tickets (D-078), so it is not
+    counted here.
     """
     if payment.received < total:
         raise PaymentRefused("받은 금액이 합계보다 적습니다. 금액을 확인해 주세요.")
